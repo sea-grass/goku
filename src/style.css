@@ -1,0 +1,56 @@
+:root {
+  --fg: black;
+  --fg-2: #474747;
+  --bg: white;
+  --accent: green;
+  --border: var(--accent);
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto 1fr;
+  padding: 0;
+  margin: 0;
+
+  gap: .2em;
+  background: var(--border);
+}
+
+body > main {
+  grid-column-start: 2;
+  grid-row: 2 / 3;
+
+  padding-left: 1em;
+}
+
+body > nav {
+  grid-column: 1 / 2;
+  grid-row: 1 / 3;
+}
+
+body > section.meta {
+  grid-column: 2 / 3;
+  grid-row: 1 / 2;
+
+  padding-left: 1em;
+  color: var(--fg-2);
+}
+
+body > * {
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body > main, body > section.meta {
+  white-space: pre;
+  text-wrap: wrap;
+  font-family: monospace;
+}

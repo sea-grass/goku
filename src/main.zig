@@ -300,7 +300,7 @@ pub fn main() !void {
     var sitemap_buf = std.ArrayList(u8).init(allocator);
     defer sitemap_buf.deinit();
     {
-        try sitemap_buf.writer().print("<ul>", .{});
+        try sitemap_buf.writer().print("<nav><ul>", .{});
 
         var pages_it = page_map.iterator();
         while (pages_it.next()) |entry| {
@@ -319,7 +319,7 @@ pub fn main() !void {
             try sitemap_buf.writer().print("<li><a href=\"{s}\">{s}</a></li>", .{ href, title });
         }
 
-        try sitemap_buf.writer().print("</ul>", .{});
+        try sitemap_buf.writer().print("</ul></nav>", .{});
     }
 
     var pages_it = page_map.iterator();
@@ -367,15 +367,21 @@ pub fn main() !void {
         const html_buf = file.writer();
         {
             try html_buf.writeAll(
-                \\<!doctype html><html><body>
+                \\<!doctype html><html><head>
             );
+            try html_buf.writeAll("<style>" ++ @embedFile("style.css") ++ "</style>");
+            try html_buf.writeAll("</head><body>");
+        }
+
+        {
+            try html_buf.writeAll("<section class=\"meta\">");
+            try html_buf.writeAll(entry.value_ptr.*.markdown.frontmatter);
+            try html_buf.writeAll("</section>");
         }
 
         {
             try html_buf.writeAll("<main>");
-            try html_buf.writeAll("<pre>");
-            try html_buf.writeAll(entry.value_ptr.*.markdown.data);
-            try html_buf.writeAll("</pre>");
+            try html_buf.writeAll(mem.trim(u8, entry.value_ptr.*.markdown.data, " \n"));
             try html_buf.writeAll("</main>");
         }
 
