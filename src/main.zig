@@ -6,6 +6,7 @@ const fs = std.fs;
 const mem = std.mem;
 const debug = std.debug;
 const time = std.time;
+const c = @import("c.zig");
 
 const Page = union(enum) {
     markdown: struct {
@@ -166,6 +167,81 @@ fn parseCodeFence(comptime fence: []const u8, buf: []u8) ?ParseCodeFenceResult {
 }
 
 pub fn main() !void {
+    {
+        var parser: c.yaml_parser_t = undefined;
+        const ptr: [*c]c.yaml_parser_t = &parser;
+        _ = c.yaml_parser_initialize(ptr);
+        const data = "title: foo";
+        c.yaml_parser_set_input_string(ptr, data, data.len);
+
+        var done: bool = false;
+        var err: bool = false;
+        var ev: c.yaml_event_t = undefined;
+        const ev_ptr: [*c]c.yaml_event_t = &ev;
+        while (!done) {
+            if (c.yaml_parser_parse(ptr, ev_ptr) == 0) {
+                err = true;
+                std.debug.print("Encountered a yaml parsing error: {s}\nLine: {d} Column: {d}\n", .{
+                    parser.problem,
+                    parser.problem_mark.line + 1,
+                    parser.problem_mark.column + 1,
+                });
+                break;
+            }
+
+            switch (ev.type) {
+                c.YAML_STREAM_START_EVENT => {
+                    const encoding = switch (ev.data.stream_start.encoding) {
+                        c.YAML_ANY_ENCODING => "any",
+                        c.YAML_UTF8_ENCODING => "utf8",
+                        c.YAML_UTF16LE_ENCODING => "utf16le",
+                        c.YAML_UTF16BE_ENCODING => "utf16be",
+                        else => return error.UnexpectedYamlEncoding,
+                    };
+                    std.debug.print("stream start - encoding: {s}\n", .{encoding});
+                },
+                c.YAML_STREAM_END_EVENT => {
+                    std.debug.print("stream end\n", .{});
+                },
+                c.YAML_DOCUMENT_START_EVENT => {
+                    std.debug.print("document start\n", .{});
+                },
+                c.YAML_DOCUMENT_END_EVENT => {
+                    std.debug.print("document end\n", .{});
+                },
+                c.YAML_ALIAS_EVENT => {
+                    std.debug.print("alias\n", .{});
+                },
+                c.YAML_SCALAR_EVENT => {
+                    std.debug.print("scalar\n", .{});
+                },
+                c.YAML_NO_EVENT => {
+                    std.debug.print("no event?!\n", .{});
+                },
+                c.YAML_SEQUENCE_START_EVENT => {
+                    std.debug.print("sequence start\n", .{});
+                },
+                c.YAML_SEQUENCE_END_EVENT => {
+                    std.debug.print("sequence end\n", .{});
+                },
+                c.YAML_MAPPING_START_EVENT => {
+                    std.debug.print("mapping start\n", .{});
+                },
+                c.YAML_MAPPING_END_EVENT => {
+                    std.debug.print("mapping end\n", .{});
+                },
+                else => {
+                    std.debug.print("other\n", .{});
+                },
+            }
+
+            done = (ev.type == c.YAML_STREAM_END_EVENT);
+
+            c.yaml_event_delete(ev_ptr);
+        }
+
+        c.yaml_parser_delete(ptr);
+    }
     var gpa = heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
