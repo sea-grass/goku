@@ -8,53 +8,105 @@ const debug = std.debug;
 const time = std.time;
 const c = @import("c.zig");
 
+const PageData = struct {
+    slug: []const u8,
+    collection: ?[]const u8 = null,
+    title: ?[]const u8 = null,
+    date: ?[]const u8 = null,
+    options_toc: bool = false,
+
+    // Duplicates slices from the input data. Caller is responsible for
+    // calling page_data.deinit(allocator) afterwards.
+    pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) !PageData {
+        var parser: c.yaml_parser_t = undefined;
+        const ptr: [*c]c.yaml_parser_t = &parser;
+
+        if (c.yaml_parser_initialize(ptr) == 0) {
+            return error.YamlParserInitFailed;
+        }
+        defer c.yaml_parser_delete(ptr);
+
+        c.yaml_parser_set_input_string(ptr, data, len);
+
+        var done: bool = false;
+
+        var ev: c.yaml_event_t = undefined;
+        const ev_ptr: [*c]c.yaml_event_t = &ev;
+        var next_scalar_expected: enum { none, slug, title } = .none;
+        var slug: ?[]const u8 = null;
+        var title: ?[]const u8 = null;
+        while (!done) {
+            if (c.yaml_parser_parse(ptr, ev_ptr) == 0) {
+                std.debug.print("Encountered a yaml parsing error: {s}\nLine: {d} Column: {d}\n", .{
+                    parser.problem,
+                    parser.problem_mark.line + 1,
+                    parser.problem_mark.column + 1,
+                });
+                return error.YamlParseFailed;
+            }
+
+            switch (ev.type) {
+                c.YAML_STREAM_START_EVENT => {},
+                c.YAML_STREAM_END_EVENT => {},
+                c.YAML_DOCUMENT_START_EVENT => {},
+                c.YAML_DOCUMENT_END_EVENT => {},
+                c.YAML_SCALAR_EVENT => {
+                    const scalar = ev.data.scalar;
+                    const value = scalar.value[0..scalar.length];
+
+                    switch (next_scalar_expected) {
+                        .none => {
+                            if (mem.eql(u8, value, "slug")) {
+                                next_scalar_expected = .slug;
+                            } else if (mem.eql(u8, value, "title")) {
+                                next_scalar_expected = .title;
+                            }
+                        },
+                        .slug => {
+                            slug = try allocator.dupe(u8, value);
+                            next_scalar_expected = .none;
+                        },
+                        .title => {
+                            title = try allocator.dupe(u8, value);
+                            next_scalar_expected = .none;
+                        },
+                    }
+                },
+                c.YAML_SEQUENCE_START_EVENT => {},
+                c.YAML_SEQUENCE_END_EVENT => {},
+                c.YAML_MAPPING_START_EVENT => {},
+                c.YAML_MAPPING_END_EVENT => {},
+                c.YAML_ALIAS_EVENT => {},
+                c.YAML_NO_EVENT => {},
+                else => {},
+            }
+
+            done = (ev.type == c.YAML_STREAM_END_EVENT);
+
+            c.yaml_event_delete(ev_ptr);
+        }
+
+        if (slug == null) return error.MissingSlug;
+
+        return .{
+            .slug = slug.?,
+            .title = title,
+        };
+    }
+
+    pub fn deinit(self: PageData, allocator: mem.Allocator) void {
+        allocator.free(self.slug);
+        if (self.title) |title| {
+            allocator.free(title);
+        }
+    }
+};
+
 const Page = union(enum) {
     markdown: struct {
         frontmatter: []const u8,
         data: []const u8,
     },
-};
-
-// Can only parse top-level frontmatter key-value pairs.
-// Ignores any lines for objects or nested properties.
-const FrontmatterIterator = struct {
-    buf: []const u8,
-    index: usize = 0,
-    done: bool = false,
-    it: ?mem.SplitIterator(u8, .scalar) = null,
-
-    pub const Entry = struct {
-        k: []const u8,
-        v: []const u8,
-    };
-    pub fn next(self: *FrontmatterIterator) !?Entry {
-        if (self.done) return null;
-
-        try self.ensureIterator();
-
-        if (self.it.?.next()) |line| {
-            var it = mem.splitScalar(u8, line, ':');
-            const k = it.next() orelse return null;
-            const v = it.next() orelse return null;
-            return .{
-                .k = k,
-                .v = mem.trim(u8, v, " "),
-            };
-        }
-
-        self.done = true;
-        return null;
-    }
-
-    pub fn ensureIterator(self: *FrontmatterIterator) !void {
-        debug.assert(!self.done);
-
-        if (self.it == null) {
-            self.it = mem.splitScalar(u8, self.buf, '\n');
-        }
-
-        debug.assert(self.it != null);
-    }
 };
 
 const PageSource = struct {
@@ -167,81 +219,6 @@ fn parseCodeFence(comptime fence: []const u8, buf: []u8) ?ParseCodeFenceResult {
 }
 
 pub fn main() !void {
-    {
-        var parser: c.yaml_parser_t = undefined;
-        const ptr: [*c]c.yaml_parser_t = &parser;
-        _ = c.yaml_parser_initialize(ptr);
-        const data = "title: foo";
-        c.yaml_parser_set_input_string(ptr, data, data.len);
-
-        var done: bool = false;
-        var err: bool = false;
-        var ev: c.yaml_event_t = undefined;
-        const ev_ptr: [*c]c.yaml_event_t = &ev;
-        while (!done) {
-            if (c.yaml_parser_parse(ptr, ev_ptr) == 0) {
-                err = true;
-                std.debug.print("Encountered a yaml parsing error: {s}\nLine: {d} Column: {d}\n", .{
-                    parser.problem,
-                    parser.problem_mark.line + 1,
-                    parser.problem_mark.column + 1,
-                });
-                break;
-            }
-
-            switch (ev.type) {
-                c.YAML_STREAM_START_EVENT => {
-                    const encoding = switch (ev.data.stream_start.encoding) {
-                        c.YAML_ANY_ENCODING => "any",
-                        c.YAML_UTF8_ENCODING => "utf8",
-                        c.YAML_UTF16LE_ENCODING => "utf16le",
-                        c.YAML_UTF16BE_ENCODING => "utf16be",
-                        else => return error.UnexpectedYamlEncoding,
-                    };
-                    std.debug.print("stream start - encoding: {s}\n", .{encoding});
-                },
-                c.YAML_STREAM_END_EVENT => {
-                    std.debug.print("stream end\n", .{});
-                },
-                c.YAML_DOCUMENT_START_EVENT => {
-                    std.debug.print("document start\n", .{});
-                },
-                c.YAML_DOCUMENT_END_EVENT => {
-                    std.debug.print("document end\n", .{});
-                },
-                c.YAML_ALIAS_EVENT => {
-                    std.debug.print("alias\n", .{});
-                },
-                c.YAML_SCALAR_EVENT => {
-                    std.debug.print("scalar\n", .{});
-                },
-                c.YAML_NO_EVENT => {
-                    std.debug.print("no event?!\n", .{});
-                },
-                c.YAML_SEQUENCE_START_EVENT => {
-                    std.debug.print("sequence start\n", .{});
-                },
-                c.YAML_SEQUENCE_END_EVENT => {
-                    std.debug.print("sequence end\n", .{});
-                },
-                c.YAML_MAPPING_START_EVENT => {
-                    std.debug.print("mapping start\n", .{});
-                },
-                c.YAML_MAPPING_END_EVENT => {
-                    std.debug.print("mapping end\n", .{});
-                },
-                else => {
-                    std.debug.print("other\n", .{});
-                },
-            }
-
-            done = (ev.type == c.YAML_STREAM_END_EVENT);
-
-            c.yaml_event_delete(ev_ptr);
-        }
-
-        c.yaml_parser_delete(ptr);
-    }
     var gpa = heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -300,23 +277,11 @@ pub fn main() !void {
         const frontmatter = code_fence_result.within;
         const markdown = code_fence_result.after;
 
-        var frontmatter_it: FrontmatterIterator = .{
-            .buf = frontmatter,
-        };
-
-        const slug = slug: while (try frontmatter_it.next()) |kv| {
-            if (mem.eql(u8, kv.k, "slug")) {
-                if (kv.v.len == 0 or kv.v[0] != '/') return error.InvalidSlug;
-                if (kv.v.len > 1 and mem.endsWith(u8, kv.v, "/")) return error.InvalidSlug;
-
-                break :slug kv.v;
-            }
-        } else {
-            return error.MissingSlug;
-        };
+        const data = try PageData.fromYamlString(allocator, @ptrCast(frontmatter), frontmatter.len);
+        defer data.deinit(allocator);
 
         try page_map.put(
-            try page_map.allocator.dupe(u8, slug),
+            try page_map.allocator.dupe(u8, data.slug),
             .{
                 .markdown = .{
                     .frontmatter = try page_map.allocator.dupe(u8, frontmatter),
@@ -339,21 +304,16 @@ pub fn main() !void {
 
         var pages_it = page_map.iterator();
         while (pages_it.next()) |entry| {
-            var frontmatter_it: FrontmatterIterator = .{
-                .buf = entry.value_ptr.*.markdown.frontmatter,
-            };
+            const data = try PageData.fromYamlString(
+                allocator,
+                @ptrCast(
+                    entry.value_ptr.*.markdown.frontmatter,
+                ),
+                entry.value_ptr.*.markdown.frontmatter.len,
+            );
+            defer data.deinit(allocator);
 
-            const title = title: while (try frontmatter_it.next()) |kv| {
-                if (mem.eql(u8, kv.k, "title")) {
-                    if (kv.v.len == 0) return error.InvalidTitle;
-
-                    break :title kv.v;
-                }
-            } else {
-                std.debug.print("{s} missing title?!?!?!\n", .{entry.key_ptr.*});
-                break :title "(missing title)";
-            };
-
+            const title = data.title orelse "(missing title)";
             const href = entry.key_ptr.*;
 
             try sitemap_buf.writer().print("<li><a href=\"{s}\">{s}</a></li>", .{ href, title });
@@ -364,20 +324,16 @@ pub fn main() !void {
 
     var pages_it = page_map.iterator();
     while (pages_it.next()) |entry| {
-        var frontmatter_it: FrontmatterIterator = .{
-            .buf = entry.value_ptr.*.markdown.frontmatter,
-        };
+        const data = try PageData.fromYamlString(
+            allocator,
+            @ptrCast(
+                entry.value_ptr.*.markdown.frontmatter,
+            ),
+            entry.value_ptr.*.markdown.frontmatter.len,
+        );
+        defer data.deinit(allocator);
 
-        const slug = slug: while (try frontmatter_it.next()) |kv| {
-            if (mem.eql(u8, kv.k, "slug")) {
-                if (kv.v.len == 0 or kv.v[0] != '/') return error.InvalidSlug;
-                if (kv.v.len > 1 and mem.endsWith(u8, kv.v, "/")) return error.InvalidSlug;
-
-                break :slug kv.v;
-            }
-        } else {
-            return error.MissingSlug;
-        };
+        const slug = data.slug;
 
         var file_name_buffer: [fs.MAX_NAME_BYTES]u8 = undefined;
         var file_name_fba = heap.FixedBufferAllocator.init(&file_name_buffer);
