@@ -8,53 +8,75 @@
 
 html, body {
   height: 100%;
+  padding: 0;
+  margin: 0;
 }
 
 * {
   box-sizing: border-box;
 }
 
-body {
+.page {
+  height: 100%;
+
   display: grid;
   grid-template-columns: auto 1fr;
   grid-template-rows: auto 1fr auto;
-  padding: 0;
-  margin: 0;
 
   gap: .2em;
   background: var(--border);
 }
 
-body > main {
+.page > main {
   grid-column-start: 2;
-  grid-row: 2 / 3;
+  grid-row: 1 / 3;
 
-  padding: 4em;
+  padding: 1rem;
   
   overflow-y: scroll;
 }
 
-body > nav {
+.page > nav {
   grid-column: 1 / 2;
   grid-row: 1 / 4;
+  padding-top: 1rem;
 }
 
-body > section.meta {
+nav > ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.page > section.meta {
   grid-column: 2 / 3;
   grid-row: 3 / 4;
   color: var(--fg-2);
 }
 
-body > * {
+.page > * {
   background: var(--bg);
 }
 
 
-body > main, body > section.meta {
+.page > :is(main, section.meta) {
   white-space: pre;
   text-wrap: wrap;
   font-family: monospace;
 }
 
+#skip-to-main-content {
+  opacity: 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: var(--bg);
+  font-size: 1.4rem;
+  color: black;
+  pointer-events: none;
+}
 
-
+#skip-to-main-content:focus {
+  opacity: 1;
+  pointer-events: revert;
+}

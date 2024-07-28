@@ -339,7 +339,7 @@ pub fn main() !void {
     var sitemap_buf = std.ArrayList(u8).init(allocator);
     defer sitemap_buf.deinit();
     {
-        try sitemap_buf.writer().print("<nav><ul>", .{});
+        try sitemap_buf.writer().print("<nav><a id=\"skip-to-main-content\" href=\"#main-content\">Skip to main content</a><ul>", .{});
 
         var pages_it = page_map.iterator();
         while (pages_it.next()) |entry| {
@@ -407,8 +407,10 @@ pub fn main() !void {
                 \\<!doctype html><html><head>
             );
             try html_buf.writeAll("<style>" ++ @embedFile("style.css") ++ "</style>");
-            try html_buf.writeAll("</head><body>");
+            try html_buf.writeAll("</head><body><div class=\"page\">");
         }
+
+        try html_buf.writeAll(sitemap_buf.items);
 
         {
             try html_buf.writeAll("<section class=\"meta\">");
@@ -417,16 +419,14 @@ pub fn main() !void {
         }
 
         {
-            try html_buf.writeAll("<main>");
+            try html_buf.writeAll("<main><a href=\"#main-content\" id=\"main-content\" tabindex=\"-1\"></a>");
             try html_buf.writeAll(mem.trim(u8, entry.value_ptr.*.markdown.data, " \n"));
             try html_buf.writeAll("</main>");
         }
 
-        try html_buf.writeAll(sitemap_buf.items);
-
         {
             try html_buf.writeAll(
-                \\</body></html>
+                \\</div></body></html>
             );
         }
 
