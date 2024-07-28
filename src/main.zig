@@ -32,7 +32,16 @@ const PageData = struct {
 
         var ev: c.yaml_event_t = undefined;
         const ev_ptr: [*c]c.yaml_event_t = &ev;
-        var next_scalar_expected: enum { none, slug, title } = .none;
+        var next_scalar_expected: enum {
+            key,
+            slug,
+            title,
+            discard,
+            date,
+            collection,
+            description,
+            tags,
+        } = .key;
         var slug: ?[]const u8 = null;
         var title: ?[]const u8 = null;
         while (!done) {
@@ -55,20 +64,50 @@ const PageData = struct {
                     const value = scalar.value[0..scalar.length];
 
                     switch (next_scalar_expected) {
-                        .none => {
+                        .key => {
                             if (mem.eql(u8, value, "slug")) {
                                 next_scalar_expected = .slug;
                             } else if (mem.eql(u8, value, "title")) {
                                 next_scalar_expected = .title;
+                            } else if (mem.eql(u8, value, "collection")) {
+                                next_scalar_expected = .collection;
+                            } else if (mem.eql(u8, value, "date")) {
+                                next_scalar_expected = .date;
+                            } else if (mem.eql(u8, value, "tags")) {
+                                next_scalar_expected = .tags;
+                            } else if (mem.eql(u8, value, "description")) {
+                                next_scalar_expected = .description;
+                            } else {
+                                std.debug.print("Ignoring {s} in frontmatter\n", .{value});
+                                next_scalar_expected = .discard;
                             }
                         },
                         .slug => {
                             slug = try allocator.dupe(u8, value);
-                            next_scalar_expected = .none;
+                            next_scalar_expected = .key;
                         },
                         .title => {
                             title = try allocator.dupe(u8, value);
-                            next_scalar_expected = .none;
+                            next_scalar_expected = .key;
+                        },
+                        .collection => {
+                            std.debug.print("collection: {s}\n", .{value});
+                            next_scalar_expected = .key;
+                        },
+                        .tags => {
+                            std.debug.print("tags: {s}\n", .{value});
+                            next_scalar_expected = .key;
+                        },
+                        .date => {
+                            std.debug.print("date: {s}\n", .{value});
+                            next_scalar_expected = .key;
+                        },
+                        .description => {
+                            std.debug.print("description: {s}\n", .{value});
+                            next_scalar_expected = .key;
+                        },
+                        .discard => {
+                            next_scalar_expected = .key;
                         },
                     }
                 },
@@ -348,18 +387,16 @@ pub fn main() !void {
         try file_name_buf.appendSlice("/index.html");
 
         const file = file: {
-            parent: {
+            make_parent: {
                 if (fs.path.dirname(file_name_buf.items)) |parent| {
                     debug.assert(parent[0] == '/');
-                    if (parent.len == 1) break :parent;
+                    if (parent.len == 1) break :make_parent;
 
-                    try stdout.print("makePath for {s}\n", .{parent});
                     const dir = try out_dir.makeOpenPath(parent[1..], .{});
                     break :file try dir.createFile(fs.path.basename(file_name_buf.items), .{});
                 }
             }
 
-            try stdout.print("gunna crudate it: ({s})\n", .{file_name_buf.items});
             break :file try out_dir.createFile(fs.path.basename(file_name_buf.items), .{});
         };
         defer file.close();
@@ -393,7 +430,7 @@ pub fn main() !void {
             );
         }
 
-        try stdout.print("Wrote out {s}\n", .{file_name_buf.items});
+        try stdout.print("{s}\n", .{file_name_buf.items});
     }
 
     // const assets_dir = try root_dir.openDir("assets");
