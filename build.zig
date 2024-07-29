@@ -11,15 +11,45 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    switch (target.result.os.tag) {
-        .macos => {
-            exe.addLibraryPath(.{ .cwd_relative = "/usr/local/lib" });
-        },
-        else => {},
+    const wf = b.addWriteFiles();
+    _ = wf.add(
+        "config.h",
+        \\#define YAML_VERSION_STRING "0.2.5"
+        \\#define YAML_VERSION_MAJOR 0
+        \\#define YAML_VERSION_MINOR 2
+        \\#define YAML_VERSION_PATCH 5
+        ,
+    );
+    const c_source_files = &.{
+        "parser.c",
+        "scanner.c",
+        "reader.c",
+        "api.c",
+    };
+    inline for (c_source_files) |filename| {
+        _ = wf.addCopyFile(
+            b.path("lib/yaml/src/" ++ filename),
+            filename,
+        );
     }
-    exe.linkSystemLibrary("yaml");
-    exe.addIncludePath(b.path("include"));
-
+    inline for (&.{
+        "yaml_private.h",
+    }) |filename| {
+        _ = wf.addCopyFile(
+            b.path("lib/yaml/src/" ++ filename),
+            filename,
+        );
+    }
+    exe.addCSourceFiles(.{
+        .root = wf.getDirectory(),
+        .files = c_source_files,
+        .flags = &.{
+            "-std=gnu99",
+            "-DHAVE_CONFIG_H",
+        },
+    });
+    exe.step.dependOn(&wf.step);
+    exe.addIncludePath(b.path("lib/yaml/include"));
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
