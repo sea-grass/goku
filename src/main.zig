@@ -8,6 +8,62 @@ const debug = std.debug;
 const time = std.time;
 const c = @import("c.zig");
 
+// MessageStack
+//
+const MessageStack = struct {
+    buf: []u8,
+    fba: heap.FixedBufferAllocator,
+    stack: std.ArrayList([]const u8),
+
+    pub fn init(buf: []u8) !MessageStack {
+        var fba = heap.FixedBufferAllocator.init(buf);
+
+        var stack = std.ArrayList([]const u8).init(fba.allocator());
+        try stack.ensureTotalCapacity(16);
+
+        return .{
+            .buf = buf,
+            .fba = fba,
+            .stack = stack,
+        };
+    }
+
+    pub fn push(self: *MessageStack, message: []const u8) !void {
+        debug.assert(self.stack.items.len < 16);
+
+        const owned_message = message: {
+            if (self.fba.ownsSlice(message)) {
+                break :message message;
+            } else {
+                break :message try self.fba.allocator().dupe(u8, message);
+            }
+        };
+
+        try self.pushAssumeOwned(owned_message);
+    }
+
+    pub fn print(self: *MessageStack, comptime template: []const u8, data: anytype) !void {
+        debug.assert(self.stack.items.len < 16);
+
+        var buf = std.ArrayList(u8).init(self.fba.allocator());
+        try buf.writer().print(template, data);
+
+        self.pushAssumeOwned(
+            try buf.toOwnedSlice(),
+        );
+    }
+
+    pub fn slice(self: MessageStack) []const []const u8 {
+        return self.stack.items;
+    }
+
+    pub fn pushAssumeOwned(self: *MessageStack, message: []const u8) void {
+        debug.assert(self.stack.items.len < 16);
+
+        self.stack.appendAssumeCapacity(message);
+    }
+};
+
 const PageData = struct {
     slug: []const u8,
     collection: ?[]const u8 = null,
@@ -78,7 +134,6 @@ const PageData = struct {
                             } else if (mem.eql(u8, value, "description")) {
                                 next_scalar_expected = .description;
                             } else {
-                                std.debug.print("Ignoring {s} in frontmatter\n", .{value});
                                 next_scalar_expected = .discard;
                             }
                         },
@@ -91,19 +146,15 @@ const PageData = struct {
                             next_scalar_expected = .key;
                         },
                         .collection => {
-                            std.debug.print("collection: {s}\n", .{value});
                             next_scalar_expected = .key;
                         },
                         .tags => {
-                            std.debug.print("tags: {s}\n", .{value});
                             next_scalar_expected = .key;
                         },
                         .date => {
-                            std.debug.print("date: {s}\n", .{value});
                             next_scalar_expected = .key;
                         },
                         .description => {
-                            std.debug.print("description: {s}\n", .{value});
                             next_scalar_expected = .key;
                         },
                         .discard => {
@@ -258,6 +309,18 @@ fn parseCodeFence(comptime fence: []const u8, buf: []u8) ?ParseCodeFenceResult {
 }
 
 pub fn main() !void {
+    // Enough space for 16 messages and a collective length of 1024
+    // bytes. This works out to about 64 bytes per message.
+    // Is this enough? Who knows, but it's easy to tweak if any
+    // issues arise.
+    var message_buf: [16 * @sizeOf([]const u8) + 1024]u8 = undefined;
+    var message_stack = try MessageStack.init(&message_buf);
+    defer {
+        for (message_stack.slice()) |message| {
+            std.debug.print("{s}\n", .{message});
+        }
+    }
+
     var gpa = heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -274,7 +337,7 @@ pub fn main() !void {
     };
 
     const stdout = io.getStdOut().writer();
-    try stdout.print("{s}\n", .{site_root});
+    try message_stack.print("Site Root {s}", .{site_root});
 
     var page_map = std.StringHashMap(Page).init(allocator);
     defer {
@@ -333,6 +396,9 @@ pub fn main() !void {
     }
 
     try stdout.print("Total pages: {d}\n", .{page_map.count()});
+    try message_stack.print("Discovered ({d}) pages.", .{
+        page_map.count(),
+    });
 
     const out_dir = try std.fs.cwd().makeOpenPath("build", .{});
 
@@ -436,6 +502,7 @@ pub fn main() !void {
     // const assets_dir = try root_dir.openDir("assets");
     // const partials_dir = try root_dir.openDir("partials");
     // const themes_dir = try root_dir.openDir("themes");
+
 }
 
 fn fatalExit(comptime reason: []const u8) noreturn {
