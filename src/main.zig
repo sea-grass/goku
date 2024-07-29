@@ -270,8 +270,15 @@ const PageSource = struct {
         debug.assert(!self.done);
 
         if (self.dir_handle == null) {
-            const root = try if (std.mem.startsWith(u8, self.root, "/")) std.fs.openDirAbsolute(self.root, .{}) else std.fs.cwd().openDir(self.root, .{});
-            self.dir_handle = try root.openDir(self.subpath, .{ .iterate = true });
+            if (std.mem.startsWith(u8, self.root, "/")) {
+                const root = try std.fs.openDirAbsolute(self.root, .{});
+                self.dir_handle = try root.openDir(self.subpath, .{ .iterate = true });
+            } else {
+                // TODO in wasmtime if no directories are mounted, the module panics
+                const cwd = std.fs.cwd();
+                const root = try cwd.openDir(self.root, .{});
+                self.dir_handle = try root.openDir(self.subpath, .{ .iterate = true });
+            }
         }
 
         debug.assert(self.dir_handle != null);
@@ -400,6 +407,7 @@ pub fn main() !void {
         page_map.count(),
     });
 
+    // TODO support configurable build output dir
     const out_dir = try std.fs.cwd().makeOpenPath("build", .{});
 
     var sitemap_buf = std.ArrayList(u8).init(allocator);
