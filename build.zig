@@ -1,7 +1,8 @@
 const std = @import("std");
 
-fn addYamlSourceFiles(b: *std.Build, compile: *std.Build.Step.Compile, comptime lib_root: []const u8) void {
+fn addYamlSourceFiles(b: *std.Build, compile: *std.Build.Step.Compile, comptime lib_root: []const u8, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
     const wf = b.addWriteFiles();
+
     _ = wf.add(
         "config.h",
         \\#define YAML_VERSION_STRING "0.2.5"
@@ -30,7 +31,26 @@ fn addYamlSourceFiles(b: *std.Build, compile: *std.Build.Step.Compile, comptime 
             filename,
         );
     }
-    compile.addCSourceFiles(.{
+
+    const c = b.addTranslateC(.{
+        .root_source_file = wf.add(
+            "c.h",
+            \\#include <yaml.h>
+            ,
+        ),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    // TODO Not sure why I have to do both addIncludeDir (for
+    // the translate_c step) and addIncludePath (for the C
+    // source files) -- is there a way to get them both to
+    // look in the same place?
+    c.addIncludeDir(lib_root ++ "/include");
+
+    const mod = c.createModule();
+    mod.addIncludePath(b.path(lib_root ++ "/include"));
+    mod.addCSourceFiles(.{
         .root = wf.getDirectory(),
         .files = c_source_files,
         .flags = &.{
@@ -38,8 +58,8 @@ fn addYamlSourceFiles(b: *std.Build, compile: *std.Build.Step.Compile, comptime 
             "-DHAVE_CONFIG_H",
         },
     });
-    compile.step.dependOn(&wf.step);
-    compile.addIncludePath(b.path(lib_root ++ "/include"));
+
+    compile.root_module.addImport("c", mod);
 }
 
 pub fn build(b: *std.Build) void {
@@ -59,7 +79,7 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.linkLibC();
-    addYamlSourceFiles(b, exe, "lib/yaml");
+    addYamlSourceFiles(b, exe, "lib/yaml", target, optimize);
 
     b.installArtifact(exe);
 

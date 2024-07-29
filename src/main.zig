@@ -6,7 +6,7 @@ const fs = std.fs;
 const mem = std.mem;
 const debug = std.debug;
 const time = std.time;
-const c = @import("c.zig");
+const c = @import("c");
 
 // MessageStack
 //
