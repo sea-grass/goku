@@ -1,5 +1,47 @@
 const std = @import("std");
 
+fn addYamlSourceFiles(b: *std.Build, compile: *std.Build.Step.Compile, comptime lib_root: []const u8) void {
+    const wf = b.addWriteFiles();
+    _ = wf.add(
+        "config.h",
+        \\#define YAML_VERSION_STRING "0.2.5"
+        \\#define YAML_VERSION_MAJOR 0
+        \\#define YAML_VERSION_MINOR 2
+        \\#define YAML_VERSION_PATCH 5
+        ,
+    );
+    inline for (&.{
+        "yaml_private.h",
+    }) |filename| {
+        _ = wf.addCopyFile(
+            b.path(lib_root ++ "/src/" ++ filename),
+            filename,
+        );
+    }
+    const c_source_files = &.{
+        "parser.c",
+        "scanner.c",
+        "reader.c",
+        "api.c",
+    };
+    inline for (c_source_files) |filename| {
+        _ = wf.addCopyFile(
+            b.path(lib_root ++ "/src/" ++ filename),
+            filename,
+        );
+    }
+    compile.addCSourceFiles(.{
+        .root = wf.getDirectory(),
+        .files = c_source_files,
+        .flags = &.{
+            "-std=gnu99",
+            "-DHAVE_CONFIG_H",
+        },
+    });
+    compile.step.dependOn(&wf.step);
+    compile.addIncludePath(b.path(lib_root ++ "/include"));
+}
+
 pub fn build(b: *std.Build) void {
     const wasm_option = b.option(bool, "wasm", "Compile to webassembly (supported on e.g. wasmtime)") orelse false;
 
@@ -17,46 +59,8 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.linkLibC();
+    addYamlSourceFiles(b, exe, "lib/yaml");
 
-    const wf = b.addWriteFiles();
-    _ = wf.add(
-        "config.h",
-        \\#define YAML_VERSION_STRING "0.2.5"
-        \\#define YAML_VERSION_MAJOR 0
-        \\#define YAML_VERSION_MINOR 2
-        \\#define YAML_VERSION_PATCH 5
-        ,
-    );
-    const c_source_files = &.{
-        "parser.c",
-        "scanner.c",
-        "reader.c",
-        "api.c",
-    };
-    inline for (c_source_files) |filename| {
-        _ = wf.addCopyFile(
-            b.path("lib/yaml/src/" ++ filename),
-            filename,
-        );
-    }
-    inline for (&.{
-        "yaml_private.h",
-    }) |filename| {
-        _ = wf.addCopyFile(
-            b.path("lib/yaml/src/" ++ filename),
-            filename,
-        );
-    }
-    exe.addCSourceFiles(.{
-        .root = wf.getDirectory(),
-        .files = c_source_files,
-        .flags = &.{
-            "-std=gnu99",
-            "-DHAVE_CONFIG_H",
-        },
-    });
-    exe.step.dependOn(&wf.step);
-    exe.addIncludePath(b.path("lib/yaml/include"));
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
