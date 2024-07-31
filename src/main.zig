@@ -92,6 +92,7 @@ pub fn main() !void {
         .subpath = "pages",
     };
 
+    var page_count: u32 = 0;
     while (try page_it.next()) |page| {
         const zone = tracy.initZone(@src(), .{ .name = "Load Page from File" });
         defer zone.deinit();
@@ -130,7 +131,12 @@ pub fn main() !void {
                 },
             },
         );
+
+        page_count += 1;
+        tracy.plot(u32, "Discovered Page Count", page_count);
     }
+
+    debug.assert(page_count == page_map.count());
 
     try stdout.print("Total pages: {d}\n", .{page_map.count()});
     try message_stack.print("Discovered ({d}) pages.", .{
