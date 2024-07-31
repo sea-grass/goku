@@ -8,8 +8,273 @@ const debug = std.debug;
 const time = std.time;
 const c = @import("c");
 
+// We keep a limit on messages shown at the end of the program's execution.
+// A value of 16 is an arbitrary low-enough high-enough number where I know
+// it would be too messag will be too messy to have more than 16 messages
+const num_messages_max = 16;
+// The collective length of the messages should not exceed this many bytes.
+// Another arbitrary number. This works out to about 64 bytes per message,
+// at 16 max messages. Is this enough? Who knows, but it's easy to tweak
+// if any issues arise.
+const size_messages_max = 1024;
+const size_of_alice_txt = 1189000;
+// HTML Sitemap looks like this:
+// <nav><ul>
+// <li><a href="{slug}">{text}</a></li>
+// <li><a href="{slug}">{text}</a></li>
+// ...
+// </ul></nav>
+const html_sitemap_preamble =
+    \\<nav><ul>
+;
+const html_sitemap_postamble =
+    \\</ul></nav>
+;
+// I went to a news website's front page and found that the longest
+// article title was 128 bytes long. That seems like it could be
+// a reasonable limit, but I'd rather just double it out of the gate
+// and set the max length to 256.
+const sitemap_url_title_len_max = 256;
+// It's ridiculous for a URL to exceed this number of bytes
+const http_uri_len_max = 2000;
+const sitemap_item_surround = "<li><a href=\"\"></a></li>";
+const html_sitemap_item_size_max = sitemap_item_surround.len + http_uri_len_max + sitemap_url_title_len_max;
+
+pub fn main() !void {
+    var message_buf: [num_messages_max * @sizeOf([]const u8) + size_messages_max]u8 = undefined;
+    var message_stack = try MessageStack.init(&message_buf);
+    defer {
+        for (message_stack.slice()) |message| {
+            std.debug.print("{s}\n", .{message});
+        }
+    }
+
+    var gpa = heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const unlimited_allocator = gpa.allocator();
+
+    var arg_it = try process.argsWithAllocator(unlimited_allocator);
+    defer arg_it.deinit();
+
+    // skip the binary
+    _ = arg_it.next();
+
+    const site_root = arg_it.next() orelse {
+        std.debug.print("Fatal error: Missing required <site_root> argument.\n", .{});
+        process.exit(1);
+    };
+
+    const stdout = io.getStdOut().writer();
+    try message_stack.print("Site Root {s}", .{site_root});
+
+    var page_map = std.StringHashMap(Page).init(unlimited_allocator);
+    defer {
+        var it = page_map.iterator();
+        while (it.next()) |entry| {
+            unlimited_allocator.free(entry.key_ptr.*);
+            unlimited_allocator.free(entry.value_ptr.*.markdown.frontmatter);
+            unlimited_allocator.free(entry.value_ptr.*.markdown.data);
+        }
+        page_map.deinit();
+    }
+
+    var page_it: PageSource = .{
+        .root = site_root,
+        .subpath = "pages",
+    };
+
+    while (try page_it.next()) |page| {
+        const file = try page.openFile();
+        defer file.close();
+
+        debug.assert(try file.getPos() == 0);
+        const length = try file.getEndPos();
+
+        // alice.txt is 148.57kb. I doubt I'll write a single markdown file
+        // longer than the entire Alice's Adventures in Wonderland.
+        debug.assert(length < size_of_alice_txt);
+        var buffer: [size_of_alice_txt]u8 = undefined;
+        var fba = heap.FixedBufferAllocator.init(&buffer);
+        var buf = std.ArrayList(u8).init(fba.allocator());
+        file.reader().streamUntilDelimiter(buf.writer(), 0, null) catch |err| switch (err) {
+            error.EndOfStream => {},
+            else => return err,
+        };
+        debug.assert(buf.items.len == length);
+
+        const code_fence_result = parseCodeFence("---", buf.items) orelse return error.MissingFrontmatter;
+        const frontmatter = code_fence_result.within;
+        const markdown = code_fence_result.after;
+
+        const data = try PageData.fromYamlString(unlimited_allocator, @ptrCast(frontmatter), frontmatter.len);
+        defer data.deinit(unlimited_allocator);
+
+        try page_map.put(
+            try page_map.allocator.dupe(u8, data.slug),
+            .{
+                .markdown = .{
+                    .frontmatter = try page_map.allocator.dupe(u8, frontmatter),
+                    .data = try page_map.allocator.dupe(u8, markdown),
+                },
+            },
+        );
+    }
+
+    try stdout.print("Total pages: {d}\n", .{page_map.count()});
+    try message_stack.print("Discovered ({d}) pages.", .{
+        page_map.count(),
+    });
+
+    // TODO support configurable build output dir
+    var out_dir = try std.fs.cwd().makeOpenPath("build", .{});
+    defer out_dir.close();
+
+    // TODO restore skip-to-main-content
+
+    {
+        var file = try out_dir.createFile("_sitemap.html", .{});
+        defer file.close();
+
+        var file_buf = io.bufferedWriter(file.writer());
+
+        try file_buf.writer().writeAll(html_sitemap_preamble);
+
+        {
+            var pages_it = page_map.iterator();
+            var i: usize = 0;
+            while (pages_it.next()) |entry| {
+                debug.assert(i < page_map.count());
+
+                defer i += 1;
+
+                var buffer: [html_sitemap_item_size_max]u8 = undefined;
+                var fba = heap.FixedBufferAllocator.init(&buffer);
+                var buf = std.ArrayList(u8).init(fba.allocator());
+
+                const data = try PageData.fromYamlString(
+                    unlimited_allocator,
+                    @ptrCast(
+                        entry.value_ptr.*.markdown.frontmatter,
+                    ),
+                    entry.value_ptr.*.markdown.frontmatter.len,
+                );
+                defer data.deinit(unlimited_allocator);
+
+                const title = data.title orelse "(missing title)";
+                debug.assert(title.len < sitemap_url_title_len_max);
+
+                const href = entry.key_ptr.*;
+                debug.assert(href.len < http_uri_len_max);
+
+                try buf.writer().print(
+                    \\<li><a href="{s}">{s}</a></li>
+                ,
+                    .{ href, title },
+                );
+
+                try file_buf.writer().writeAll(buf.items);
+            }
+        }
+
+        try file_buf.writer().writeAll(html_sitemap_postamble);
+
+        try file_buf.flush();
+    }
+
+    var pages_it = page_map.iterator();
+    while (pages_it.next()) |entry| {
+        const data = try PageData.fromYamlString(
+            unlimited_allocator,
+            @ptrCast(
+                entry.value_ptr.*.markdown.frontmatter,
+            ),
+            entry.value_ptr.*.markdown.frontmatter.len,
+        );
+        defer data.deinit(unlimited_allocator);
+
+        const slug = data.slug;
+
+        var file_name_buffer: [fs.MAX_NAME_BYTES]u8 = undefined;
+        var file_name_fba = heap.FixedBufferAllocator.init(&file_name_buffer);
+        var file_name_buf = std.ArrayList(u8).init(file_name_fba.allocator());
+
+        debug.assert(slug.len > 0);
+        debug.assert(slug[0] == '/');
+        if (slug.len > 1) {
+            debug.assert(!mem.endsWith(u8, slug, "/"));
+            try file_name_buf.appendSlice(slug);
+        }
+        try file_name_buf.appendSlice("/index.html");
+
+        const file = file: {
+            make_parent: {
+                if (fs.path.dirname(file_name_buf.items)) |parent| {
+                    debug.assert(parent[0] == '/');
+                    if (parent.len == 1) break :make_parent;
+
+                    var dir = try out_dir.makeOpenPath(parent[1..], .{});
+                    defer dir.close();
+                    break :file try dir.createFile(fs.path.basename(file_name_buf.items), .{});
+                }
+            }
+
+            break :file try out_dir.createFile(fs.path.basename(file_name_buf.items), .{});
+        };
+        defer file.close();
+
+        {
+            var html_buffer = io.bufferedWriter(file.writer());
+
+            const html_buf = html_buffer.writer();
+            {
+                try html_buf.writeAll(
+                    \\<!doctype html><html><head>
+                );
+                try html_buf.writeAll("<style>" ++ @embedFile("style.css") ++ "</style>");
+                try html_buf.writeAll("</head><body><div class=\"page\">");
+            }
+
+            try html_buf.writeAll(
+                \\<nav hx-get="/_sitemap.html" hx-swap="outerHTML" hx-trigger="load"></nav>
+                ,
+            );
+
+            {
+                try html_buf.writeAll("<section class=\"meta\">");
+                try html_buf.writeAll(entry.value_ptr.*.markdown.frontmatter);
+                try html_buf.writeAll("</section>");
+            }
+
+            {
+                try html_buf.writeAll("<main><a href=\"#main-content\" id=\"main-content\" tabindex=\"-1\"></a>");
+                try html_buf.writeAll(mem.trim(u8, entry.value_ptr.*.markdown.data, " \n"));
+                try html_buf.writeAll("</main>");
+            }
+
+            {
+                try html_buf.writeAll(
+                    \\</div>
+                );
+
+                try html_buf.writeAll("<script defer>" ++ @embedFile("htmx.js") ++ "</script>");
+
+                try html_buf.writeAll(
+                    \\</body></html>
+                );
+            }
+
+            try html_buffer.flush();
+        }
+
+        try stdout.print("{s}\n", .{file_name_buf.items});
+    }
+
+    // const assets_dir = try root_dir.openDir("assets");
+    // const partials_dir = try root_dir.openDir("partials");
+    // const themes_dir = try root_dir.openDir("themes");
+
+}
 // MessageStack
-//
 const MessageStack = struct {
     buf: []u8,
     fba: heap.FixedBufferAllocator,
@@ -271,12 +536,14 @@ const PageSource = struct {
 
         if (self.dir_handle == null) {
             if (std.mem.startsWith(u8, self.root, "/")) {
-                const root = try std.fs.openDirAbsolute(self.root, .{});
+                var root = try std.fs.openDirAbsolute(self.root, .{});
+                defer root.close();
                 self.dir_handle = try root.openDir(self.subpath, .{ .iterate = true });
             } else {
                 // TODO in wasmtime if no directories are mounted, the module panics
-                const cwd = std.fs.cwd();
-                const root = try cwd.openDir(self.root, .{});
+                var root = try fs.cwd().openDir(self.root, .{});
+                defer root.close();
+                std.debug.print("Trying to open ({s})/({s})\n", .{ self.root, self.subpath });
                 self.dir_handle = try root.openDir(self.subpath, .{ .iterate = true });
             }
         }
@@ -313,207 +580,4 @@ fn parseCodeFence(comptime fence: []const u8, buf: []u8) ?ParseCodeFenceResult {
         .within = buf[first_index + first_fence.len .. second_index],
         .after = buf[second_index + second_fence.len ..],
     };
-}
-
-pub fn main() !void {
-    // Enough space for 16 messages and a collective length of 1024
-    // bytes. This works out to about 64 bytes per message.
-    // Is this enough? Who knows, but it's easy to tweak if any
-    // issues arise.
-    var message_buf: [16 * @sizeOf([]const u8) + 1024]u8 = undefined;
-    var message_stack = try MessageStack.init(&message_buf);
-    defer {
-        for (message_stack.slice()) |message| {
-            std.debug.print("{s}\n", .{message});
-        }
-    }
-
-    var gpa = heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    var arg_it = try process.argsWithAllocator(allocator);
-    defer arg_it.deinit();
-
-    // skip the binary
-    _ = arg_it.next();
-
-    const site_root = arg_it.next() orelse {
-        std.debug.print("Fatal error: Missing required <site_root> argument.\n", .{});
-        process.exit(1);
-    };
-
-    const stdout = io.getStdOut().writer();
-    try message_stack.print("Site Root {s}", .{site_root});
-
-    var page_map = std.StringHashMap(Page).init(allocator);
-    defer {
-        var it = page_map.iterator();
-        while (it.next()) |entry| {
-            allocator.free(entry.key_ptr.*);
-            allocator.free(entry.value_ptr.*.markdown.frontmatter);
-            allocator.free(entry.value_ptr.*.markdown.data);
-        }
-        page_map.deinit();
-    }
-
-    var page_it: PageSource = .{
-        .root = site_root,
-        .subpath = "pages",
-    };
-
-    while (try page_it.next()) |page| {
-        const file = try page.openFile();
-        defer file.close();
-
-        debug.assert(try file.getPos() == 0);
-        const length = try file.getEndPos();
-
-        // alice.txt is 148.57kb. I doubt I'll write a single markdown file
-        // longer than the entire Alice's Adventures in Wonderland.
-        const size_of_alice_txt = 1189000;
-        debug.assert(length < size_of_alice_txt);
-        var buffer: [size_of_alice_txt]u8 = undefined;
-        var fba = heap.FixedBufferAllocator.init(&buffer);
-        var buf = std.ArrayList(u8).init(fba.allocator());
-        file.reader().streamUntilDelimiter(buf.writer(), 0, null) catch |err| switch (err) {
-            error.EndOfStream => {},
-            else => return err,
-        };
-        debug.assert(buf.items.len == length);
-
-        const code_fence_result = parseCodeFence("---", buf.items) orelse return error.MissingFrontmatter;
-        const frontmatter = code_fence_result.within;
-        const markdown = code_fence_result.after;
-
-        const data = try PageData.fromYamlString(allocator, @ptrCast(frontmatter), frontmatter.len);
-        defer data.deinit(allocator);
-
-        try page_map.put(
-            try page_map.allocator.dupe(u8, data.slug),
-            .{
-                .markdown = .{
-                    .frontmatter = try page_map.allocator.dupe(u8, frontmatter),
-                    .data = try page_map.allocator.dupe(u8, markdown),
-                },
-            },
-        );
-
-        //time.sleep(1000000000 / 7 * num_pages);
-    }
-
-    try stdout.print("Total pages: {d}\n", .{page_map.count()});
-    try message_stack.print("Discovered ({d}) pages.", .{
-        page_map.count(),
-    });
-
-    // TODO support configurable build output dir
-    const out_dir = try std.fs.cwd().makeOpenPath("build", .{});
-
-    var sitemap_buf = std.ArrayList(u8).init(allocator);
-    defer sitemap_buf.deinit();
-    {
-        try sitemap_buf.writer().print("<nav><a id=\"skip-to-main-content\" href=\"#main-content\">Skip to main content</a><ul>", .{});
-
-        var pages_it = page_map.iterator();
-        while (pages_it.next()) |entry| {
-            const data = try PageData.fromYamlString(
-                allocator,
-                @ptrCast(
-                    entry.value_ptr.*.markdown.frontmatter,
-                ),
-                entry.value_ptr.*.markdown.frontmatter.len,
-            );
-            defer data.deinit(allocator);
-
-            const title = data.title orelse "(missing title)";
-            const href = entry.key_ptr.*;
-
-            try sitemap_buf.writer().print("<li><a href=\"{s}\">{s}</a></li>", .{ href, title });
-        }
-
-        try sitemap_buf.writer().print("</ul></nav>", .{});
-    }
-
-    var pages_it = page_map.iterator();
-    while (pages_it.next()) |entry| {
-        const data = try PageData.fromYamlString(
-            allocator,
-            @ptrCast(
-                entry.value_ptr.*.markdown.frontmatter,
-            ),
-            entry.value_ptr.*.markdown.frontmatter.len,
-        );
-        defer data.deinit(allocator);
-
-        const slug = data.slug;
-
-        var file_name_buffer: [fs.MAX_NAME_BYTES]u8 = undefined;
-        var file_name_fba = heap.FixedBufferAllocator.init(&file_name_buffer);
-        var file_name_buf = std.ArrayList(u8).init(file_name_fba.allocator());
-
-        debug.assert(slug.len > 0);
-        debug.assert(slug[0] == '/');
-        if (slug.len > 1) {
-            debug.assert(!mem.endsWith(u8, slug, "/"));
-            try file_name_buf.appendSlice(slug);
-        }
-        try file_name_buf.appendSlice("/index.html");
-
-        const file = file: {
-            make_parent: {
-                if (fs.path.dirname(file_name_buf.items)) |parent| {
-                    debug.assert(parent[0] == '/');
-                    if (parent.len == 1) break :make_parent;
-
-                    const dir = try out_dir.makeOpenPath(parent[1..], .{});
-                    break :file try dir.createFile(fs.path.basename(file_name_buf.items), .{});
-                }
-            }
-
-            break :file try out_dir.createFile(fs.path.basename(file_name_buf.items), .{});
-        };
-        defer file.close();
-
-        const html_buf = file.writer();
-        {
-            try html_buf.writeAll(
-                \\<!doctype html><html><head>
-            );
-            try html_buf.writeAll("<style>" ++ @embedFile("style.css") ++ "</style>");
-            try html_buf.writeAll("</head><body><div class=\"page\">");
-        }
-
-        try html_buf.writeAll(sitemap_buf.items);
-
-        {
-            try html_buf.writeAll("<section class=\"meta\">");
-            try html_buf.writeAll(entry.value_ptr.*.markdown.frontmatter);
-            try html_buf.writeAll("</section>");
-        }
-
-        {
-            try html_buf.writeAll("<main><a href=\"#main-content\" id=\"main-content\" tabindex=\"-1\"></a>");
-            try html_buf.writeAll(mem.trim(u8, entry.value_ptr.*.markdown.data, " \n"));
-            try html_buf.writeAll("</main>");
-        }
-
-        {
-            try html_buf.writeAll(
-                \\</div></body></html>
-            );
-        }
-
-        try stdout.print("{s}\n", .{file_name_buf.items});
-    }
-
-    // const assets_dir = try root_dir.openDir("assets");
-    // const partials_dir = try root_dir.openDir("partials");
-    // const themes_dir = try root_dir.openDir("themes");
-
-}
-
-fn fatalExit(comptime reason: []const u8) noreturn {
-    std.debug.print("Fatal error: {s}\n", .{reason});
-    process.exit(1);
 }
