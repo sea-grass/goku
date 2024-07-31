@@ -7,6 +7,7 @@ const mem = std.mem;
 const debug = std.debug;
 const time = std.time;
 const c = @import("c");
+const tracy = @import("tracy");
 
 // We keep a limit on messages shown at the end of the program's execution.
 // A value of 16 is an arbitrary low-enough high-enough number where I know
@@ -41,6 +42,12 @@ const sitemap_item_surround = "<li><a href=\"\"></a></li>";
 const html_sitemap_item_size_max = sitemap_item_surround.len + http_uri_len_max + sitemap_url_title_len_max;
 
 pub fn main() !void {
+    tracy.startupProfiler();
+    defer tracy.shutdownProfiler();
+
+    tracy.setThreadName("main");
+    defer tracy.message("Graceful main thread exit");
+
     var message_buf: [num_messages_max * @sizeOf([]const u8) + size_messages_max]u8 = undefined;
     var message_stack = try MessageStack.init(&message_buf);
     defer {
@@ -51,7 +58,9 @@ pub fn main() !void {
 
     var gpa = heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const unlimited_allocator = gpa.allocator();
+
+    var tracy_allocator = tracy.TracingAllocator.init(gpa.allocator());
+    const unlimited_allocator = tracy_allocator.allocator();
 
     var arg_it = try process.argsWithAllocator(unlimited_allocator);
     defer arg_it.deinit();
@@ -84,6 +93,9 @@ pub fn main() !void {
     };
 
     while (try page_it.next()) |page| {
+        const zone = tracy.initZone(@src(), .{ .name = "Load Page from File" });
+        defer zone.deinit();
+
         const file = try page.openFile();
         defer file.close();
 
@@ -125,148 +137,173 @@ pub fn main() !void {
         page_map.count(),
     });
 
-    // TODO support configurable build output dir
-    var out_dir = try std.fs.cwd().makeOpenPath("build", .{});
-    defer out_dir.close();
-
-    // TODO restore skip-to-main-content
-
     {
-        var file = try out_dir.createFile("_sitemap.html", .{});
-        defer file.close();
+        const write_output_zone = tracy.initZone(@src(), .{ .name = "Write Site to Output Dir" });
+        defer write_output_zone.deinit();
 
-        var file_buf = io.bufferedWriter(file.writer());
+        // TODO support configurable build output dir
+        var out_dir = try std.fs.cwd().makeOpenPath("build", .{});
+        defer out_dir.close();
 
-        try file_buf.writer().writeAll(html_sitemap_preamble);
+        // TODO restore skip-to-main-content
 
         {
-            var pages_it = page_map.iterator();
-            var i: usize = 0;
-            while (pages_it.next()) |entry| {
-                debug.assert(i < page_map.count());
+            const zone = tracy.initZone(@src(), .{ .name = "Write sitemap" });
+            defer zone.deinit();
 
-                defer i += 1;
+            var file = try out_dir.createFile("_sitemap.html", .{});
+            defer file.close();
 
-                var buffer: [html_sitemap_item_size_max]u8 = undefined;
-                var fba = heap.FixedBufferAllocator.init(&buffer);
-                var buf = std.ArrayList(u8).init(fba.allocator());
+            var file_buf = io.bufferedWriter(file.writer());
 
-                const data = try PageData.fromYamlString(
-                    unlimited_allocator,
-                    @ptrCast(
-                        entry.value_ptr.*.markdown.frontmatter,
-                    ),
-                    entry.value_ptr.*.markdown.frontmatter.len,
-                );
-                defer data.deinit(unlimited_allocator);
+            try file_buf.writer().writeAll(html_sitemap_preamble);
 
-                const title = data.title orelse "(missing title)";
-                debug.assert(title.len < sitemap_url_title_len_max);
+            {
+                var pages_it = page_map.iterator();
+                var i: usize = 0;
+                while (pages_it.next()) |entry| {
+                    debug.assert(i < page_map.count());
 
-                const href = entry.key_ptr.*;
-                debug.assert(href.len < http_uri_len_max);
+                    defer i += 1;
 
-                try buf.writer().print(
-                    \\<li><a href="{s}">{s}</a></li>
-                ,
-                    .{ href, title },
-                );
+                    var buffer: [html_sitemap_item_size_max]u8 = undefined;
+                    var fba = heap.FixedBufferAllocator.init(&buffer);
+                    var buf = std.ArrayList(u8).init(fba.allocator());
 
-                try file_buf.writer().writeAll(buf.items);
-            }
-        }
+                    const data = try PageData.fromYamlString(
+                        unlimited_allocator,
+                        @ptrCast(
+                            entry.value_ptr.*.markdown.frontmatter,
+                        ),
+                        entry.value_ptr.*.markdown.frontmatter.len,
+                    );
+                    defer data.deinit(unlimited_allocator);
 
-        try file_buf.writer().writeAll(html_sitemap_postamble);
+                    const title = data.title orelse "(missing title)";
+                    debug.assert(title.len < sitemap_url_title_len_max);
 
-        try file_buf.flush();
-    }
+                    const href = entry.key_ptr.*;
+                    debug.assert(href.len < http_uri_len_max);
 
-    var pages_it = page_map.iterator();
-    while (pages_it.next()) |entry| {
-        const data = try PageData.fromYamlString(
-            unlimited_allocator,
-            @ptrCast(
-                entry.value_ptr.*.markdown.frontmatter,
-            ),
-            entry.value_ptr.*.markdown.frontmatter.len,
-        );
-        defer data.deinit(unlimited_allocator);
+                    try buf.writer().print(
+                        \\<li><a href="{s}">{s}</a></li>
+                    ,
+                        .{ href, title },
+                    );
 
-        const slug = data.slug;
-
-        var file_name_buffer: [fs.MAX_NAME_BYTES]u8 = undefined;
-        var file_name_fba = heap.FixedBufferAllocator.init(&file_name_buffer);
-        var file_name_buf = std.ArrayList(u8).init(file_name_fba.allocator());
-
-        debug.assert(slug.len > 0);
-        debug.assert(slug[0] == '/');
-        if (slug.len > 1) {
-            debug.assert(!mem.endsWith(u8, slug, "/"));
-            try file_name_buf.appendSlice(slug);
-        }
-        try file_name_buf.appendSlice("/index.html");
-
-        const file = file: {
-            make_parent: {
-                if (fs.path.dirname(file_name_buf.items)) |parent| {
-                    debug.assert(parent[0] == '/');
-                    if (parent.len == 1) break :make_parent;
-
-                    var dir = try out_dir.makeOpenPath(parent[1..], .{});
-                    defer dir.close();
-                    break :file try dir.createFile(fs.path.basename(file_name_buf.items), .{});
+                    try file_buf.writer().writeAll(buf.items);
                 }
             }
 
-            break :file try out_dir.createFile(fs.path.basename(file_name_buf.items), .{});
-        };
-        defer file.close();
+            try file_buf.writer().writeAll(html_sitemap_postamble);
 
-        {
-            var html_buffer = io.bufferedWriter(file.writer());
-
-            const html_buf = html_buffer.writer();
-            {
-                try html_buf.writeAll(
-                    \\<!doctype html><html><head>
-                );
-                try html_buf.writeAll("<style>" ++ @embedFile("style.css") ++ "</style>");
-                try html_buf.writeAll("</head><body><div class=\"page\">");
-            }
-
-            try html_buf.writeAll(
-                \\<nav hx-get="/_sitemap.html" hx-swap="outerHTML" hx-trigger="load"></nav>
-                ,
-            );
-
-            {
-                try html_buf.writeAll("<section class=\"meta\">");
-                try html_buf.writeAll(entry.value_ptr.*.markdown.frontmatter);
-                try html_buf.writeAll("</section>");
-            }
-
-            {
-                try html_buf.writeAll("<main><a href=\"#main-content\" id=\"main-content\" tabindex=\"-1\"></a>");
-                try html_buf.writeAll(mem.trim(u8, entry.value_ptr.*.markdown.data, " \n"));
-                try html_buf.writeAll("</main>");
-            }
-
-            {
-                try html_buf.writeAll(
-                    \\</div>
-                );
-
-                try html_buf.writeAll("<script defer>" ++ @embedFile("htmx.js") ++ "</script>");
-
-                try html_buf.writeAll(
-                    \\</body></html>
-                );
-            }
-
-            try html_buffer.flush();
+            try file_buf.flush();
         }
 
-        try stdout.print("{s}\n", .{file_name_buf.items});
+        {
+            var file = try out_dir.createFile("htmx.js", .{});
+            defer file.close();
+            try file.writer().writeAll(@embedFile("htmx.js"));
+        }
+
+        {
+            var file = try out_dir.createFile("style.css", .{});
+            defer file.close();
+            try file.writer().writeAll(@embedFile("style.css"));
+        }
+
+        var pages_it = page_map.iterator();
+        while (pages_it.next()) |entry| {
+            const zone = tracy.initZone(@src(), .{ .name = "Render Page Loop" });
+            defer zone.deinit();
+
+            const data = try PageData.fromYamlString(
+                unlimited_allocator,
+                @ptrCast(
+                    entry.value_ptr.*.markdown.frontmatter,
+                ),
+                entry.value_ptr.*.markdown.frontmatter.len,
+            );
+            defer data.deinit(unlimited_allocator);
+
+            const slug = data.slug;
+
+            var file_name_buffer: [fs.MAX_NAME_BYTES]u8 = undefined;
+            var file_name_fba = heap.FixedBufferAllocator.init(&file_name_buffer);
+            var file_name_buf = std.ArrayList(u8).init(file_name_fba.allocator());
+
+            debug.assert(slug.len > 0);
+            debug.assert(slug[0] == '/');
+            if (slug.len > 1) {
+                debug.assert(!mem.endsWith(u8, slug, "/"));
+                try file_name_buf.appendSlice(slug);
+            }
+            try file_name_buf.appendSlice("/index.html");
+
+            const file = file: {
+                make_parent: {
+                    if (fs.path.dirname(file_name_buf.items)) |parent| {
+                        debug.assert(parent[0] == '/');
+                        if (parent.len == 1) break :make_parent;
+
+                        var dir = try out_dir.makeOpenPath(parent[1..], .{});
+                        defer dir.close();
+                        break :file try dir.createFile(fs.path.basename(file_name_buf.items), .{});
+                    }
+                }
+
+                break :file try out_dir.createFile(fs.path.basename(file_name_buf.items), .{});
+            };
+            defer file.close();
+
+            {
+                var html_buffer = io.bufferedWriter(file.writer());
+
+                const html_buf = html_buffer.writer();
+                {
+                    try html_buf.writeAll(
+                        \\<!doctype html><html><head>
+                    );
+                    try html_buf.writeAll(
+                        \\<link rel="stylesheet" lang="text/css" href="style.css" />
+                    );
+                    try html_buf.writeAll("</head><body><div class=\"page\">");
+                }
+
+                try html_buf.writeAll(
+                    \\<nav hx-get="/_sitemap.html" hx-swap="outerHTML" hx-trigger="load"></nav>
+                    ,
+                );
+
+                {
+                    try html_buf.writeAll("<section class=\"meta\">");
+                    try html_buf.writeAll(entry.value_ptr.*.markdown.frontmatter);
+                    try html_buf.writeAll("</section>");
+                }
+
+                {
+                    try html_buf.writeAll("<main><a href=\"#main-content\" id=\"main-content\" tabindex=\"-1\"></a>");
+                    try html_buf.writeAll(mem.trim(u8, entry.value_ptr.*.markdown.data, " \n"));
+                    try html_buf.writeAll("</main>");
+                }
+
+                {
+                    try html_buf.writeAll(
+                        \\</div>
+                    );
+
+                    try html_buf.writeAll("<script defer src=\"htmx.js\"></script>");
+
+                    try html_buf.writeAll(
+                        \\</body></html>
+                    );
+                }
+
+                try html_buffer.flush();
+            }
+
+            try stdout.print("{s}\n", .{file_name_buf.items});
+        }
     }
 
     // const assets_dir = try root_dir.openDir("assets");
@@ -339,6 +376,9 @@ const PageData = struct {
     // Duplicates slices from the input data. Caller is responsible for
     // calling page_data.deinit(allocator) afterwards.
     pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) !PageData {
+        const zone = tracy.initZone(@src(), .{ .name = "PageData.fromYamlString" });
+        defer zone.deinit();
+
         var parser: c.yaml_parser_t = undefined;
         const ptr: [*c]c.yaml_parser_t = &parser;
 

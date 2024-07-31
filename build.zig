@@ -2,12 +2,21 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const wasm_option = b.option(bool, "wasm", "Compile to webassembly (supported on e.g. wasmtime)") orelse false;
+    const tracy_enable = b.option(bool, "tracy_enable", "Enable profiling") orelse false;
 
     const target = if (wasm_option) b.resolveTargetQuery(.{
         .cpu_arch = .wasm32,
         .os_tag = .wasi,
     }) else b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    const tracy = b.dependency("tracy", .{
+        .target = target,
+        .optimize = optimize,
+        .tracy_enable = tracy_enable,
+        .tracy_no_exit = true,
+        .tracy_manual_lifetime = true,
+    });
 
     const exe = b.addExecutable(.{
         .name = "nu-builder",
@@ -17,6 +26,9 @@ pub fn build(b: *std.Build) void {
     });
     exe.linkLibC();
     yaml.addCSourceFiles(b, exe, "lib/yaml", target, optimize);
+    exe.root_module.addImport("tracy", tracy.module("tracy"));
+    exe.linkLibrary(tracy.artifact("tracy"));
+    exe.linkLibCpp();
     b.installArtifact(exe);
 
     const exe_unit_tests = b.addTest(.{
@@ -24,8 +36,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    exe.linkLibC();
-    yaml.addCSourceFiles(b, exe, "lib/yaml", target, optimize);
+    exe_unit_tests.linkLibC();
+    yaml.addCSourceFiles(b, exe_unit_tests, "lib/yaml", target, optimize);
+    exe_unit_tests.root_module.addImport("tracy", tracy.module("tracy"));
+    exe_unit_tests.linkLibrary(tracy.artifact("tracy"));
+    exe_unit_tests.linkLibCpp();
 
     const exe_check = b.addExecutable(.{
         .name = "nu-builder",
@@ -33,11 +48,14 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    exe.linkLibC();
+    exe_check.linkLibC();
     yaml.addCSourceFiles(b, exe_check, "lib/yaml", target, optimize);
+    exe_check.root_module.addImport("tracy", tracy.module("tracy"));
+    exe_check.linkLibrary(tracy.artifact("tracy"));
+    exe_check.linkLibCpp();
 
     const benchmark_site_files = b.addWriteFiles();
-    for (0..100_000) |i| {
+    for (0..50_000) |i| {
         _ = benchmark_site_files.add(
             b.fmt("pages/page-{d}.md", .{i}),
             b.fmt(
@@ -60,8 +78,7 @@ pub fn build(b: *std.Build) void {
     const benchmark_site_step = b.step("generate-benchmark", "Generate a site dir used to benchmark nu-builder.");
     benchmark_site_step.dependOn(&install.step);
 
-    const run_benchmark_cmd = b.addSystemCommand(&.{"time"});
-    run_benchmark_cmd.addArtifactArg(exe);
+    const run_benchmark_cmd = b.addRunArtifact(exe);
     run_benchmark_cmd.addDirectoryArg(benchmark_site_files.getDirectory());
     const benchmark_step = b.step("run-benchmark", "Run the benchmark.");
     benchmark_step.dependOn(&run_benchmark_cmd.step);
