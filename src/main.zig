@@ -8,6 +8,7 @@ const debug = std.debug;
 const time = std.time;
 const c = @import("c");
 const tracy = @import("tracy");
+const clap = @import("clap");
 
 // We keep a limit on messages shown at the end of the program's execution.
 // A value of 16 is an arbitrary low-enough high-enough number where I know
@@ -18,7 +19,9 @@ const num_messages_max = 16;
 // at 16 max messages. Is this enough? Who knows, but it's easy to tweak
 // if any issues arise.
 const size_messages_max = 1024;
+
 const size_of_alice_txt = 1189000;
+
 // HTML Sitemap looks like this:
 // <nav><ul>
 // <li><a href="{slug}">{text}</a></li>
@@ -56,6 +59,7 @@ pub fn main() !void {
         }
     }
 
+    // What's the point of message stack if this works just as well?
     const start = time.milliTimestamp();
     defer debug.print("Elapsed: {d}ms\n", .{time.milliTimestamp() - start});
 
@@ -65,19 +69,83 @@ pub fn main() !void {
     var tracy_allocator = tracy.TracingAllocator.init(gpa.allocator());
     const unlimited_allocator = tracy_allocator.allocator();
 
-    var arg_it = try process.argsWithAllocator(unlimited_allocator);
-    defer arg_it.deinit();
+    const params = comptime clap.parseParamsComptime(
+        \\-h, --help    Display this help text and exit.
+        \\<str>         The absolute or relative path to your site's source directory.
+        \\-o, --out <str>      The directory to place the generated site.
+        ,
+    );
+    var diag: clap.Diagnostic = .{};
+    var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
+        .diagnostic = &diag,
+        .allocator = unlimited_allocator,
+    }) catch |err| {
+        // Report useful error on exit
+        diag.report(io.getStdErr().writer(), err) catch {};
+        return err;
+    };
+    defer res.deinit();
 
-    // skip the binary
-    _ = arg_it.next();
+    if (res.args.help != 0) {
+        const stderr = io.getStdErr().writer();
+        try stderr.print(
+            \\Goku - A static site generator
+            \\----
+            \\Usage:
+            \\    goku -h
+            \\    goku <site_root> -o <out_dir>
+            \\
+        ,
+            .{},
+        );
+        try clap.help(io.getStdErr().writer(), clap.Help, &params, .{});
+        process.exit(0);
+    }
 
-    const site_root = arg_it.next() orelse {
-        debug.print("Fatal error: Missing required <site_root> argument.\n", .{});
+    const site_root = root: {
+        if (res.positionals.len < 1) {
+            debug.print("Fatal error: Missing required <site_root> argument.\n", .{});
+            process.exit(1);
+        }
+
+        if (res.positionals.len > 1) {
+            const stderr = io.getStdErr().writer();
+            try stderr.print(
+                \\Goku - A static site generator
+                \\----
+                \\Usage:
+                \\    goku -h
+                \\    goku <site_root> -o <out_dir>
+                \\
+            ,
+                .{},
+            );
+            try clap.help(io.getStdErr().writer(), clap.Help, &params, .{});
+            process.exit(1);
+        }
+
+        break :root res.positionals[0];
+    };
+
+    const out_dir_path = out: {
+        if (res.args.out) |out| break :out out;
+
+        const stderr = io.getStdErr().writer();
+        try stderr.print(
+            \\Goku - A static site generator
+            \\----
+            \\Usage:
+            \\    goku -h
+            \\    goku <site_root> -o <out_dir>
+            \\
+        ,
+            .{},
+        );
+        try clap.help(io.getStdErr().writer(), clap.Help, &params, .{});
         process.exit(1);
     };
 
-    const stdout = io.getStdOut().writer();
-    try message_stack.print("Site Root {s}", .{site_root});
+    defer debug.print("Site Root {s} -> Out Dir {s}\n", .{ site_root, out_dir_path });
 
     var page_map = std.StringHashMap(Page).init(unlimited_allocator);
     defer {
@@ -141,8 +209,7 @@ pub fn main() !void {
 
     debug.assert(page_count == page_map.count());
 
-    try stdout.print("Total pages: {d}\n", .{page_map.count()});
-    try message_stack.print("Discovered ({d}) pages.", .{
+    defer debug.print("Discovered ({d}) pages.", .{
         page_map.count(),
     });
 
@@ -150,8 +217,8 @@ pub fn main() !void {
         const write_output_zone = tracy.initZone(@src(), .{ .name = "Write Site to Output Dir" });
         defer write_output_zone.deinit();
 
-        // TODO support configurable build output dir
-        var out_dir = try std.fs.cwd().makeOpenPath("build", .{});
+        // TODO support potentially absolute out dir
+        var out_dir = try std.fs.cwd().makeOpenPath(out_dir_path, .{});
         defer out_dir.close();
 
         // TODO restore skip-to-main-content
@@ -310,8 +377,6 @@ pub fn main() !void {
 
                 try html_buffer.flush();
             }
-
-            try stdout.print("{s}\n", .{file_name_buf.items});
         }
     }
 

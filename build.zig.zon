@@ -7,6 +7,9 @@
         .tracy = .{
             .path = "../../../zig-tracy",
         },
+        .clap = .{
+            .path = "../../../zig-clap",
+        },
     },
 
     .paths = .{

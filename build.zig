@@ -18,6 +18,8 @@ pub fn build(b: *std.Build) void {
         .tracy_manual_lifetime = true,
     });
 
+    const clap = b.dependency("clap", .{ .target = target, .optimize = optimize });
+
     const exe = b.addExecutable(.{
         .name = "nu-builder",
         .root_source_file = b.path("src/main.zig"),
@@ -27,8 +29,9 @@ pub fn build(b: *std.Build) void {
     exe.linkLibC();
     yaml.addCSourceFiles(b, exe, "lib/yaml", target, optimize);
     exe.root_module.addImport("tracy", tracy.module("tracy"));
+    exe.root_module.addImport("clap", clap.module("clap"));
     exe.linkLibrary(tracy.artifact("tracy"));
-    exe.linkLibCpp();
+    if (tracy_enable) exe.linkLibCpp();
     b.installArtifact(exe);
 
     const exe_unit_tests = b.addTest(.{
@@ -39,8 +42,9 @@ pub fn build(b: *std.Build) void {
     exe_unit_tests.linkLibC();
     yaml.addCSourceFiles(b, exe_unit_tests, "lib/yaml", target, optimize);
     exe_unit_tests.root_module.addImport("tracy", tracy.module("tracy"));
+    exe_unit_tests.root_module.addImport("clap", clap.module("clap"));
     exe_unit_tests.linkLibrary(tracy.artifact("tracy"));
-    exe_unit_tests.linkLibCpp();
+    if (tracy_enable) exe_unit_tests.linkLibCpp();
 
     const exe_check = b.addExecutable(.{
         .name = "nu-builder",
@@ -51,8 +55,9 @@ pub fn build(b: *std.Build) void {
     exe_check.linkLibC();
     yaml.addCSourceFiles(b, exe_check, "lib/yaml", target, optimize);
     exe_check.root_module.addImport("tracy", tracy.module("tracy"));
+    exe_check.root_module.addImport("clap", clap.module("clap"));
     exe_check.linkLibrary(tracy.artifact("tracy"));
-    exe_check.linkLibCpp();
+    if (tracy_enable) exe_check.linkLibCpp();
 
     const benchmark_site_files = b.addWriteFiles();
     for (0..50_000) |i| {
@@ -80,6 +85,7 @@ pub fn build(b: *std.Build) void {
 
     const run_benchmark_cmd = b.addRunArtifact(exe);
     run_benchmark_cmd.addDirectoryArg(benchmark_site_files.getDirectory());
+    run_benchmark_cmd.addArgs(&.{ "-o", "benchmark-build" });
     const benchmark_step = b.step("run-benchmark", "Run the benchmark.");
     benchmark_step.dependOn(&run_benchmark_cmd.step);
 
