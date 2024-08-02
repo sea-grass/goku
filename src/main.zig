@@ -52,9 +52,12 @@ pub fn main() !void {
     var message_stack = try MessageStack.init(&message_buf);
     defer {
         for (message_stack.slice()) |message| {
-            std.debug.print("{s}\n", .{message});
+            debug.print("{s}\n", .{message});
         }
     }
+
+    const start = time.milliTimestamp();
+    defer debug.print("Elapsed: {d}ms\n", .{time.milliTimestamp() - start});
 
     var gpa = heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -69,7 +72,7 @@ pub fn main() !void {
     _ = arg_it.next();
 
     const site_root = arg_it.next() orelse {
-        std.debug.print("Fatal error: Missing required <site_root> argument.\n", .{});
+        debug.print("Fatal error: Missing required <site_root> argument.\n", .{});
         process.exit(1);
     };
 
@@ -413,7 +416,7 @@ const PageData = struct {
         var title: ?[]const u8 = null;
         while (!done) {
             if (c.yaml_parser_parse(ptr, ev_ptr) == 0) {
-                std.debug.print("Encountered a yaml parsing error: {s}\nLine: {d} Column: {d}\n", .{
+                debug.print("Encountered a yaml parsing error: {s}\nLine: {d} Column: {d}\n", .{
                     parser.problem,
                     parser.problem_mark.line + 1,
                     parser.problem_mark.column + 1,
@@ -517,6 +520,7 @@ const PageSource = struct {
     dir_handle: ?fs.Dir = null,
     dir_iterator: ?fs.Dir.Iterator = null,
 
+    // Can hold up to 1024 directory handles
     buf: [1024 * @sizeOf(fs.Dir)]u8 = undefined,
     fba: heap.FixedBufferAllocator = undefined,
     dir_queue: ?std.ArrayList(fs.Dir) = undefined,
@@ -589,7 +593,6 @@ const PageSource = struct {
                 // TODO in wasmtime if no directories are mounted, the module panics
                 var root = try fs.cwd().openDir(self.root, .{});
                 defer root.close();
-                std.debug.print("Trying to open ({s})/({s})\n", .{ self.root, self.subpath });
                 self.dir_handle = try root.openDir(self.subpath, .{ .iterate = true });
             }
         }
