@@ -20,6 +20,113 @@ pub fn build(b: *std.Build) void {
 
     const clap = b.dependency("clap", .{ .target = target, .optimize = optimize });
 
+    const c_mod = c: {
+        const yaml_src = b.dependency("yaml-src", .{});
+        const quickjs_src = b.dependency("quickjs-src", .{});
+
+        const wf = b.addWriteFiles();
+
+        const c = b.addTranslateC(.{
+            .root_source_file = wf.add(
+                "c.h",
+                \\#include <yaml.h>
+                \\#include <quickjs.h>
+                ,
+            ),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+
+        c.step.dependOn(&wf.step);
+
+        // TODO Not sure why I have to do both addIncludeDir (for
+        // the translate_c step) and addIncludePath (for the C
+        // source files) -- is there a way to get them both to
+        // look in the same place?
+        // TODO `getPath` is intended to be used during the make
+        // phase only - is there a better way to `addIncludeDir`
+        // when pointing to a dependency path?
+        c.addIncludeDir(yaml_src.path("include").getPath(b));
+        c.addIncludeDir(quickjs_src.path(".").getPath(b));
+
+        _ = wf.add(
+            "config.h",
+            \\#define YAML_VERSION_STRING "0.2.5"
+            \\#define YAML_VERSION_MAJOR 0
+            \\#define YAML_VERSION_MINOR 2
+            \\#define YAML_VERSION_PATCH 5
+            ,
+        );
+        inline for (&.{
+            "yaml.h",
+        }) |filename| {
+            _ = wf.addCopyFile(
+                yaml_src.path("include/" ++ filename),
+                filename,
+            );
+        }
+        inline for (&.{
+            "yaml_private.h",
+        }) |filename| {
+            _ = wf.addCopyFile(
+                yaml_src.path("src/" ++ filename),
+                filename,
+            );
+        }
+        const c_source_files = &.{
+            "parser.c",
+            "scanner.c",
+            "reader.c",
+            "api.c",
+        };
+        inline for (c_source_files) |filename| {
+            _ = wf.addCopyFile(
+                yaml_src.path("src/" ++ filename),
+                filename,
+            );
+        }
+
+        const qjs_wf = b.addWriteFiles();
+        c.step.dependOn(&qjs_wf.step);
+        inline for (&.{
+            "quickjs.h",
+        }) |filename| {
+            _ = qjs_wf.addCopyFile(
+                quickjs_src.path(filename),
+                filename,
+            );
+        }
+        const qjs_c_source_files = &.{};
+        inline for (qjs_c_source_files) |filename| {
+            _ = qjs_wf.addCopyFile(
+                quickjs_src.path(filename),
+                filename,
+            );
+        }
+
+        const mod = c.createModule();
+
+        mod.addIncludePath(wf.getDirectory());
+        mod.addCSourceFiles(.{
+            .root = wf.getDirectory(),
+            .files = c_source_files,
+            .flags = &.{
+                "-std=gnu99",
+                "-DHAVE_CONFIG_H",
+            },
+        });
+
+        mod.addIncludePath(qjs_wf.getDirectory());
+        mod.addCSourceFiles(.{
+            .root = qjs_wf.getDirectory(),
+            .files = qjs_c_source_files,
+            .flags = &.{},
+        });
+
+        break :c mod;
+    };
+
     const exe = b.addExecutable(.{
         .name = "nu-builder",
         .root_source_file = b.path("src/main.zig"),
@@ -27,7 +134,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     exe.linkLibC();
-    yaml.addCSourceFiles(b, exe, "lib/yaml", target, optimize);
+    exe.root_module.addImport("c", c_mod);
     exe.root_module.addImport("tracy", tracy.module("tracy"));
     exe.root_module.addImport("clap", clap.module("clap"));
     exe.linkLibrary(tracy.artifact("tracy"));
@@ -40,7 +147,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     exe_unit_tests.linkLibC();
-    yaml.addCSourceFiles(b, exe_unit_tests, "lib/yaml", target, optimize);
+    exe_unit_tests.root_module.addImport("c", c_mod);
     exe_unit_tests.root_module.addImport("tracy", tracy.module("tracy"));
     exe_unit_tests.root_module.addImport("clap", clap.module("clap"));
     exe_unit_tests.linkLibrary(tracy.artifact("tracy"));
@@ -53,14 +160,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     exe_check.linkLibC();
-    yaml.addCSourceFiles(b, exe_check, "lib/yaml", target, optimize);
+    exe_check.root_module.addImport("c", c_mod);
     exe_check.root_module.addImport("tracy", tracy.module("tracy"));
     exe_check.root_module.addImport("clap", clap.module("clap"));
     exe_check.linkLibrary(tracy.artifact("tracy"));
     if (tracy_enable) exe_check.linkLibCpp();
 
     const benchmark_site_files = b.addWriteFiles();
-    for (0..50_000) |i| {
+    for (0..1_000) |i| {
         _ = benchmark_site_files.add(
             b.fmt("pages/page-{d}.md", .{i}),
             b.fmt(
@@ -104,67 +211,3 @@ pub fn build(b: *std.Build) void {
     const check_step = b.step("check", "Check the Zig code");
     check_step.dependOn(&exe_check.step);
 }
-
-const yaml = struct {
-    pub fn addCSourceFiles(b: *std.Build, compile: *std.Build.Step.Compile, comptime lib_root: []const u8, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
-        const wf = b.addWriteFiles();
-
-        _ = wf.add(
-            "config.h",
-            \\#define YAML_VERSION_STRING "0.2.5"
-            \\#define YAML_VERSION_MAJOR 0
-            \\#define YAML_VERSION_MINOR 2
-            \\#define YAML_VERSION_PATCH 5
-            ,
-        );
-        inline for (&.{
-            "yaml_private.h",
-        }) |filename| {
-            _ = wf.addCopyFile(
-                b.path(lib_root ++ "/src/" ++ filename),
-                filename,
-            );
-        }
-        const c_source_files = &.{
-            "parser.c",
-            "scanner.c",
-            "reader.c",
-            "api.c",
-        };
-        inline for (c_source_files) |filename| {
-            _ = wf.addCopyFile(
-                b.path(lib_root ++ "/src/" ++ filename),
-                filename,
-            );
-        }
-
-        const c = b.addTranslateC(.{
-            .root_source_file = wf.add(
-                "c.h",
-                \\#include <yaml.h>
-                ,
-            ),
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        });
-        // TODO Not sure why I have to do both addIncludeDir (for
-        // the translate_c step) and addIncludePath (for the C
-        // source files) -- is there a way to get them both to
-        // look in the same place?
-        c.addIncludeDir(lib_root ++ "/include");
-
-        const mod = c.createModule();
-        mod.addIncludePath(b.path(lib_root ++ "/include"));
-        mod.addCSourceFiles(.{
-            .root = wf.getDirectory(),
-            .files = c_source_files,
-            .flags = &.{
-                "-std=gnu99",
-                "-DHAVE_CONFIG_H",
-            },
-        });
-
-        compile.root_module.addImport("c", mod);
-    }
-};
