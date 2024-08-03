@@ -24,10 +24,8 @@ pub fn build(b: *std.Build) void {
         const yaml_src = b.dependency("yaml-src", .{});
         const quickjs_src = b.dependency("quickjs-src", .{});
 
-        const wf = b.addWriteFiles();
-
         const c = b.addTranslateC(.{
-            .root_source_file = wf.add(
+            .root_source_file = b.addWriteFiles().add(
                 "c.h",
                 \\#include <yaml.h>
                 \\#include <quickjs.h>
@@ -38,91 +36,107 @@ pub fn build(b: *std.Build) void {
             .link_libc = true,
         });
 
-        c.step.dependOn(&wf.step);
-
-        // TODO Not sure why I have to do both addIncludeDir (for
-        // the translate_c step) and addIncludePath (for the C
-        // source files) -- is there a way to get them both to
-        // look in the same place?
-        // TODO `getPath` is intended to be used during the make
-        // phase only - is there a better way to `addIncludeDir`
-        // when pointing to a dependency path?
-        c.addIncludeDir(yaml_src.path("include").getPath(b));
-        c.addIncludeDir(quickjs_src.path(".").getPath(b));
-
-        _ = wf.add(
-            "config.h",
-            \\#define YAML_VERSION_STRING "0.2.5"
-            \\#define YAML_VERSION_MAJOR 0
-            \\#define YAML_VERSION_MINOR 2
-            \\#define YAML_VERSION_PATCH 5
-            ,
-        );
-        inline for (&.{
-            "yaml.h",
-        }) |filename| {
-            _ = wf.addCopyFile(
-                yaml_src.path("include/" ++ filename),
-                filename,
-            );
-        }
-        inline for (&.{
-            "yaml_private.h",
-        }) |filename| {
-            _ = wf.addCopyFile(
-                yaml_src.path("src/" ++ filename),
-                filename,
-            );
-        }
-        const c_source_files = &.{
-            "parser.c",
-            "scanner.c",
-            "reader.c",
-            "api.c",
-        };
-        inline for (c_source_files) |filename| {
-            _ = wf.addCopyFile(
-                yaml_src.path("src/" ++ filename),
-                filename,
-            );
-        }
-
-        const qjs_wf = b.addWriteFiles();
-        c.step.dependOn(&qjs_wf.step);
-        inline for (&.{
-            "quickjs.h",
-        }) |filename| {
-            _ = qjs_wf.addCopyFile(
-                quickjs_src.path(filename),
-                filename,
-            );
-        }
-        const qjs_c_source_files = &.{};
-        inline for (qjs_c_source_files) |filename| {
-            _ = qjs_wf.addCopyFile(
-                quickjs_src.path(filename),
-                filename,
-            );
-        }
-
         const mod = c.createModule();
 
-        mod.addIncludePath(wf.getDirectory());
-        mod.addCSourceFiles(.{
-            .root = wf.getDirectory(),
-            .files = c_source_files,
-            .flags = &.{
-                "-std=gnu99",
-                "-DHAVE_CONFIG_H",
-            },
-        });
+        {
+            const wf = b.addWriteFiles();
+            c.step.dependOn(&wf.step);
 
-        mod.addIncludePath(qjs_wf.getDirectory());
-        mod.addCSourceFiles(.{
-            .root = qjs_wf.getDirectory(),
-            .files = qjs_c_source_files,
-            .flags = &.{},
-        });
+            _ = wf.add(
+                "config.h",
+                \\#define YAML_VERSION_STRING "0.2.5"
+                \\#define YAML_VERSION_MAJOR 0
+                \\#define YAML_VERSION_MINOR 2
+                \\#define YAML_VERSION_PATCH 5
+                ,
+            );
+            inline for (&.{
+                "yaml.h",
+            }) |filename| {
+                _ = wf.addCopyFile(
+                    yaml_src.path("include/" ++ filename),
+                    filename,
+                );
+            }
+            inline for (&.{
+                "yaml_private.h",
+            }) |filename| {
+                _ = wf.addCopyFile(
+                    yaml_src.path("src/" ++ filename),
+                    filename,
+                );
+            }
+
+            // TODO Not sure why I have to do both addIncludeDir (for
+            // the translate_c step) and addIncludePath (for the C
+            // source files) -- is there a way to get them both to
+            // look in the same place?
+            // TODO `getPath` is intended to be used during the make
+            // phase only - is there a better way to `addIncludeDir`
+            // when pointing to a dependency path?
+            c.addIncludeDir(yaml_src.path("include").getPath(b));
+            mod.addIncludePath(wf.getDirectory());
+
+            const c_source_files = &.{
+                "parser.c",
+                "scanner.c",
+                "reader.c",
+                "api.c",
+            };
+            inline for (c_source_files) |filename| {
+                _ = wf.addCopyFile(
+                    yaml_src.path("src/" ++ filename),
+                    filename,
+                );
+            }
+
+            mod.addCSourceFiles(.{
+                .root = wf.getDirectory(),
+                .files = c_source_files,
+                .flags = &.{
+                    "-std=gnu99",
+                    "-DHAVE_CONFIG_H",
+                },
+            });
+        }
+
+        {
+            const wf = b.addWriteFiles();
+            c.step.dependOn(&wf.step);
+
+            inline for (&.{
+                "quickjs.h",
+            }) |filename| {
+                _ = wf.addCopyFile(
+                    quickjs_src.path(filename),
+                    filename,
+                );
+            }
+
+            // TODO Not sure why I have to do both addIncludeDir (for
+            // the translate_c step) and addIncludePath (for the C
+            // source files) -- is there a way to get them both to
+            // look in the same place?
+            // TODO `getPath` is intended to be used during the make
+            // phase only - is there a better way to `addIncludeDir`
+            // when pointing to a dependency path?
+            c.addIncludeDir(quickjs_src.path(".").getPath(b));
+            mod.addIncludePath(wf.getDirectory());
+
+            const c_source_files = &.{};
+            inline for (c_source_files) |filename| {
+                _ = wf.addCopyFile(
+                    quickjs_src.path(filename),
+                    filename,
+                );
+            }
+
+            mod.addCSourceFiles(.{
+                .root = wf.getDirectory(),
+                .files = c_source_files,
+                .flags = &.{},
+            });
+        }
 
         break :c mod;
     };
