@@ -288,6 +288,9 @@ pub fn main() !void {
             try file.writer().writeAll(@embedFile("style.css"));
         }
 
+        const rt: *c.JSRuntime = c.JS_NewRuntime() orelse @panic("Cannot create the QuickJS runtime");
+        defer c.JS_FreeRuntime(rt);
+
         var pages_it = page_map.iterator();
         while (pages_it.next()) |entry| {
             const zone = tracy.initZone(@src(), .{ .name = "Render Page Loop" });

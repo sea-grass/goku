@@ -105,6 +105,15 @@ pub fn build(b: *std.Build) void {
             c.step.dependOn(&wf.step);
 
             inline for (&.{
+                "libregexp-opcode.h",
+                "libunicode-table.h",
+                "quickjs-opcode.h",
+                "quickjs-atom.h",
+                "libbf.h",
+                "libunicode.h",
+                "libregexp.h",
+                "list.h",
+                "cutils.h",
                 "quickjs.h",
             }) |filename| {
                 _ = wf.addCopyFile(
@@ -123,7 +132,13 @@ pub fn build(b: *std.Build) void {
             c.addIncludeDir(quickjs_src.path(".").getPath(b));
             mod.addIncludePath(wf.getDirectory());
 
-            const c_source_files = &.{};
+            const c_source_files = &.{
+                "libbf.c",
+                "libunicode.c",
+                "libregexp.c",
+                "cutils.c",
+                "quickjs.c",
+            };
             inline for (c_source_files) |filename| {
                 _ = wf.addCopyFile(
                     quickjs_src.path(filename),
@@ -134,7 +149,25 @@ pub fn build(b: *std.Build) void {
             mod.addCSourceFiles(.{
                 .root = wf.getDirectory(),
                 .files = c_source_files,
-                .flags = &.{},
+                .flags = &.{
+                    "-g",
+                    "-Wall",
+                    "-Wextra",
+                    "-Wno-sign-compare",
+                    "-Wno-missing-field-initializers",
+                    "-Wundef",
+                    "-Wuninitialized",
+                    "-Wunused",
+                    "-Wno-unused-parameter",
+                    "-Wwrite-strings",
+                    "-Wchar-subscripts",
+                    "-funsigned-char",
+                    "-Wno-array-bounds",
+                    "-Wno-format-truncation",
+                    "-Werror",
+                    "-DCONFIG_VERSION=\"2024-02-14\"",
+                    "-DCONFIG_BIGNUM",
+                },
             });
         }
 
