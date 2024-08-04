@@ -29,6 +29,8 @@ pub fn build(b: *std.Build) void {
                 "c.h",
                 \\#include <yaml.h>
                 \\#include <quickjs.h>
+                \\#include <quickjs-libc.h>
+                \\#include <remark-bin.h>
                 ,
             ),
             .target = target,
@@ -105,6 +107,7 @@ pub fn build(b: *std.Build) void {
             c.step.dependOn(&wf.step);
 
             inline for (&.{
+                "quickjs-libc.h",
                 "libregexp-opcode.h",
                 "libunicode-table.h",
                 "quickjs-opcode.h",
@@ -133,6 +136,7 @@ pub fn build(b: *std.Build) void {
             mod.addIncludePath(wf.getDirectory());
 
             const c_source_files = &.{
+                "quickjs-libc.c",
                 "libbf.c",
                 "libunicode.c",
                 "libregexp.c",
@@ -169,6 +173,20 @@ pub fn build(b: *std.Build) void {
                     "-DCONFIG_BIGNUM",
                 },
             });
+        }
+
+        {
+            const wf = b.addWriteFiles();
+            c.step.dependOn(&wf.step);
+
+            inline for (&.{
+                "lib/remark-bin.h",
+            }) |filename| {
+                _ = wf.add(filename, @embedFile(filename));
+            }
+
+            c.addIncludeDir("lib");
+            mod.addIncludePath(wf.getDirectory());
         }
 
         break :c mod;

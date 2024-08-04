@@ -10,6 +10,27 @@ const c = @import("c");
 const tracy = @import("tracy");
 const clap = @import("clap");
 
+fn createJsContext(rt: *c.JSRuntime) !*c.JSContext {
+    const ctx: *c.JSContext = c.JS_NewContextRaw(rt) orelse return error.CouldNotCreateQuickjsContext;
+
+    c.JS_AddIntrinsicBaseObjects(ctx);
+    c.JS_AddIntrinsicDate(ctx);
+    c.JS_AddIntrinsicEval(ctx);
+    c.JS_AddIntrinsicStringNormalize(ctx);
+    c.JS_AddIntrinsicRegExp(ctx);
+    c.JS_AddIntrinsicJSON(ctx);
+    c.JS_AddIntrinsicProxy(ctx);
+    c.JS_AddIntrinsicMapSet(ctx);
+    c.JS_AddIntrinsicTypedArrays(ctx);
+    c.JS_AddIntrinsicPromise(ctx);
+    c.JS_AddIntrinsicBigInt(ctx);
+
+    _ = c.js_init_module_std(ctx, "std") orelse return error.CouldNotInitStdModule;
+    _ = c.js_init_module_os(ctx, "os") orelse return error.CouldNotInitOsModule;
+
+    return ctx;
+}
+
 // We keep a limit on messages shown at the end of the program's execution.
 // A value of 16 is an arbitrary low-enough high-enough number where I know
 // it would be too messag will be too messy to have more than 16 messages
@@ -290,6 +311,24 @@ pub fn main() !void {
 
         const rt: *c.JSRuntime = c.JS_NewRuntime() orelse @panic("Cannot create the QuickJS runtime");
         defer c.JS_FreeRuntime(rt);
+
+        const ctx = createJsContext(rt) catch @panic("Cannot create the QuickJS context");
+        defer c.JS_FreeContext(ctx);
+
+        // 64 Mo
+        //c.JS_SetMemoryLimit(rt, 0x4000000);
+        // 64 Kb
+        // Not sure what stack size is meaningful, with basic execution I get a stack overflow
+        //c.JS_SetMaxStackSize(rt, 0x200000);
+        c.JS_SetMaxStackSize(rt, 0x4000000);
+
+        //js_std_set_worker_new_context_func(JS_NewCustomContext);
+        c.js_std_init_handlers(rt);
+        c.JS_SetModuleLoaderFunc(rt, null, c.js_module_loader, null);
+        c.js_std_add_helpers(ctx, 0, null);
+        c.js_std_eval_binary(ctx, &c.qjsc_bin, c.qjsc_bin_size, 0);
+        c.js_std_loop(ctx);
+        c.js_std_free_handlers(rt);
 
         var pages_it = page_map.iterator();
         while (pages_it.next()) |entry| {
