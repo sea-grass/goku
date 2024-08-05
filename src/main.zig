@@ -28,6 +28,36 @@ fn createJsContext(rt: *c.JSRuntime) !*c.JSContext {
     _ = c.js_init_module_std(ctx, "std") orelse return error.CouldNotInitStdModule;
     _ = c.js_init_module_os(ctx, "os") orelse return error.CouldNotInitOsModule;
 
+    //_ = c.js_init_module_std(ctx, "goku") orelse return error.CouldNotInitGokuModule;
+    const goku = c.JS_NewCModule(
+        ctx,
+        "goku",
+        struct {
+            export fn init(cctx: ?*c.struct_JSContext, mm: ?*c.struct_JSModuleDef) callconv(.C) c_int {
+                var buf: [12]u8 = undefined;
+                const abuf = c.JS_NewArrayBuffer(
+                    cctx,
+                    &buf,
+                    buf.len,
+                    struct {
+                        export fn free(_: ?*c.struct_JSRuntime, _: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {}
+                    }.free,
+                    null,
+                    0,
+                );
+                if (c.JS_SetModuleExport(cctx, mm, "in", abuf) != 0) {
+                    debug.print("WhoooooopsieEE!\n", .{});
+                    return -1;
+                }
+                return 0;
+            }
+        }.init,
+    ) orelse return error.CouldNotInitGokuModule;
+
+    if (c.JS_AddModuleExport(ctx, goku, "in") != 0) {
+        return error.CouldNotAddExport;
+    }
+
     return ctx;
 }
 
@@ -315,6 +345,24 @@ pub fn main() !void {
         const ctx = createJsContext(rt) catch @panic("Cannot create the QuickJS context");
         defer c.JS_FreeContext(ctx);
 
+        const js_null: c.JSValue = .{
+            .tag = c.JS_TAG_NULL,
+            .u = .{
+                .int32 = 0,
+            },
+        };
+        const ns = c.JS_NewObjectProto(ctx, js_null);
+        _ = c.JS_DefinePropertyValueStr(
+            ctx,
+            ns,
+            "version",
+            c.JS_NewString(
+                ctx,
+                "1.1.1",
+            ),
+            c.JS_PROP_C_W_E,
+        );
+
         // 64 Mo
         //c.JS_SetMemoryLimit(rt, 0x4000000);
         // 64 Kb
@@ -324,8 +372,11 @@ pub fn main() !void {
 
         //js_std_set_worker_new_context_func(JS_NewCustomContext);
         c.js_std_init_handlers(rt);
+        defer c.js_std_free_handlers(rt);
+
         c.JS_SetModuleLoaderFunc(rt, null, c.js_module_loader, null);
         c.js_std_add_helpers(ctx, 0, null);
+
         c.js_std_eval_binary(ctx, &c.qjsc_bin, c.qjsc_bin_size, 0);
         c.js_std_loop(ctx);
         c.js_std_free_handlers(rt);
