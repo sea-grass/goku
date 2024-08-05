@@ -232,7 +232,7 @@ pub fn build(b: *std.Build) void {
     if (tracy_enable) exe_check.linkLibCpp();
 
     const benchmark_site_files = b.addWriteFiles();
-    for (0..1_000) |i| {
+    for (0..2) |i| {
         _ = benchmark_site_files.add(
             b.fmt("pages/page-{d}.md", .{i}),
             b.fmt(
