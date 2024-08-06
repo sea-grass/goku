@@ -161,8 +161,10 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("c", c_mod);
     exe.root_module.addImport("tracy", tracy.module("tracy"));
     exe.root_module.addImport("clap", clap.module("clap"));
-    exe.linkLibrary(tracy.artifact("tracy"));
-    if (tracy_enable) exe.linkLibCpp();
+    if (tracy_enable) {
+        exe.linkLibrary(tracy.artifact("tracy"));
+        exe.linkLibCpp();
+    }
     b.installArtifact(exe);
 
     const exe_unit_tests = b.addTest(.{

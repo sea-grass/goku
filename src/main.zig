@@ -159,12 +159,12 @@ pub fn main() !void {
         page_map.deinit();
     }
 
+    var page_count: u32 = 0;
+
     var page_it: PageSource = .{
         .root = site_root,
         .subpath = "pages",
     };
-
-    var page_count: u32 = 0;
     while (try page_it.next()) |page| {
         const zone = tracy.initZone(@src(), .{ .name = "Load Page from File" });
         defer zone.deinit();
@@ -620,7 +620,7 @@ const PageSource = struct {
     // Can hold up to 1024 directory handles
     buf: [1024 * @sizeOf(fs.Dir)]u8 = undefined,
     fba: heap.FixedBufferAllocator = undefined,
-    dir_queue: ?std.ArrayList(fs.Dir) = undefined,
+    dir_queue: ?std.ArrayList(fs.Dir) = null,
 
     const Entry = struct {
         dir: fs.Dir,
