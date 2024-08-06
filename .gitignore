@@ -1,1 +1,3 @@
 benchmark-build
+.zig-cache
+zig-out

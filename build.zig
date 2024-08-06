@@ -152,7 +152,7 @@ pub fn build(b: *std.Build) void {
     };
 
     const exe = b.addExecutable(.{
-        .name = "nu-builder",
+        .name = "goku",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
@@ -178,7 +178,7 @@ pub fn build(b: *std.Build) void {
     if (tracy_enable) exe_unit_tests.linkLibCpp();
 
     const exe_check = b.addExecutable(.{
-        .name = "nu-builder",
+        .name = "goku",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
@@ -231,7 +231,7 @@ pub fn build(b: *std.Build) void {
         .install_dir = .prefix,
         .install_subdir = "benchmark-site",
     });
-    const benchmark_site_step = b.step("generate-benchmark", "Generate a site dir used to benchmark nu-builder.");
+    const benchmark_site_step = b.step("generate-benchmark", "Generate a site dir used to benchmark goku.");
     benchmark_site_step.dependOn(&install.step);
 
     const run_benchmark_cmd = b.addRunArtifact(exe);
