@@ -10,14 +10,13 @@
         .clap = .{
             .path = "../../../zig-clap",
         },
-        .@"quickjs-src" = .{
-            //            .url = "https://github.com/bellard/quickjs/archive/6e2e68fd0896957f92eb6c242a2e048c1ef3cae0.tar.gz",
-            //           .hash = "1220d49e57fc131eebbf4b09fb100f5d802b909d2f36e15d2d849a72f354cd24489d",
-            .path = "../../../quickjs",
-        },
         .@"yaml-src" = .{
             .url = "https://github.com/yaml/libyaml/archive/2c891fc7a770e8ba2fec34fc6b545c672beb37e6.tar.gz",
             .hash = "12200c4021cb16ecdf8d3707098ff694e140c9f92cbd76bb1f30cba84965eab34db6",
+        },
+        .@"md4c-src" = .{
+            .url = "https://github.com/mity/md4c/archive/refs/tags/release-0.5.2.tar.gz",
+            .hash = "1220251028e2f8c9b08684c3a3fe1aa320751e48154ad57ebdf86857dbceeb25cbb5",
         },
     },
 

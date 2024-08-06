@@ -1,97 +1,15 @@
 const std = @import("std");
-const heap = std.heap;
-const process = std.process;
-const io = std.io;
-const fs = std.fs;
-const mem = std.mem;
 const debug = std.debug;
+const fs = std.fs;
+const heap = std.heap;
+const io = std.io;
+const math = std.math;
+const mem = std.mem;
+const process = std.process;
 const time = std.time;
 const c = @import("c");
 const tracy = @import("tracy");
 const clap = @import("clap");
-
-const UserContext = struct {
-    tracing_allocator: *tracy.TracingAllocator,
-
-    pub fn init(tracing_allocator: *tracy.TracingAllocator) UserContext {
-        return .{
-            .tracing_allocator = tracing_allocator,
-        };
-    }
-
-    pub fn allocator(self: UserContext) mem.Allocator {
-        return self.tracing_allocator.allocator();
-    }
-};
-
-fn createJsContext(rt: *c.JSRuntime) !*c.JSContext {
-    const ctx: *c.JSContext = c.JS_NewContextRaw(rt) orelse return error.CouldNotCreateQuickjsContext;
-
-    c.JS_AddIntrinsicBaseObjects(ctx);
-    c.JS_AddIntrinsicDate(ctx);
-    c.JS_AddIntrinsicEval(ctx);
-    c.JS_AddIntrinsicStringNormalize(ctx);
-    c.JS_AddIntrinsicRegExp(ctx);
-    c.JS_AddIntrinsicJSON(ctx);
-    c.JS_AddIntrinsicProxy(ctx);
-    c.JS_AddIntrinsicMapSet(ctx);
-    c.JS_AddIntrinsicTypedArrays(ctx);
-    c.JS_AddIntrinsicPromise(ctx);
-    c.JS_AddIntrinsicBigInt(ctx);
-
-    const goku = c.JS_NewCModule(
-        ctx,
-        "goku",
-        struct {
-            export fn init(cctx: ?*c.struct_JSContext, mm: ?*c.struct_JSModuleDef) callconv(.C) c_int {
-                const rrt = c.JS_GetRuntime(cctx);
-                const rt_opaque = c.JS_GetRuntimeOpaque(rrt);
-                debug.assert(rt_opaque != null);
-                const user_ctx: *UserContext = @ptrCast(
-                    @alignCast(
-                        rt_opaque,
-                    ),
-                );
-                debug.print("Acquiring allocator from {any}\n", .{user_ctx.tracing_allocator.allocator()});
-                const allocator = user_ctx.allocator();
-                const stuff = allocator.alloc(u8, 1) catch |err| {
-                    debug.print("Could not allocate data: {any}\n", .{err});
-                    @panic("whooppsie");
-                };
-                defer allocator.free(stuff);
-                debug.print("Ally?? {any}\n", .{stuff});
-
-                var buf: [12]u8 = undefined;
-                const abuf = c.JS_NewArrayBuffer(
-                    cctx,
-                    &buf,
-                    buf.len,
-                    struct {
-                        export fn free_func(_rt: ?*c.JSRuntime, opaque_val: ?*anyopaque, data: ?*anyopaque) callconv(.C) void {
-                            debug.assert(_rt != null);
-
-                            debug.assert(opaque_val == null);
-                            debug.print("Calling free on the abuf {any}\n", .{data});
-                        }
-                    }.free_func,
-                    null,
-                    0,
-                );
-                if (c.JS_SetModuleExport(cctx, mm, "in", abuf) != 0) {
-                    debug.print("WhoooooopsieEE!\n", .{});
-                    return -1;
-                }
-                return 0;
-            }
-        }.init,
-    ) orelse return error.CouldNotInitGokuModule;
-
-    if (c.JS_AddModuleExport(ctx, goku, "in") != 0) {
-        return error.CouldNotAddExport;
-    }
-
-    return ctx;
-}
 
 // We keep a limit on messages shown at the end of the program's execution.
 // A value of 16 is an arbitrary low-enough high-enough number where I know
@@ -424,7 +342,7 @@ pub fn main() !void {
                         \\<!doctype html><html><head>
                     );
                     try html_buf.writeAll(
-                        \\<link rel="stylesheet" lang="text/css" href="style.css" />
+                        \\<link rel="stylesheet" lang="text/css" href="/style.css" />
                     );
                     try html_buf.writeAll("</head><body><div class=\"page\">");
                 }
@@ -442,33 +360,36 @@ pub fn main() !void {
 
                 {
                     try html_buf.writeAll("<main><a href=\"#main-content\" id=\"main-content\" tabindex=\"-1\"></a>");
-                    try html_buf.writeAll(mem.trim(u8, entry.value_ptr.*.markdown.data, " \n"));
+
+                    // TODO come up with something more reasonable here
+                    var buffer = std.ArrayList(u8).init(unlimited_allocator);
+                    defer buffer.deinit();
                     {
-                        const rt: *c.JSRuntime = c.JS_NewRuntime() orelse @panic("Cannot create the QuickJS runtime");
-                        defer c.JS_FreeRuntime(rt);
+                        const P = struct {
+                            export fn process_output(out_buf: [*c]const u8, len: c_uint, user_data: ?*anyopaque) callconv(.C) void {
+                                const d = out_buf[0..len];
+                                const buffer_ptr: *std.ArrayList(u8) = @ptrCast(@alignCast(user_data));
+                                buffer_ptr.*.appendSlice(d) catch {
+                                    debug.print("Could not append markdown processing result to buffer.\n", .{});
+                                    @panic("Markdown processing error.");
+                                };
+                            }
+                        };
 
-                        const ctx = createJsContext(rt) catch @panic("Cannot create the QuickJS context");
-                        defer c.JS_FreeContext(ctx);
+                        const result = c.md_html(
+                            @ptrCast(entry.value_ptr.*.markdown.data),
+                            math.lossyCast(c_uint, entry.value_ptr.*.markdown.data.len),
+                            P.process_output,
+                            &buffer,
+                            0,
+                            0,
+                        );
 
-                        var user_ctx = UserContext.init(&tracy_allocator);
-                        c.JS_SetRuntimeOpaque(rt, &user_ctx);
+                        if (result != 0) {
+                            return error.CouldNotTransformMarkdown;
+                        }
 
-                        // 64 Mo
-                        //c.JS_SetMemoryLimit(rt, 0x4000000);
-                        // 64 Kb
-                        // Not sure what stack size is meaningful, with basic execution I get a stack overflow
-                        //c.JS_SetMaxStackSize(rt, 0x200000);
-                        c.JS_SetMaxStackSize(rt, 0x4000000);
-
-                        //js_std_set_worker_new_context_func(JS_NewCustomContext);
-                        c.js_std_init_handlers(rt);
-                        defer c.js_std_free_handlers(rt);
-
-                        c.JS_SetModuleLoaderFunc(rt, null, c.js_module_loader, null);
-                        c.js_std_add_helpers(ctx, 0, null);
-
-                        c.js_std_eval_binary(ctx, &c.qjsc_bin, c.qjsc_bin_size, 0);
-                        c.js_std_loop(ctx);
+                        try html_buf.writeAll(buffer.items);
                     }
 
                     try html_buf.writeAll("</main>");
@@ -479,7 +400,7 @@ pub fn main() !void {
                         \\</div>
                     );
 
-                    try html_buf.writeAll("<script defer src=\"htmx.js\"></script>");
+                    try html_buf.writeAll("<script defer src=\"/htmx.js\"></script>");
 
                     try html_buf.writeAll(
                         \\</body></html>

@@ -22,15 +22,13 @@ pub fn build(b: *std.Build) void {
 
     const c_mod = c: {
         const yaml_src = b.dependency("yaml-src", .{});
-        const quickjs_src = b.dependency("quickjs-src", .{});
+        const md4c_src = b.dependency("md4c-src", .{});
 
         const c = b.addTranslateC(.{
             .root_source_file = b.addWriteFiles().add(
                 "c.h",
                 \\#include <yaml.h>
-                \\#include <quickjs.h>
-                \\#include <quickjs-libc.h>
-                \\#include <remark-bin.h>
+                \\#include <md4c-html.h>
                 ,
             ),
             .target = target,
@@ -107,20 +105,12 @@ pub fn build(b: *std.Build) void {
             c.step.dependOn(&wf.step);
 
             inline for (&.{
-                "quickjs-libc.h",
-                "libregexp-opcode.h",
-                "libunicode-table.h",
-                "quickjs-opcode.h",
-                "quickjs-atom.h",
-                "libbf.h",
-                "libunicode.h",
-                "libregexp.h",
-                "list.h",
-                "cutils.h",
-                "quickjs.h",
+                "entity.h",
+                "md4c.h",
+                "md4c-html.h",
             }) |filename| {
                 _ = wf.addCopyFile(
-                    quickjs_src.path(filename),
+                    md4c_src.path("src/" ++ filename),
                     filename,
                 );
             }
@@ -132,20 +122,17 @@ pub fn build(b: *std.Build) void {
             // TODO `getPath` is intended to be used during the make
             // phase only - is there a better way to `addIncludeDir`
             // when pointing to a dependency path?
-            c.addIncludeDir(quickjs_src.path(".").getPath(b));
+            c.addIncludeDir(md4c_src.path("src").getPath(b));
             mod.addIncludePath(wf.getDirectory());
 
             const c_source_files = &.{
-                "quickjs-libc.c",
-                "libbf.c",
-                "libunicode.c",
-                "libregexp.c",
-                "cutils.c",
-                "quickjs.c",
+                "entity.c",
+                "md4c.c",
+                "md4c-html.c",
             };
             inline for (c_source_files) |filename| {
                 _ = wf.addCopyFile(
-                    quickjs_src.path(filename),
+                    md4c_src.path("src/" ++ filename),
                     filename,
                 );
             }
@@ -154,39 +141,11 @@ pub fn build(b: *std.Build) void {
                 .root = wf.getDirectory(),
                 .files = c_source_files,
                 .flags = &.{
-                    "-g",
                     "-Wall",
                     "-Wextra",
-                    "-Wno-sign-compare",
-                    "-Wno-missing-field-initializers",
-                    "-Wundef",
-                    "-Wuninitialized",
-                    "-Wunused",
-                    "-Wno-unused-parameter",
-                    "-Wwrite-strings",
-                    "-Wchar-subscripts",
-                    "-funsigned-char",
-                    "-Wno-array-bounds",
-                    "-Wno-format-truncation",
-                    "-Werror",
-                    "-DCONFIG_VERSION=\"2024-02-14\"",
-                    "-DCONFIG_BIGNUM",
+                    "-Wshadow",
                 },
             });
-        }
-
-        {
-            const wf = b.addWriteFiles();
-            c.step.dependOn(&wf.step);
-
-            inline for (&.{
-                "lib/remark-bin.h",
-            }) |filename| {
-                _ = wf.add(filename, @embedFile(filename));
-            }
-
-            c.addIncludeDir("lib");
-            mod.addIncludePath(wf.getDirectory());
         }
 
         break :c mod;
@@ -232,17 +191,37 @@ pub fn build(b: *std.Build) void {
     if (tracy_enable) exe_check.linkLibCpp();
 
     const benchmark_site_files = b.addWriteFiles();
-    for (0..2) |i| {
+    _ = benchmark_site_files.add(
+        "pages/home-page.md",
+        \\---
+        \\id: home
+        \\slug: /
+        \\title: Home Page
+        \\---
+        \\
+        \\ # Home
+        \\
+        \\ This is the home page.
+        ,
+    );
+    for (0..10) |i| {
         _ = benchmark_site_files.add(
             b.fmt("pages/page-{d}.md", .{i}),
             b.fmt(
                 \\---
                 \\id: page-{d}
                 \\slug: /page-{d}
+                \\title: Hello, world {d}
                 \\---
-                \\<p>Page content</p>
+                \\
+                \\# Hello, world {d}
+                \\
+                \\
+                \\This is a paragraph with some **bolded** content.
+                \\
+                \\Check out the [home page](/).
             ,
-                .{ i, i },
+                .{ i, i, i, i },
             ),
         );
     }
