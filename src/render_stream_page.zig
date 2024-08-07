@@ -4,7 +4,7 @@ const mem = std.mem;
 const Markdown = @import("Markdown.zig");
 const Page = @import("page.zig").Page;
 
-pub fn processStreamPage(allocator: mem.Allocator, page: Page, writer: anytype) !void {
+pub fn renderStreamPage(allocator: mem.Allocator, page: Page, writer: anytype) !void {
     var html_buffer = io.bufferedWriter(writer);
     const html_buf = html_buffer.writer();
 
