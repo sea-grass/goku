@@ -48,13 +48,35 @@ const PageHashMap = struct {
     }
 
     pub fn deinit(self: *PageHashMap) void {
-        var it = self.map.iterator();
+        var it = self.iterator();
         while (it.next()) |entry| {
             self.map.allocator.free(entry.key_ptr.*);
             self.map.allocator.free(entry.value_ptr.*.markdown.frontmatter);
             self.map.allocator.free(entry.value_ptr.*.markdown.data);
         }
         self.map.deinit();
+    }
+
+    pub fn putCopy(self: *PageHashMap, slug: []const u8, frontmatter: []const u8, markdown: []const u8) !void {
+        try self.map.put(
+            try self.map.allocator.dupe(u8, slug),
+            .{
+                .markdown = .{
+                    .frontmatter = try self.map.allocator.dupe(u8, frontmatter),
+                    .data = try self.map.allocator.dupe(u8, markdown),
+                },
+            },
+        );
+    }
+
+    pub const Iterator = std.StringHashMap(Page).Iterator;
+    pub fn iterator(self: *PageHashMap) Iterator {
+        return self.map.iterator();
+    }
+
+    pub const Size = std.StringHashMap(Page).Size;
+    pub fn count(self: PageHashMap) Size {
+        return self.map.count();
     }
 };
 
@@ -156,6 +178,9 @@ pub fn main() !void {
 
     var page_count: u32 = 0;
 
+    var page_load_allocator = heap.ArenaAllocator.init(unlimited_allocator);
+    defer page_load_allocator.deinit();
+
     var page_it: PageSource = .{
         .root = site_root,
         .subpath = "pages",
@@ -186,27 +211,20 @@ pub fn main() !void {
         const frontmatter = code_fence_result.within;
         const markdown = code_fence_result.after;
 
-        const data = try PageData.fromYamlString(unlimited_allocator, @ptrCast(frontmatter), frontmatter.len);
-        defer data.deinit(unlimited_allocator);
+        const allocator = page_load_allocator.allocator();
+        const data = try PageData.fromYamlString(allocator, @ptrCast(frontmatter), frontmatter.len);
+        defer data.deinit(allocator);
 
-        try page_map.map.put(
-            try page_map.map.allocator.dupe(u8, data.slug),
-            .{
-                .markdown = .{
-                    .frontmatter = try page_map.map.allocator.dupe(u8, frontmatter),
-                    .data = try page_map.map.allocator.dupe(u8, markdown),
-                },
-            },
-        );
+        try page_map.putCopy(data.slug, frontmatter, markdown);
 
         page_count += 1;
         tracy.plot(u32, "Discovered Page Count", page_count);
     }
 
-    debug.assert(page_count == page_map.map.count());
+    debug.assert(page_count == page_map.count());
 
     defer debug.print("Discovered ({d}) pages.", .{
-        page_map.map.count(),
+        page_map.count(),
     });
 
     {
@@ -231,10 +249,10 @@ pub fn main() !void {
             try file_buf.writer().writeAll(html_sitemap_preamble);
 
             {
-                var pages_it = page_map.map.iterator();
+                var pages_it = page_map.iterator();
                 var i: usize = 0;
                 while (pages_it.next()) |entry| {
-                    debug.assert(i < page_map.map.count());
+                    debug.assert(i < page_map.count());
 
                     defer i += 1;
 
@@ -284,19 +302,29 @@ pub fn main() !void {
             try file.writer().writeAll(@embedFile("assets/style.css"));
         }
 
-        var pages_it = page_map.map.iterator();
+        // We create an arena allocator for processing the pages. To avoid
+        // allocating/freeing memory at the start/end of each page render,
+        // we let the memory grow according to the maximum needs of a page
+        // and keep it around until we're done rendering.
+        var page_buf_allocator = heap.ArenaAllocator.init(unlimited_allocator);
+        defer page_buf_allocator.deinit();
+
+        var pages_it = page_map.iterator();
         while (pages_it.next()) |entry| {
             const zone = tracy.initZone(@src(), .{ .name = "Render Page Loop" });
             defer zone.deinit();
 
+            var this_page_allocator = heap.ArenaAllocator.init(page_buf_allocator.allocator());
+            defer this_page_allocator.deinit();
+
             const data = try PageData.fromYamlString(
-                unlimited_allocator,
+                this_page_allocator.allocator(),
                 @ptrCast(
                     entry.value_ptr.*.markdown.frontmatter,
                 ),
                 entry.value_ptr.*.markdown.frontmatter.len,
             );
-            defer data.deinit(unlimited_allocator);
+            defer data.deinit(this_page_allocator.allocator());
 
             const slug = data.slug;
 
@@ -328,12 +356,15 @@ pub fn main() !void {
             };
             defer file.close();
 
+            var html_buffer = io.bufferedWriter(file.writer());
+
             try renderStreamPage(
-                // TODO come up with something more reasonable here
-                unlimited_allocator,
+                this_page_allocator.allocator(),
                 entry.value_ptr.*,
-                file.writer(),
+                html_buffer.writer(),
             );
+
+            try html_buffer.flush();
         }
     }
 

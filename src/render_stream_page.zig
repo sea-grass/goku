@@ -4,21 +4,17 @@ const mem = std.mem;
 const Markdown = @import("Markdown.zig");
 const Page = @import("page.zig").Page;
 
+// Write `page` as an html document to the `writer`.
 pub fn renderStreamPage(allocator: mem.Allocator, page: Page, writer: anytype) !void {
-    var html_buffer = io.bufferedWriter(writer);
-    const html_buf = html_buffer.writer();
-
-    try writeHead(html_buf);
-    try writeNav(html_buf);
-    try writeMeta(page.markdown.frontmatter, html_buf);
+    try writeHead(writer);
+    try writeNav(writer);
+    try writeMeta(page.markdown.frontmatter, writer);
     try writeMain(
         allocator,
         page.markdown.data,
-        html_buf,
+        writer,
     );
-    try writePostamble(html_buf);
-
-    try html_buffer.flush();
+    try writePostamble(writer);
 }
 
 fn writeHead(writer: anytype) !void {
