@@ -3,6 +3,7 @@ const debug = std.debug;
 const fs = std.fs;
 const heap = std.heap;
 const io = std.io;
+const math = std.math;
 const mem = std.mem;
 const process = std.process;
 const time = std.time;
@@ -13,6 +14,7 @@ const PageData = @import("PageData.zig");
 const PageSource = @import("PageSource.zig");
 const parseCodeFence = @import("parse_code_fence.zig").parseCodeFence;
 const renderStreamPage = @import("render_stream_page.zig").renderStreamPage;
+const sqlite = @import("sqlite");
 
 const size_of_alice_txt = 1189000;
 
@@ -37,48 +39,6 @@ const sitemap_url_title_len_max = 256;
 const http_uri_len_max = 2000;
 const sitemap_item_surround = "<li><a href=\"\"></a></li>";
 const html_sitemap_item_size_max = sitemap_item_surround.len + http_uri_len_max + sitemap_url_title_len_max;
-
-const PageHashMap = struct {
-    map: std.StringHashMap(Page),
-
-    pub fn init(allocator: mem.Allocator) PageHashMap {
-        return .{
-            .map = std.StringHashMap(Page).init(allocator),
-        };
-    }
-
-    pub fn deinit(self: *PageHashMap) void {
-        var it = self.iterator();
-        while (it.next()) |entry| {
-            self.map.allocator.free(entry.key_ptr.*);
-            self.map.allocator.free(entry.value_ptr.*.markdown.frontmatter);
-            self.map.allocator.free(entry.value_ptr.*.markdown.data);
-        }
-        self.map.deinit();
-    }
-
-    pub fn putCopy(self: *PageHashMap, slug: []const u8, frontmatter: []const u8, markdown: []const u8) !void {
-        try self.map.put(
-            try self.map.allocator.dupe(u8, slug),
-            .{
-                .markdown = .{
-                    .frontmatter = try self.map.allocator.dupe(u8, frontmatter),
-                    .data = try self.map.allocator.dupe(u8, markdown),
-                },
-            },
-        );
-    }
-
-    pub const Iterator = std.StringHashMap(Page).Iterator;
-    pub fn iterator(self: *PageHashMap) Iterator {
-        return self.map.iterator();
-    }
-
-    pub const Size = std.StringHashMap(Page).Size;
-    pub fn count(self: PageHashMap) Size {
-        return self.map.count();
-    }
-};
 
 pub fn main() !void {
     const start = time.milliTimestamp();
@@ -173,8 +133,30 @@ pub fn main() !void {
 
     defer debug.print("Site Root {s} -> Out Dir {s}\n", .{ site_root, out_dir_path });
 
-    var page_map = PageHashMap.init(unlimited_allocator);
-    defer page_map.deinit();
+    var db = try sqlite.Db.init(.{
+        .mode = .Memory,
+        .open_flags = .{ .write = true, .create = true },
+        .threading_mode = .MultiThread,
+    });
+    defer db.deinit();
+
+    {
+        const create_table =
+            \\CREATE TABLE pages(slug TEXT, title TEXT, filepath TEXT);
+        ;
+
+        var stmt = try db.prepare(create_table);
+        defer stmt.deinit();
+
+        try stmt.exec(.{}, .{});
+    }
+
+    const insert_page =
+        \\INSERT INTO pages(slug, title, filepath) VALUES (?, ?, ?);
+    ;
+    var prepare_diags: sqlite.Diagnostics = .{};
+    var stmt = try db.prepareWithDiags(insert_page, .{ .diags = &prepare_diags });
+    defer stmt.deinit();
 
     var page_count: u32 = 0;
 
@@ -209,23 +191,28 @@ pub fn main() !void {
 
         const code_fence_result = parseCodeFence(buf.items) orelse return error.MissingFrontmatter;
         const frontmatter = code_fence_result.within;
-        const markdown = code_fence_result.after;
 
         const allocator = page_load_allocator.allocator();
         const data = try PageData.fromYamlString(allocator, @ptrCast(frontmatter), frontmatter.len);
         defer data.deinit(allocator);
 
-        try page_map.putCopy(data.slug, frontmatter, markdown);
+        var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
+        try db.execAlloc(
+            unlimited_allocator,
+
+            \\INSERT INTO pages(slug, title, filepath) VALUES (?, ?, ?);
+        ,
+            .{},
+            .{
+                data.slug,
+                data.title orelse "(missing title)",
+                try page.realpath(&filepath_buf),
+            },
+        );
 
         page_count += 1;
         tracy.plot(u32, "Discovered Page Count", page_count);
     }
-
-    debug.assert(page_count == page_map.count());
-
-    defer debug.print("Discovered ({d}) pages.", .{
-        page_map.count(),
-    });
 
     {
         const write_output_zone = tracy.initZone(@src(), .{ .name = "Write Site to Output Dir" });
@@ -249,36 +236,30 @@ pub fn main() !void {
             try file_buf.writer().writeAll(html_sitemap_preamble);
 
             {
-                var pages_it = page_map.iterator();
-                var i: usize = 0;
-                while (pages_it.next()) |entry| {
-                    debug.assert(i < page_map.count());
+                const get_pages =
+                    \\SELECT slug, title FROM pages;
+                ;
 
-                    defer i += 1;
+                var get_stmt = try db.prepare(get_pages);
+                defer get_stmt.deinit();
 
+                var it = try get_stmt.iterator(
+                    struct { slug: []const u8, title: []const u8 },
+                    .{},
+                );
+
+                var arena = heap.ArenaAllocator.init(unlimited_allocator);
+                defer arena.deinit();
+
+                while (try it.nextAlloc(arena.allocator(), .{})) |entry| {
                     var buffer: [html_sitemap_item_size_max]u8 = undefined;
                     var fba = heap.FixedBufferAllocator.init(&buffer);
                     var buf = std.ArrayList(u8).init(fba.allocator());
 
-                    const data = try PageData.fromYamlString(
-                        unlimited_allocator,
-                        @ptrCast(
-                            entry.value_ptr.*.markdown.frontmatter,
-                        ),
-                        entry.value_ptr.*.markdown.frontmatter.len,
-                    );
-                    defer data.deinit(unlimited_allocator);
-
-                    const title = data.title orelse "(missing title)";
-                    debug.assert(title.len < sitemap_url_title_len_max);
-
-                    const href = entry.key_ptr.*;
-                    debug.assert(href.len < http_uri_len_max);
-
                     try buf.writer().print(
                         \\<li><a href="{s}">{s}</a></li>
                     ,
-                        .{ href, title },
+                        .{ entry.slug, entry.title },
                     );
 
                     try file_buf.writer().writeAll(buf.items);
@@ -302,69 +283,91 @@ pub fn main() !void {
             try file.writer().writeAll(@embedFile("assets/style.css"));
         }
 
-        // We create an arena allocator for processing the pages. To avoid
-        // allocating/freeing memory at the start/end of each page render,
-        // we let the memory grow according to the maximum needs of a page
-        // and keep it around until we're done rendering.
-        var page_buf_allocator = heap.ArenaAllocator.init(unlimited_allocator);
-        defer page_buf_allocator.deinit();
+        {
+            // We create an arena allocator for processing the pages. To avoid
+            // allocating/freeing memory at the start/end of each page render,
+            // we let the memory grow according to the maximum needs of a page
+            // and keep it around until we're done rendering.
+            var page_buf_allocator = heap.ArenaAllocator.init(unlimited_allocator);
+            defer page_buf_allocator.deinit();
 
-        var pages_it = page_map.iterator();
-        while (pages_it.next()) |entry| {
-            const zone = tracy.initZone(@src(), .{ .name = "Render Page Loop" });
-            defer zone.deinit();
+            const get_pages =
+                \\SELECT slug, filepath FROM pages;
+            ;
 
-            var this_page_allocator = heap.ArenaAllocator.init(page_buf_allocator.allocator());
-            defer this_page_allocator.deinit();
+            var get_stmt = try db.prepare(get_pages);
+            defer get_stmt.deinit();
 
-            const data = try PageData.fromYamlString(
-                this_page_allocator.allocator(),
-                @ptrCast(
-                    entry.value_ptr.*.markdown.frontmatter,
-                ),
-                entry.value_ptr.*.markdown.frontmatter.len,
+            var it = try get_stmt.iterator(
+                struct { slug: []const u8, filepath: []const u8 },
+                .{},
             );
-            defer data.deinit(this_page_allocator.allocator());
 
-            const slug = data.slug;
+            var arena = heap.ArenaAllocator.init(unlimited_allocator);
+            defer arena.deinit();
 
-            var file_name_buffer: [fs.MAX_NAME_BYTES]u8 = undefined;
-            var file_name_fba = heap.FixedBufferAllocator.init(&file_name_buffer);
-            var file_name_buf = std.ArrayList(u8).init(file_name_fba.allocator());
+            while (try it.nextAlloc(arena.allocator(), .{})) |entry| {
+                const zone = tracy.initZone(@src(), .{ .name = "Render Page Loop" });
+                defer zone.deinit();
 
-            debug.assert(slug.len > 0);
-            debug.assert(slug[0] == '/');
-            if (slug.len > 1) {
-                debug.assert(!mem.endsWith(u8, slug, "/"));
-                try file_name_buf.appendSlice(slug);
-            }
-            try file_name_buf.appendSlice("/index.html");
+                var this_page_allocator = heap.ArenaAllocator.init(page_buf_allocator.allocator());
+                defer this_page_allocator.deinit();
 
-            const file = file: {
-                make_parent: {
-                    if (fs.path.dirname(file_name_buf.items)) |parent| {
-                        debug.assert(parent[0] == '/');
-                        if (parent.len == 1) break :make_parent;
+                const allocator = this_page_allocator.allocator();
 
-                        var dir = try out_dir.makeOpenPath(parent[1..], .{});
-                        defer dir.close();
-                        break :file try dir.createFile(fs.path.basename(file_name_buf.items), .{});
-                    }
+                const in_file = try fs.openFileAbsolute(entry.filepath, .{});
+                defer in_file.close();
+
+                const contents = try in_file.readToEndAlloc(allocator, math.maxInt(u32));
+                defer allocator.free(contents);
+
+                const result = parseCodeFence(contents) orelse return error.MalformedPageFile;
+
+                const slug = entry.slug;
+
+                var file_name_buffer: [fs.MAX_NAME_BYTES]u8 = undefined;
+                var file_name_fba = heap.FixedBufferAllocator.init(&file_name_buffer);
+                var file_name_buf = std.ArrayList(u8).init(file_name_fba.allocator());
+
+                debug.assert(slug.len > 0);
+                debug.assert(slug[0] == '/');
+                if (slug.len > 1) {
+                    debug.assert(!mem.endsWith(u8, slug, "/"));
+                    try file_name_buf.appendSlice(slug);
                 }
+                try file_name_buf.appendSlice("/index.html");
 
-                break :file try out_dir.createFile(fs.path.basename(file_name_buf.items), .{});
-            };
-            defer file.close();
+                const file = file: {
+                    make_parent: {
+                        if (fs.path.dirname(file_name_buf.items)) |parent| {
+                            debug.assert(parent[0] == '/');
+                            if (parent.len == 1) break :make_parent;
 
-            var html_buffer = io.bufferedWriter(file.writer());
+                            var dir = try out_dir.makeOpenPath(parent[1..], .{});
+                            defer dir.close();
+                            break :file try dir.createFile(fs.path.basename(file_name_buf.items), .{});
+                        }
+                    }
 
-            try renderStreamPage(
-                this_page_allocator.allocator(),
-                entry.value_ptr.*,
-                html_buffer.writer(),
-            );
+                    break :file try out_dir.createFile(fs.path.basename(file_name_buf.items), .{});
+                };
+                defer file.close();
 
-            try html_buffer.flush();
+                var html_buffer = io.bufferedWriter(file.writer());
+
+                try renderStreamPage(
+                    allocator,
+                    .{
+                        .markdown = .{
+                            .frontmatter = result.within,
+                            .data = result.after,
+                        },
+                    },
+                    html_buffer.writer(),
+                );
+
+                try html_buffer.flush();
+            }
         }
     }
 

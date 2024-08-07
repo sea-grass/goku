@@ -3,8 +3,6 @@ const debug = std.debug;
 const fs = std.fs;
 const heap = std.heap;
 
-const PageSource = @This();
-
 root: []const u8,
 subpath: []const u8,
 done: bool = false,
@@ -15,6 +13,8 @@ dir_iterator: ?fs.Dir.Iterator = null,
 buf: [1024 * @sizeOf(fs.Dir)]u8 = undefined,
 fba: heap.FixedBufferAllocator = undefined,
 dir_queue: ?std.ArrayList(fs.Dir) = null,
+
+const PageSource = @This();
 
 pub const Entry = struct {
     dir: fs.Dir,
