@@ -9,12 +9,12 @@ const process = std.process;
 const time = std.time;
 const tracy = @import("tracy");
 const clap = @import("clap");
+const sqlite = @import("sqlite");
 const Page = @import("page.zig").Page;
 const PageData = @import("PageData.zig");
 const PageSource = @import("PageSource.zig");
 const parseCodeFence = @import("parse_code_fence.zig").parseCodeFence;
 const renderStreamPage = @import("render_stream_page.zig").renderStreamPage;
-const sqlite = @import("sqlite");
 
 const size_of_alice_txt = 1189000;
 
@@ -40,6 +40,28 @@ const http_uri_len_max = 2000;
 const sitemap_item_surround = "<li><a href=\"\"></a></li>";
 const html_sitemap_item_size_max = sitemap_item_surround.len + http_uri_len_max + sitemap_url_title_len_max;
 
+const params = clap.parseParamsComptime(
+    \\-h, --help    Display this help text and exit.
+    \\<str>         The absolute or relative path to your site's source directory.
+    \\-o, --out <str>      The directory to place the generated site.
+    ,
+);
+
+fn printHelp() !void {
+    const stderr = io.getStdErr().writer();
+    try stderr.print(
+        \\Goku - A static site generator
+        \\----
+        \\Usage:
+        \\    goku -h
+        \\    goku <site_root> -o <out_dir>
+        \\
+    ,
+        .{},
+    );
+    try clap.help(stderr, clap.Help, &params, .{});
+}
+
 pub fn main() !void {
     const start = time.milliTimestamp();
     defer debug.print("Elapsed: {d}ms\n", .{time.milliTimestamp() - start});
@@ -61,12 +83,6 @@ pub fn main() !void {
     var tracy_allocator = tracy.TracingAllocator.init(gpa.allocator());
     const unlimited_allocator = tracy_allocator.allocator();
 
-    const params = comptime clap.parseParamsComptime(
-        \\-h, --help    Display this help text and exit.
-        \\<str>         The absolute or relative path to your site's source directory.
-        \\-o, --out <str>      The directory to place the generated site.
-        ,
-    );
     var diag: clap.Diagnostic = .{};
     var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
         .diagnostic = &diag,
@@ -79,18 +95,7 @@ pub fn main() !void {
     defer res.deinit();
 
     if (res.args.help != 0) {
-        const stderr = io.getStdErr().writer();
-        try stderr.print(
-            \\Goku - A static site generator
-            \\----
-            \\Usage:
-            \\    goku -h
-            \\    goku <site_root> -o <out_dir>
-            \\
-        ,
-            .{},
-        );
-        try clap.help(stderr, clap.Help, &params, .{});
+        try printHelp();
         process.exit(0);
     }
 
@@ -100,34 +105,12 @@ pub fn main() !void {
             process.exit(1);
         }
 
-        const stderr = io.getStdErr().writer();
-        try stderr.print(
-            \\Goku - A static site generator
-            \\----
-            \\Usage:
-            \\    goku -h
-            \\    goku <site_root> -o <out_dir>
-            \\
-        ,
-            .{},
-        );
-        try clap.help(stderr, clap.Help, &params, .{});
+        try printHelp();
         process.exit(1);
     };
 
     const out_dir_path = if (res.args.out) |out| out else {
-        const stderr = io.getStdErr().writer();
-        try stderr.print(
-            \\Goku - A static site generator
-            \\----
-            \\Usage:
-            \\    goku -h
-            \\    goku <site_root> -o <out_dir>
-            \\
-        ,
-            .{},
-        );
-        try clap.help(stderr, clap.Help, &params, .{});
+        try printHelp();
         process.exit(1);
     };
 
@@ -136,27 +119,13 @@ pub fn main() !void {
     var db = try sqlite.Db.init(.{
         .mode = .Memory,
         .open_flags = .{ .write = true, .create = true },
-        .threading_mode = .MultiThread,
+        .threading_mode = .SingleThread,
     });
     defer db.deinit();
 
-    {
-        const create_table =
-            \\CREATE TABLE pages(slug TEXT, title TEXT, filepath TEXT);
-        ;
-
-        var stmt = try db.prepare(create_table);
-        defer stmt.deinit();
-
-        try stmt.exec(.{}, .{});
-    }
-
-    const insert_page =
-        \\INSERT INTO pages(slug, title, filepath) VALUES (?, ?, ?);
-    ;
-    var prepare_diags: sqlite.Diagnostics = .{};
-    var stmt = try db.prepareWithDiags(insert_page, .{ .diags = &prepare_diags });
-    defer stmt.deinit();
+    try db.exec(
+        \\CREATE TABLE pages(slug TEXT, title TEXT, filepath TEXT);
+    , .{}, .{});
 
     var page_count: u32 = 0;
 
