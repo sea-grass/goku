@@ -29,6 +29,7 @@ pub fn renderStreamPage(allocator: mem.Allocator, page: Page, writer: anytype) !
     try writer.writeAll("<!doctype html>");
     const head = .{
         .head = .{
+            .attrs = .{},
             .children = &.{
                 .{
                     .link = .{
@@ -175,64 +176,52 @@ fn Attrs(comptime tag: []const u8) type {
     @compileError("Cannot produce an attrs type for unknown tag " ++ tag ++ ".");
 }
 
-pub fn Writer(comptime Context: type, comptime T: type) type {
-    return struct {
-        ctx: Context,
-        writer: T,
-        num_open: u64 = 0,
+pub fn ElementType(comptime W: type) type {
+    return union(enum) {
+        const Element = @This();
 
-        const Self = @This();
+        body: struct {
+            attrs: Attrs("body") = .{},
+            children: []const Element,
+        },
+        div: struct {
+            attrs: Attrs("div"),
+            children: []const Element,
+        },
+        html: struct {
+            attrs: Attrs("html"),
+            children: []const Element,
+        },
+        head: struct {
+            attrs: Attrs("head") = .{},
+            children: []const Element,
+        },
+        link: struct {
+            attrs: Attrs("link"),
+        },
+        main: struct {
+            attrs: Attrs("main") = .{},
+            children: []const Element,
+        },
+        nav: struct {
+            attrs: Attrs("nav"),
+            children: []const Element = &.{},
+        },
+        script: struct {
+            attrs: Attrs("script"),
+            children: []const Element = &.{},
+        },
+        section: struct {
+            attrs: Attrs("section"),
+            children: []const Element,
+        },
+        dynamic: struct {
+            write: *const fn (*W) anyerror!void,
+        },
 
-        const WriterResult = union(enum) {
-            // TODO find a nice way to provide failure details
-            leak,
-            ok,
-        };
-        pub fn deinit(self: Self) WriterResult {
-            return if (self.num_open > 0) .leak else .ok;
-        }
+        fn write(el: Element, w: *W) error{CouldNotWriteElement}!void {
+            const self = w;
 
-        pub const Element = union(enum) {
-            body: struct {
-                attrs: Attrs("body") = .{},
-                children: []const Element,
-            },
-            div: struct {
-                attrs: Attrs("div"),
-                children: []const Element,
-            },
-            html: struct {
-                attrs: Attrs("html"),
-                children: []const Element,
-            },
-            head: struct {
-                attrs: Attrs("head") = .{},
-                children: []const Element,
-            },
-            link: struct {
-                attrs: Attrs("link"),
-            },
-            main: struct {
-                attrs: Attrs("main") = .{},
-                children: []const Element,
-            },
-            nav: struct {
-                attrs: Attrs("nav"),
-                children: []const Element = &.{},
-            },
-            script: struct {
-                attrs: Attrs("script"),
-                children: []const Element = &.{},
-            },
-            section: struct {
-                attrs: Attrs("section"),
-                children: []const Element,
-            },
-            dynamic: struct {
-                write: *const fn (*Self) anyerror!void,
-            },
-        };
-        pub fn write(self: *Self, el: Element) !void {
             switch (el) {
                 .link => |link| {
                     try self.selfClosing("link", link.attrs);
@@ -294,32 +283,57 @@ pub fn Writer(comptime Context: type, comptime T: type) type {
                     try self.close("section");
                 },
                 .dynamic => |dynamic| {
-                    try dynamic.write(self);
+                    dynamic.write(self) catch return error.CouldNotWriteElement;
                 },
             }
         }
+    };
+}
 
-        pub fn selfClosing(self: Self, comptime tag: []const u8, attrs: Attrs(tag)) !void {
-            const info = @typeInfo(@TypeOf(attrs));
-            switch (info) {
-                .Struct => {},
-                else => @compileError("attrs must be a struct"),
-            }
+pub fn Writer(comptime Context: type, comptime T: type) type {
+    return struct {
+        ctx: Context,
+        writer: T,
+        num_open: u64 = 0,
 
-            if (info.Struct.fields.len == 0) {
-                try self.writer.print("<{s} />", .{tag});
+        const Self = @This();
+
+        const WriterResult = union(enum) {
+            // TODO find a nice way to provide failure details
+            leak,
+            ok,
+        };
+        pub fn deinit(self: Self) WriterResult {
+            return if (self.num_open > 0) .leak else .ok;
+        }
+
+        pub const Element = ElementType(Self);
+
+        pub fn write(self: *Self, el: Element) error{CouldNotWriteElement}!void {
+            el.write(self) catch return error.CouldNotWriteElement;
+        }
+
+        pub fn print(self: Self, comptime format: []const u8, args: anytype) error{CouldNotWriteElement}!void {
+            return self.writer.print(format, args) catch error.CouldNotWriteElement;
+        }
+
+        pub fn selfClosing(self: Self, comptime tag: []const u8, attrs: Attrs(tag)) error{CouldNotWriteElement}!void {
+            const ti = @typeInfo(Attrs(tag)).Struct;
+
+            if (ti.fields.len == 0) {
+                try self.print("<{s} />", .{tag});
             } else {
-                try self.writer.print("<{s}", .{tag});
+                try self.print("<{s}", .{tag});
 
-                inline for (info.Struct.fields) |f| {
-                    try self.writer.print(" ", .{});
+                inline for (ti.fields) |f| {
+                    try self.print(" ", .{});
 
                     switch (@typeInfo(f.type)) {
                         .Bool => {
-                            try self.writer.print("{s}", .{f.name});
+                            try self.print("{s}", .{f.name});
                         },
                         else => {
-                            try self.writer.print(
+                            try self.print(
                                 "{s}=\"{s}\"",
                                 .{
                                     f.name,
@@ -330,32 +344,29 @@ pub fn Writer(comptime Context: type, comptime T: type) type {
                     }
                 }
 
-                try self.writer.print(" />", .{});
+                try self.print(" />", .{});
             }
         }
 
         pub fn open(self: *Self, comptime tag: []const u8, attrs: Attrs(tag)) !void {
-            const type_info = @typeInfo(@TypeOf(attrs));
-            switch (type_info) {
-                .Struct => {},
-                else => @compileError("attrs must be a struct"),
-            }
-
             defer self.num_open += 1;
 
-            if (type_info.Struct.fields.len == 0) {
-                try self.writer.print("<{s}>", .{tag});
+            const ti = @typeInfo(Attrs(tag)).Struct;
+
+            if (ti.fields.len == 0) {
+                try self.print("<{s}>", .{tag});
             } else {
-                try self.writer.print("<{s}", .{tag});
-                inline for (type_info.Struct.fields) |f| {
-                    try self.writer.print(" ", .{});
+                try self.print("<{s}", .{tag});
+
+                inline for (ti.fields) |f| {
+                    try self.print(" ", .{});
 
                     switch (@typeInfo(f.type)) {
                         .Bool => {
-                            try self.writer.print("{s}", .{f.name});
+                            try self.print("{s}", .{f.name});
                         },
                         else => {
-                            try self.writer.print(
+                            try self.print(
                                 "{s}=\"{s}\"",
                                 .{
                                     f.name,
@@ -365,7 +376,7 @@ pub fn Writer(comptime Context: type, comptime T: type) type {
                         },
                     }
                 }
-                try self.writer.print(">", .{});
+                try self.print(">", .{});
             }
         }
 
@@ -374,7 +385,7 @@ pub fn Writer(comptime Context: type, comptime T: type) type {
 
             defer self.num_open -= 1;
 
-            try self.writer.print("</{s}>", .{tag});
+            try self.print("</{s}>", .{tag});
         }
     };
 }
