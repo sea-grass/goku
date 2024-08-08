@@ -7,7 +7,18 @@ const Page = @import("page.zig").Page;
 
 // Write `page` as an html document to the `writer`.
 pub fn renderStreamPage(allocator: mem.Allocator, page: Page, writer: anytype) !void {
-    var w: Writer(@TypeOf(writer)) = .{ .writer = writer };
+    const Context = struct {
+        page: Page,
+        allocator: mem.Allocator,
+    };
+    const W = Writer(Context, @TypeOf(writer));
+    var w: W = .{
+        .writer = writer,
+        .ctx = .{
+            .page = page,
+            .allocator = allocator,
+        },
+    };
     defer switch (w.deinit()) {
         .leak => {
             @panic("Malformed html. Missing a closing tag?");
@@ -16,69 +27,101 @@ pub fn renderStreamPage(allocator: mem.Allocator, page: Page, writer: anytype) !
     };
 
     try writer.writeAll("<!doctype html>");
-    {
-        try w.open("html", .{});
-        defer w.close("html") catch @panic("Failed to write HTML output");
-
-        {
-            try w.open("head", .{});
-            defer w.close("head") catch @panic("Failed to write HTML output");
-
-            if (false) {
-                try w.open("script", .{});
-                try writer.writeAll(
-                    \\setTimeout(() => { let l = 'location'; document[l] = document[l]; }, 2000);
-                );
-                try w.close("script");
-            }
-
-            try w.selfClosing("link", .{
-                .rel = "stylesheet",
-                .lang = "text/css",
-                .href = "/style.css",
-            });
-        }
-
-        {
-            try w.open("body", .{});
-            defer w.close("body") catch @panic("Could not write HTML output.");
-
-            try w.open("div", .{ .class = "page" });
-
-            try w.open("nav", .{
+    const head = .{
+        .head = .{
+            .children = &.{
+                .{
+                    .link = .{
+                        .attrs = .{
+                            .rel = "stylesheet",
+                            .lang = "text/css",
+                            .href = "/style.css",
+                        },
+                    },
+                },
+            },
+        },
+    };
+    const nav = .{
+        .nav = .{
+            .attrs = .{
                 .@"hx-get" = "/_sitemap.html",
                 .@"hx-swap" = "outerHTML",
                 .@"hx-trigger" = "load",
-            });
-            try w.close("nav");
+            },
+        },
+    };
+    const meta = .{
+        .section = .{
+            .attrs = .{
+                .class = "meta",
+            },
+            .children = &.{
+                .{
+                    .dynamic = .{
+                        .write = struct {
+                            fn write(ctx: *W) !void {
+                                try ctx.writer.writeAll(ctx.ctx.page.markdown.frontmatter);
+                            }
+                        }.write,
+                    },
+                },
+            },
+        },
+    };
+    const main = .{
+        .main = .{
+            .children = &.{
+                .{
+                    .dynamic = .{
+                        .write = struct {
+                            fn write(ctx: *W) !void {
+                                var parser = Markdown.init(ctx.ctx.allocator);
+                                defer parser.deinit();
+                                try parser.renderStream(ctx.ctx.page.markdown.data, ctx.writer);
+                            }
+                        }.write,
+                    },
+                },
+            },
+        },
+    };
+    const body = .{
+        .body = .{
+            .children = &.{
+                .{
+                    .div = .{
+                        .attrs = .{
+                            .class = "page",
+                        },
+                        .children = &.{
+                            nav,
+                            meta,
+                            main,
+                        },
+                    },
+                },
+                .{
+                    .script = .{
+                        .attrs = .{
+                            .@"defer" = true,
+                            .src = "htmx.js",
+                        },
+                    },
+                },
+            },
+        },
+    };
 
-            try w.open("section", .{ .class = "meta" });
-            try writer.writeAll(page.markdown.frontmatter);
-            try w.close("section");
-
-            try w.open("main", .{});
-
-            try w.open("a", .{ .href = "#main-content", .id = "main-content", .@"tab-index" = "-1" });
-            try w.close("a");
-
-            {
-                var parser = Markdown.init(allocator);
-                defer parser.deinit();
-
-                try parser.renderStream(page.markdown.data, writer);
-            }
-
-            try w.close("main");
-
-            try w.close("div");
-
-            try w.open("script", .{
-                .@"defer" = true,
-                .src = "htmx.js",
-            });
-            try w.close("script");
-        }
-    }
+    try w.write(.{
+        .html = .{
+            .attrs = .{},
+            .children = &.{
+                head,
+                body,
+            },
+        },
+    });
 }
 
 // Produce a type to enable type checking of element attributes.
@@ -132,8 +175,9 @@ fn Attrs(comptime tag: []const u8) type {
     @compileError("Cannot produce an attrs type for unknown tag " ++ tag ++ ".");
 }
 
-pub fn Writer(comptime T: type) type {
+pub fn Writer(comptime Context: type, comptime T: type) type {
     return struct {
+        ctx: Context,
         writer: T,
         num_open: u64 = 0,
 
@@ -146,6 +190,113 @@ pub fn Writer(comptime T: type) type {
         };
         pub fn deinit(self: Self) WriterResult {
             return if (self.num_open > 0) .leak else .ok;
+        }
+
+        pub const Element = union(enum) {
+            body: struct {
+                attrs: Attrs("body") = .{},
+                children: []const Element,
+            },
+            div: struct {
+                attrs: Attrs("div"),
+                children: []const Element,
+            },
+            html: struct {
+                attrs: Attrs("html"),
+                children: []const Element,
+            },
+            head: struct {
+                attrs: Attrs("head") = .{},
+                children: []const Element,
+            },
+            link: struct {
+                attrs: Attrs("link"),
+            },
+            main: struct {
+                attrs: Attrs("main") = .{},
+                children: []const Element,
+            },
+            nav: struct {
+                attrs: Attrs("nav"),
+                children: []const Element = &.{},
+            },
+            script: struct {
+                attrs: Attrs("script"),
+                children: []const Element = &.{},
+            },
+            section: struct {
+                attrs: Attrs("section"),
+                children: []const Element,
+            },
+            dynamic: struct {
+                write: *const fn (*Self) anyerror!void,
+            },
+        };
+        pub fn write(self: *Self, el: Element) !void {
+            switch (el) {
+                .link => |link| {
+                    try self.selfClosing("link", link.attrs);
+                },
+                .body => |body| {
+                    try self.open("body", body.attrs);
+                    for (body.children) |child| {
+                        try self.write(child);
+                    }
+                    try self.close("body");
+                },
+                .div => |div| {
+                    try self.open("div", div.attrs);
+                    for (div.children) |child| {
+                        try self.write(child);
+                    }
+                    try self.close("div");
+                },
+                .html => |html| {
+                    try self.open("html", html.attrs);
+                    for (html.children) |child| {
+                        try self.write(child);
+                    }
+                    try self.close("html");
+                },
+                .head => |head| {
+                    try self.open("head", head.attrs);
+                    for (head.children) |child| {
+                        try self.write(child);
+                    }
+                    try self.close("head");
+                },
+                .main => |main| {
+                    try self.open("main", main.attrs);
+                    for (main.children) |child| {
+                        try self.write(child);
+                    }
+                    try self.close("main");
+                },
+                .nav => |nav| {
+                    try self.open("nav", nav.attrs);
+                    for (nav.children) |child| {
+                        try self.write(child);
+                    }
+                    try self.close("nav");
+                },
+                .script => |script| {
+                    try self.open("script", script.attrs);
+                    for (script.children) |child| {
+                        try self.write(child);
+                    }
+                    try self.close("script");
+                },
+                .section => |section| {
+                    try self.open("section", section.attrs);
+                    for (section.children) |child| {
+                        try self.write(child);
+                    }
+                    try self.close("section");
+                },
+                .dynamic => |dynamic| {
+                    try dynamic.write(self);
+                },
+            }
         }
 
         pub fn selfClosing(self: Self, comptime tag: []const u8, attrs: Attrs(tag)) !void {
