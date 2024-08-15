@@ -25,6 +25,10 @@
             .url = "https://github.com/vrischmann/zig-sqlite/archive/7f4be7d30b126affb66b390c7825addb1c3506bd.tar.gz",
             .hash = "1220940ae067451e7e6824e9b92baceac93b0bd6fa9ffd315179cc9a7ce5430a46ac",
         },
+        .@"mustach-src" = .{
+            .url = "https://github.com/RekGRpth/mustach/archive/c425f9bfa130633d001bef196b842af737d9dc22.tar.gz",
+            .hash = "1220db5668b686824884b3c211187f45339b5ee3adbba81b40fcbb459d8455ada995",
+        },
     },
 
     .paths = .{

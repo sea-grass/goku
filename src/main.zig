@@ -241,12 +241,6 @@ pub fn main() !void {
         }
 
         {
-            var file = try out_dir.createFile("htmx.js", .{});
-            defer file.close();
-            try file.writer().writeAll(@embedFile("assets/htmx.js"));
-        }
-
-        {
             var file = try out_dir.createFile("style.css", .{});
             defer file.close();
             try file.writer().writeAll(@embedFile("assets/style.css"));

@@ -1,391 +1,146 @@
 const std = @import("std");
 const debug = std.debug;
+const fmt = std.fmt;
+const heap = std.heap;
 const io = std.io;
 const mem = std.mem;
 const Markdown = @import("Markdown.zig");
 const Page = @import("page.zig").Page;
+const PageData = @import("PageData.zig");
+const c = @import("c");
+
+pub fn Context(comptime writer: type) type {
+    return struct {
+        writer: writer,
+        page: Page,
+        arena: mem.Allocator,
+    };
+}
+
+const tmpl = @embedFile("templates/basic.html");
 
 // Write `page` as an html document to the `writer`.
 pub fn renderStreamPage(allocator: mem.Allocator, page: Page, writer: anytype) !void {
-    const Context = struct {
-        page: Page,
-        allocator: mem.Allocator,
-    };
-    const W = Writer(Context, @TypeOf(writer));
-    var w: W = .{
+    const data = try PageData.fromYamlString(
+        allocator,
+        @ptrCast(page.markdown.frontmatter),
+        page.markdown.frontmatter.len,
+    );
+    defer data.deinit(allocator);
+
+    const C = Context(@TypeOf(writer));
+    var arena = heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    var context: C = .{
         .writer = writer,
-        .ctx = .{
-            .page = page,
-            .allocator = allocator,
-        },
-    };
-    defer switch (w.deinit()) {
-        .leak => {
-            @panic("Malformed html. Missing a closing tag?");
-        },
-        .ok => {},
+        .page = page,
+        .arena = arena.allocator(),
     };
 
-    try writer.writeAll("<!doctype html>");
-    const head = .{
-        .head = .{
-            .attrs = .{},
-            .children = &.{
-                .{
-                    .link = .{
-                        .attrs = .{
-                            .rel = "stylesheet",
-                            .lang = "text/css",
-                            .href = "/style.css",
-                        },
-                    },
-                },
-            },
-        },
-    };
-    const nav = .{
-        .nav = .{
-            .attrs = .{
-                .@"hx-get" = "/_sitemap.html",
-                .@"hx-swap" = "outerHTML",
-                .@"hx-trigger" = "load",
-            },
-        },
-    };
-    const meta = .{
-        .section = .{
-            .attrs = .{
-                .class = "meta",
-            },
-            .children = &.{
-                .{
-                    .dynamic = .{
-                        .write = struct {
-                            fn write(ctx: *W) !void {
-                                try ctx.writer.writeAll(ctx.ctx.page.markdown.frontmatter);
+    switch (c.mini_mustach(
+        @ptrCast(tmpl),
+        tmpl.len,
+        &.{
+            .emit = struct {
+                fn emit(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, escaping: c_int) callconv(.C) c_int {
+                    debug.assert(ptr != null);
+                    // Trying to emit a value we could not get?
+                    debug.assert(buf != null);
+
+                    const ctx: *C = @ptrCast(@alignCast(ptr));
+
+                    if (escaping == 1) {
+                        var escaped = std.ArrayList(u8).init(ctx.arena);
+                        defer escaped.deinit();
+
+                        for (buf[0..len]) |char| {
+                            switch (char) {
+                                '<' => escaped.appendSlice("&lt;") catch return -1,
+                                '>' => escaped.appendSlice("&gt;") catch return -1,
+                                else => escaped.append(char) catch return -1,
                             }
-                        }.write,
-                    },
-                },
-            },
-        },
-    };
-    const main = .{
-        .main = .{
-            .children = &.{
-                .{
-                    .dynamic = .{
-                        .write = struct {
-                            fn write(ctx: *W) !void {
-                                var parser = Markdown.init(ctx.ctx.allocator);
-                                defer parser.deinit();
-                                try parser.renderStream(ctx.ctx.page.markdown.data, ctx.writer);
-                            }
-                        }.write,
-                    },
-                },
-            },
-        },
-    };
-    const body = .{
-        .body = .{
-            .children = &.{
-                .{
-                    .div = .{
-                        .attrs = .{
-                            .class = "page",
-                        },
-                        .children = &.{
-                            nav,
-                            meta,
-                            main,
-                        },
-                    },
-                },
-                .{
-                    .script = .{
-                        .attrs = .{
-                            .@"defer" = true,
-                            .src = "htmx.js",
-                        },
-                    },
-                },
-            },
-        },
-    };
+                        }
 
-    try w.write(.{
-        .html = .{
-            .attrs = .{},
-            .children = &.{
-                head,
-                body,
-            },
-        },
-    });
-}
+                        ctx.writer.writeAll(escaped.items) catch return -1;
+                    } else {
+                        ctx.writer.writeAll(buf[0..len]) catch return -1;
+                    }
 
-// Produce a type to enable type checking of element attributes.
-//
-// This is by no means a comprehensive list of html tags to their
-// allowed attributes. Currently the only tags and attributes are
-// implemented out of necessity. For example, at some point we'll
-// need to deal with optional attributes, custom elements, etc.
-fn Attrs(comptime tag: []const u8) type {
-    if (mem.eql(u8, "script", tag)) {
-        return struct {
-            @"defer": bool,
-            src: []const u8,
-        };
-    } else if (mem.eql(u8, "link", tag)) {
-        return struct {
-            rel: []const u8,
-            lang: []const u8,
-            href: []const u8,
-        };
-    } else if (mem.eql(u8, "html", tag)) {
-        return struct {};
-    } else if (mem.eql(u8, "head", tag)) {
-        return struct {};
-    } else if (mem.eql(u8, "body", tag)) {
-        return struct {};
-    } else if (mem.eql(u8, "div", tag)) {
-        return struct {
-            class: []const u8,
-        };
-    } else if (mem.eql(u8, "nav", tag)) {
-        return struct {
-            @"hx-get": []const u8,
-            @"hx-swap": []const u8,
-            @"hx-trigger": []const u8,
-        };
-    } else if (mem.eql(u8, "section", tag)) {
-        return struct {
-            class: []const u8,
-        };
-    } else if (mem.eql(u8, "main", tag)) {
-        return struct {};
-    } else if (mem.eql(u8, "a", tag)) {
-        return struct {
-            href: []const u8,
-            id: []const u8,
-            @"tab-index": []const u8,
-        };
+                    return 0;
+                }
+            }.emit,
+            .get = struct {
+                fn get(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, sbuf: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
+                    const ctx: *C = @ptrCast(@alignCast(ptr));
+
+                    const key = buf[0..len];
+                    if (mem.eql(u8, key, "title")) {
+                        // TODO lookup title
+                        const fallback_title = "(missing title)";
+                        sbuf.* = .{
+                            .value = ctx.arena.dupeZ(u8, fallback_title) catch return -1,
+                            .length = fallback_title.len,
+                            .closure = null,
+                        };
+                        return 0;
+                    } else if (mem.eql(u8, key, "content")) {
+                        const content = ctx.arena.dupeZ(u8, "content") catch return -1;
+
+                        sbuf.* = .{
+                            .value = content,
+                            .length = content.len,
+                            .closure = null,
+                        };
+                        return 0;
+                    }
+
+                    return -1;
+                }
+            }.get,
+            .enter = struct {
+                fn enter(_: ?*anyopaque, _: [*c]const u8, _: usize) callconv(.C) c_int {
+                    debug.print("enter\n", .{});
+                    return 0;
+                }
+            }.enter,
+            .next = struct {
+                fn next(_: ?*anyopaque) callconv(.C) c_int {
+                    debug.print("next\n", .{});
+                    return 0;
+                }
+            }.next,
+            .leave = struct {
+                fn leave(_: ?*anyopaque) callconv(.C) c_int {
+                    debug.print("leave\n", .{});
+                    return 0;
+                }
+            }.leave,
+            .partial = struct {
+                fn partial(_: ?*anyopaque, _: [*c]const u8, _: usize, _: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
+                    debug.print("partial\n", .{});
+                    return 0;
+                }
+            }.partial,
+        },
+        &context,
+    )) {
+        c.MUSTACH_OK => {},
+        c.MUSTACH_ERROR_SYSTEM,
+        c.MUSTACH_ERROR_INVALID_ITF,
+        c.MUSTACH_ERROR_UNEXPECTED_END,
+        c.MUSTACH_ERROR_BAD_UNESCAPE_TAG,
+        c.MUSTACH_ERROR_EMPTY_TAG,
+        c.MUSTACH_ERROR_BAD_DELIMITER,
+        c.MUSTACH_ERROR_TOO_DEEP,
+        c.MUSTACH_ERROR_CLOSING,
+        c.MUSTACH_ERROR_TOO_MUCH_NESTING,
+        => |err| {
+            debug.print("Uh oh! Error {any}\n", .{err});
+            return error.CouldNotRenderTemplate;
+        },
+        else => |value| {
+            debug.print("Received unknown value {d}\n", .{value});
+            unreachable;
+        },
     }
-
-    @compileError("Cannot produce an attrs type for unknown tag " ++ tag ++ ".");
-}
-
-pub fn ElementType(comptime W: type) type {
-    return union(enum) {
-        const Element = @This();
-
-        body: struct {
-            attrs: Attrs("body") = .{},
-            children: []const Element,
-        },
-        div: struct {
-            attrs: Attrs("div"),
-            children: []const Element,
-        },
-        html: struct {
-            attrs: Attrs("html"),
-            children: []const Element,
-        },
-        head: struct {
-            attrs: Attrs("head") = .{},
-            children: []const Element,
-        },
-        link: struct {
-            attrs: Attrs("link"),
-        },
-        main: struct {
-            attrs: Attrs("main") = .{},
-            children: []const Element,
-        },
-        nav: struct {
-            attrs: Attrs("nav"),
-            children: []const Element = &.{},
-        },
-        script: struct {
-            attrs: Attrs("script"),
-            children: []const Element = &.{},
-        },
-        section: struct {
-            attrs: Attrs("section"),
-            children: []const Element,
-        },
-        dynamic: struct {
-            write: *const fn (*W) anyerror!void,
-        },
-
-        fn write(el: Element, w: *W) error{CouldNotWriteElement}!void {
-            const self = w;
-
-            switch (el) {
-                .link => |link| {
-                    try self.selfClosing("link", link.attrs);
-                },
-                .body => |body| {
-                    try self.open("body", body.attrs);
-                    for (body.children) |child| {
-                        try self.write(child);
-                    }
-                    try self.close("body");
-                },
-                .div => |div| {
-                    try self.open("div", div.attrs);
-                    for (div.children) |child| {
-                        try self.write(child);
-                    }
-                    try self.close("div");
-                },
-                .html => |html| {
-                    try self.open("html", html.attrs);
-                    for (html.children) |child| {
-                        try self.write(child);
-                    }
-                    try self.close("html");
-                },
-                .head => |head| {
-                    try self.open("head", head.attrs);
-                    for (head.children) |child| {
-                        try self.write(child);
-                    }
-                    try self.close("head");
-                },
-                .main => |main| {
-                    try self.open("main", main.attrs);
-                    for (main.children) |child| {
-                        try self.write(child);
-                    }
-                    try self.close("main");
-                },
-                .nav => |nav| {
-                    try self.open("nav", nav.attrs);
-                    for (nav.children) |child| {
-                        try self.write(child);
-                    }
-                    try self.close("nav");
-                },
-                .script => |script| {
-                    try self.open("script", script.attrs);
-                    for (script.children) |child| {
-                        try self.write(child);
-                    }
-                    try self.close("script");
-                },
-                .section => |section| {
-                    try self.open("section", section.attrs);
-                    for (section.children) |child| {
-                        try self.write(child);
-                    }
-                    try self.close("section");
-                },
-                .dynamic => |dynamic| {
-                    dynamic.write(self) catch return error.CouldNotWriteElement;
-                },
-            }
-        }
-    };
-}
-
-pub fn Writer(comptime Context: type, comptime T: type) type {
-    return struct {
-        ctx: Context,
-        writer: T,
-        num_open: u64 = 0,
-
-        const Self = @This();
-
-        const WriterResult = union(enum) {
-            // TODO find a nice way to provide failure details
-            leak,
-            ok,
-        };
-        pub fn deinit(self: Self) WriterResult {
-            return if (self.num_open > 0) .leak else .ok;
-        }
-
-        pub const Element = ElementType(Self);
-
-        pub fn write(self: *Self, el: Element) error{CouldNotWriteElement}!void {
-            el.write(self) catch return error.CouldNotWriteElement;
-        }
-
-        pub fn print(self: Self, comptime format: []const u8, args: anytype) error{CouldNotWriteElement}!void {
-            return self.writer.print(format, args) catch error.CouldNotWriteElement;
-        }
-
-        pub fn selfClosing(self: Self, comptime tag: []const u8, attrs: Attrs(tag)) error{CouldNotWriteElement}!void {
-            const ti = @typeInfo(Attrs(tag)).Struct;
-
-            if (ti.fields.len == 0) {
-                try self.print("<{s} />", .{tag});
-            } else {
-                try self.print("<{s}", .{tag});
-
-                inline for (ti.fields) |f| {
-                    try self.print(" ", .{});
-
-                    switch (@typeInfo(f.type)) {
-                        .Bool => {
-                            try self.print("{s}", .{f.name});
-                        },
-                        else => {
-                            try self.print(
-                                "{s}=\"{s}\"",
-                                .{
-                                    f.name,
-                                    @field(attrs, f.name),
-                                },
-                            );
-                        },
-                    }
-                }
-
-                try self.print(" />", .{});
-            }
-        }
-
-        pub fn open(self: *Self, comptime tag: []const u8, attrs: Attrs(tag)) !void {
-            defer self.num_open += 1;
-
-            const ti = @typeInfo(Attrs(tag)).Struct;
-
-            if (ti.fields.len == 0) {
-                try self.print("<{s}>", .{tag});
-            } else {
-                try self.print("<{s}", .{tag});
-
-                inline for (ti.fields) |f| {
-                    try self.print(" ", .{});
-
-                    switch (@typeInfo(f.type)) {
-                        .Bool => {
-                            try self.print("{s}", .{f.name});
-                        },
-                        else => {
-                            try self.print(
-                                "{s}=\"{s}\"",
-                                .{
-                                    f.name,
-                                    @field(attrs, f.name),
-                                },
-                            );
-                        },
-                    }
-                }
-                try self.print(">", .{});
-            }
-        }
-
-        pub fn close(self: *Self, comptime tag: []const u8) !void {
-            debug.assert(self.num_open > 0);
-
-            defer self.num_open -= 1;
-
-            try self.print("</{s}>", .{tag});
-        }
-    };
 }

@@ -25,12 +25,14 @@ pub fn build(b: *std.Build) void {
     const c_mod = c: {
         const yaml_src = b.dependency("yaml-src", .{});
         const md4c_src = b.dependency("md4c-src", .{});
+        const mustach_src = b.dependency("mustach-src", .{});
 
         const c = b.addTranslateC(.{
             .root_source_file = b.addWriteFiles().add(
                 "c.h",
                 \\#include <yaml.h>
                 \\#include <md4c-html.h>
+                \\#include <mini-mustach.h>
                 ,
             ),
             .target = target,
@@ -147,6 +149,46 @@ pub fn build(b: *std.Build) void {
                     "-Wextra",
                     "-Wshadow",
                 },
+            });
+        }
+
+        {
+            const wf = b.addWriteFiles();
+            c.step.dependOn(&wf.step);
+
+            inline for (&.{
+                "mini-mustach.h",
+            }) |filename| {
+                _ = wf.addCopyFile(
+                    mustach_src.path(filename),
+                    filename,
+                );
+            }
+
+            // TODO Not sure why I have to do both addIncludeDir (for
+            // the translate_c step) and addIncludePath (for the C
+            // source files) -- is there a way to get them both to
+            // look in the same place?
+            // TODO `getPath` is intended to be used during the make
+            // phase only - is there a better way to `addIncludeDir`
+            // when pointing to a dependency path?
+            c.addIncludeDir(mustach_src.path(".").getPath(b));
+            mod.addIncludePath(wf.getDirectory());
+
+            const c_source_files = &.{
+                "mini-mustach.c",
+            };
+            inline for (c_source_files) |filename| {
+                _ = wf.addCopyFile(
+                    mustach_src.path(filename),
+                    filename,
+                );
+            }
+
+            mod.addCSourceFiles(.{
+                .root = wf.getDirectory(),
+                .files = c_source_files,
+                .flags = &.{},
             });
         }
 
