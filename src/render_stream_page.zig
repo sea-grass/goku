@@ -10,14 +10,6 @@ const Page = @import("page.zig").Page;
 const PageData = @import("PageData.zig");
 const c = @import("c");
 
-pub fn Context(comptime writer: type) type {
-    return struct {
-        writer: writer,
-        page: Page,
-        arena: mem.Allocator,
-    };
-}
-
 const tmpl = @embedFile("templates/basic.html");
 
 // Write `page` as an html document to the `writer`.
@@ -29,26 +21,25 @@ pub fn renderStreamPage(allocator: mem.Allocator, page: Page, writer: anytype) !
     );
     defer data.deinit(allocator);
 
-    const C = Context(@TypeOf(writer));
-    var arena = heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    var context: C = .{
-        .writer = writer,
-        .page = page,
-        .arena = arena.allocator(),
-    };
+    try Parser(@TypeOf(writer)).parse(allocator, page, writer);
+}
 
-    switch (c.mini_mustach(
-        @ptrCast(tmpl),
-        tmpl.len,
-        &.{
+fn Parser(comptime Writer: type) type {
+    return struct {
+        writer: Writer,
+        page: Page,
+        arena: mem.Allocator,
+
+        const Self = @This();
+
+        pub const vtable: c.mini_mustach_itf = .{
             .emit = struct {
                 fn emit(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, escaping: c_int) callconv(.C) c_int {
                     debug.assert(ptr != null);
                     // Trying to emit a value we could not get?
                     debug.assert(buf != null);
 
-                    const ctx: *C = @ptrCast(@alignCast(ptr));
+                    const ctx: *Self = @ptrCast(@alignCast(ptr));
 
                     if (escaping == 1) {
                         var escaped = std.ArrayList(u8).init(ctx.arena);
@@ -72,7 +63,7 @@ pub fn renderStreamPage(allocator: mem.Allocator, page: Page, writer: anytype) !
             }.emit,
             .get = struct {
                 fn get(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, sbuf: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
-                    const ctx: *C = @ptrCast(@alignCast(ptr));
+                    const ctx: *Self = @ptrCast(@alignCast(ptr));
 
                     const key = buf[0..len];
                     if (mem.eql(u8, key, "title")) {
@@ -131,26 +122,43 @@ pub fn renderStreamPage(allocator: mem.Allocator, page: Page, writer: anytype) !
                     return 0;
                 }
             }.partial,
-        },
-        &context,
-    )) {
-        c.MUSTACH_OK => {},
-        c.MUSTACH_ERROR_SYSTEM,
-        c.MUSTACH_ERROR_INVALID_ITF,
-        c.MUSTACH_ERROR_UNEXPECTED_END,
-        c.MUSTACH_ERROR_BAD_UNESCAPE_TAG,
-        c.MUSTACH_ERROR_EMPTY_TAG,
-        c.MUSTACH_ERROR_BAD_DELIMITER,
-        c.MUSTACH_ERROR_TOO_DEEP,
-        c.MUSTACH_ERROR_CLOSING,
-        c.MUSTACH_ERROR_TOO_MUCH_NESTING,
-        => |err| {
-            debug.print("Uh oh! Error {any}\n", .{err});
-            return error.CouldNotRenderTemplate;
-        },
-        else => |value| {
-            debug.print("Received unknown value {d}\n", .{value});
-            unreachable;
-        },
-    }
+        };
+
+        pub fn parse(allocator: mem.Allocator, page: Page, writer: Writer) !void {
+            var arena = heap.ArenaAllocator.init(allocator);
+            defer arena.deinit();
+
+            var parser: Self = .{
+                .arena = arena.allocator(),
+                .page = page,
+                .writer = writer,
+            };
+
+            switch (c.mini_mustach(
+                @ptrCast(tmpl),
+                tmpl.len,
+                &Self.vtable,
+                &parser,
+            )) {
+                c.MUSTACH_OK => {},
+                c.MUSTACH_ERROR_SYSTEM,
+                c.MUSTACH_ERROR_INVALID_ITF,
+                c.MUSTACH_ERROR_UNEXPECTED_END,
+                c.MUSTACH_ERROR_BAD_UNESCAPE_TAG,
+                c.MUSTACH_ERROR_EMPTY_TAG,
+                c.MUSTACH_ERROR_BAD_DELIMITER,
+                c.MUSTACH_ERROR_TOO_DEEP,
+                c.MUSTACH_ERROR_CLOSING,
+                c.MUSTACH_ERROR_TOO_MUCH_NESTING,
+                => |err| {
+                    debug.print("Uh oh! Error {any}\n", .{err});
+                    return error.CouldNotRenderTemplate;
+                },
+                else => |value| {
+                    debug.print("Received unknown value {d}\n", .{value});
+                    unreachable;
+                },
+            }
+        }
+    };
 }

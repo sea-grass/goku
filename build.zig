@@ -1,6 +1,21 @@
 const std = @import("std");
+const debug = std.debug;
 
 pub fn build(b: *std.Build) void {
+    const build_steps = .{
+        .check = b.step("check", "Check the Zig code"),
+        .generate_benchmark_site = b.step("generate-benchmark", "Generate a site dir used to benchmark goku."),
+        .run = b.step("run", "Run the app"),
+        .run_benchmark = b.step("run-benchmark", "Run the benchmark."),
+        .@"test" = b.step("test", "Run unit tests"),
+    };
+    defer {
+        inline for (@typeInfo(@TypeOf(build_steps)).Struct.fields) |f| {
+            const step = @field(build_steps, f.name);
+            debug.assert(step.dependencies.items.len > 0);
+        }
+    }
+
     const wasm_option = b.option(bool, "wasm", "Compile to webassembly (supported on e.g. wasmtime)") orelse false;
     const tracy_enable = b.option(bool, "tracy_enable", "Enable profiling") orelse false;
 
@@ -8,7 +23,7 @@ pub fn build(b: *std.Build) void {
         .cpu_arch = .wasm32,
         .os_tag = .wasi,
     }) else b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSafe });
 
     const tracy = b.dependency("tracy", .{
         .target = target,
@@ -220,6 +235,13 @@ pub fn build(b: *std.Build) void {
     }
     b.installArtifact(exe);
 
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
+    build_steps.run.dependOn(&run_cmd.step);
+
     const exe_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -236,6 +258,8 @@ pub fn build(b: *std.Build) void {
         exe_unit_tests.linkLibrary(tracy.artifact("tracy"));
         exe_unit_tests.linkLibCpp();
     }
+    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
+    build_steps.@"test".dependOn(&run_exe_unit_tests.step);
 
     const exe_check = b.addExecutable(.{
         .name = "goku",
@@ -254,69 +278,56 @@ pub fn build(b: *std.Build) void {
         exe_check.linkLibrary(tracy.artifact("tracy"));
         exe_check.linkLibCpp();
     }
+    build_steps.check.dependOn(&exe_check.step);
 
-    const benchmark_site_files = b.addWriteFiles();
-    _ = benchmark_site_files.add(
-        "pages/home-page.md",
-        \\---
-        \\id: home
-        \\slug: /
-        \\title: Home Page
-        \\---
-        \\
-        \\ # Home
-        \\
-        \\ This is the home page.
-        ,
-    );
-    for (0..10) |i| {
-        _ = benchmark_site_files.add(
-            b.fmt("pages/page-{d}.md", .{i}),
-            b.fmt(
-                \\---
-                \\id: page-{d}
-                \\slug: /page-{d}
-                \\title: Hello, world {d}
-                \\---
-                \\
-                \\# Hello, world {d}
-                \\
-                \\
-                \\This is a paragraph with some **bolded** content.
-                \\
-                \\Check out the [home page](/).
+    const benchmark_site = site: {
+        const wf = b.addWriteFiles();
+        _ = wf.add(
+            "pages/home-page.md",
+            \\---
+            \\id: home
+            \\slug: /
+            \\title: Home Page
+            \\---
+            \\
+            \\ # Home
+            \\
+            \\ This is the home page.
             ,
-                .{ i, i, i, i },
-            ),
         );
-    }
+        for (0..10) |i| {
+            _ = wf.add(
+                b.fmt("pages/page-{d}.md", .{i}),
+                b.fmt(
+                    \\---
+                    \\id: page-{d}
+                    \\slug: /page-{d}
+                    \\title: Hello, world {d}
+                    \\---
+                    \\
+                    \\# Hello, world {d}
+                    \\
+                    \\
+                    \\This is a paragraph with some **bolded** content.
+                    \\
+                    \\Check out the [home page](/).
+                ,
+                    .{ i, i, i, i },
+                ),
+            );
+        }
+        break :site wf.getDirectory();
+    };
 
     const install = b.addInstallDirectory(.{
-        .source_dir = benchmark_site_files.getDirectory(),
+        .source_dir = benchmark_site,
         .install_dir = .prefix,
         .install_subdir = "benchmark-site",
     });
-    const benchmark_site_step = b.step("generate-benchmark", "Generate a site dir used to benchmark goku.");
-    benchmark_site_step.dependOn(&install.step);
+    build_steps.generate_benchmark_site.dependOn(&install.step);
 
     const run_benchmark_cmd = b.addRunArtifact(exe);
-    run_benchmark_cmd.addDirectoryArg(benchmark_site_files.getDirectory());
+    run_benchmark_cmd.addDirectoryArg(benchmark_site);
     run_benchmark_cmd.addArgs(&.{ "-o", "benchmark-build" });
-    const benchmark_step = b.step("run-benchmark", "Run the benchmark.");
-    benchmark_step.dependOn(&run_benchmark_cmd.step);
-
-    const run_cmd = b.addRunArtifact(exe);
-    run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
-
-    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_exe_unit_tests.step);
-
-    const check_step = b.step("check", "Check the Zig code");
-    check_step.dependOn(&exe_check.step);
+    build_steps.run_benchmark.dependOn(&run_benchmark_cmd.step);
 }

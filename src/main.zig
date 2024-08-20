@@ -338,3 +338,7 @@ pub fn main() !void {
     // const partials_dir = try root_dir.openDir("partials");
     // const themes_dir = try root_dir.openDir("themes");
 }
+
+test {
+    _ = @import("parse_code_fence.zig");
+}
