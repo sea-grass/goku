@@ -4,6 +4,7 @@ const fmt = std.fmt;
 const heap = std.heap;
 const io = std.io;
 const mem = std.mem;
+const lucide = @import("lucide");
 const Markdown = @import("Markdown.zig");
 const Page = @import("page.zig").Page;
 const PageData = @import("PageData.zig");
@@ -89,6 +90,15 @@ pub fn renderStreamPage(allocator: mem.Allocator, page: Page, writer: anytype) !
                         sbuf.* = .{
                             .value = content,
                             .length = content.len,
+                            .closure = null,
+                        };
+                        return 0;
+                    } else if (mem.startsWith(u8, key, "lucide.")) {
+                        const icon_name = key["lucide.".len..];
+                        const icon = lucide.icon(icon_name);
+                        sbuf.* = .{
+                            .value = @ptrCast(icon),
+                            .length = icon.len,
                             .closure = null,
                         };
                         return 0;

@@ -22,6 +22,12 @@ pub fn build(b: *std.Build) void {
 
     const sqlite = b.dependency("sqlite", .{ .target = target, .optimize = optimize });
 
+    const lucide = b.dependency("lucide", .{
+        .icons = @as([]const []const u8, &.{
+            "apple",
+        }),
+    });
+
     const c_mod = c: {
         const yaml_src = b.dependency("yaml-src", .{});
         const md4c_src = b.dependency("md4c-src", .{});
@@ -206,6 +212,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("tracy", tracy.module("tracy"));
     exe.root_module.addImport("clap", clap.module("clap"));
     exe.root_module.addImport("sqlite", sqlite.module("sqlite"));
+    exe.root_module.addImport("lucide", lucide.module("lucide"));
     exe.linkLibrary(sqlite.artifact("sqlite"));
     if (tracy_enable) {
         exe.linkLibrary(tracy.artifact("tracy"));
@@ -223,6 +230,7 @@ pub fn build(b: *std.Build) void {
     exe_unit_tests.root_module.addImport("tracy", tracy.module("tracy"));
     exe_unit_tests.root_module.addImport("clap", clap.module("clap"));
     exe_unit_tests.root_module.addImport("sqlite", sqlite.module("sqlite"));
+    exe_unit_tests.root_module.addImport("lucide", lucide.module("lucide"));
     exe_unit_tests.linkLibrary(sqlite.artifact("sqlite"));
     if (tracy_enable) {
         exe_unit_tests.linkLibrary(tracy.artifact("tracy"));
@@ -240,6 +248,7 @@ pub fn build(b: *std.Build) void {
     exe_check.root_module.addImport("tracy", tracy.module("tracy"));
     exe_check.root_module.addImport("clap", clap.module("clap"));
     exe_check.root_module.addImport("sqlite", sqlite.module("sqlite"));
+    exe_check.root_module.addImport("lucide", lucide.module("lucide"));
     exe_check.linkLibrary(sqlite.artifact("sqlite"));
     if (tracy_enable) {
         exe_check.linkLibrary(tracy.artifact("tracy"));
