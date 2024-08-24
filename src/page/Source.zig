@@ -14,7 +14,7 @@ buf: [1024 * @sizeOf(fs.Dir)]u8 = undefined,
 fba: heap.FixedBufferAllocator = undefined,
 dir_queue: ?std.ArrayList(fs.Dir) = null,
 
-const PageSource = @This();
+const Source = @This();
 
 pub const Entry = struct {
     dir: fs.Dir,
@@ -29,7 +29,7 @@ pub const Entry = struct {
     }
 };
 
-pub fn next(self: *PageSource) !?Entry {
+pub fn next(self: *Source) !?Entry {
     if (self.done) return null;
 
     try self.ensureBuffer();
@@ -66,7 +66,7 @@ pub fn next(self: *PageSource) !?Entry {
     return null;
 }
 
-fn ensureBuffer(self: *PageSource) !void {
+fn ensureBuffer(self: *Source) !void {
     debug.assert(!self.done);
 
     if (self.dir_queue == null) {
@@ -77,7 +77,7 @@ fn ensureBuffer(self: *PageSource) !void {
     debug.assert(self.dir_queue != null);
 }
 
-fn ensureHandle(self: *PageSource) !void {
+fn ensureHandle(self: *Source) !void {
     debug.assert(!self.done);
 
     if (self.dir_handle == null) {
@@ -96,7 +96,7 @@ fn ensureHandle(self: *PageSource) !void {
     debug.assert(self.dir_handle != null);
 }
 
-fn ensureIterator(self: *PageSource) !void {
+fn ensureIterator(self: *Source) !void {
     debug.assert(!self.done);
     debug.assert(self.dir_handle != null);
 

@@ -1,30 +1,13 @@
 const std = @import("std");
 const debug = std.debug;
-const fmt = std.fmt;
 const heap = std.heap;
-const io = std.io;
 const mem = std.mem;
 const lucide = @import("lucide");
-const Markdown = @import("Markdown.zig");
-const Page = @import("page.zig").Page;
-const PageData = @import("PageData.zig");
 const c = @import("c");
-
+const Page = @import("page.zig").Page;
 const tmpl = @embedFile("templates/basic.html");
 
-// Write `page` as an html document to the `writer`.
-pub fn renderStreamPage(allocator: mem.Allocator, page: Page, writer: anytype) !void {
-    const data = try PageData.fromYamlString(
-        allocator,
-        @ptrCast(page.markdown.frontmatter),
-        page.markdown.frontmatter.len,
-    );
-    defer data.deinit(allocator);
-
-    try Parser(@TypeOf(writer)).parse(allocator, page, writer);
-}
-
-fn Parser(comptime Writer: type) type {
+pub fn Parser(comptime Writer: type) type {
     return struct {
         writer: Writer,
         page: Page,

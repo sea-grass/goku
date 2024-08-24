@@ -10,11 +10,8 @@ const time = std.time;
 const tracy = @import("tracy");
 const clap = @import("clap");
 const sqlite = @import("sqlite");
-const Page = @import("page.zig").Page;
-const PageData = @import("PageData.zig");
-const PageSource = @import("PageSource.zig");
 const parseCodeFence = @import("parse_code_fence.zig").parseCodeFence;
-const renderStreamPage = @import("render_stream_page.zig").renderStreamPage;
+const page = @import("page.zig");
 
 const size_of_alice_txt = 1189000;
 
@@ -132,15 +129,15 @@ pub fn main() !void {
     var page_load_allocator = heap.ArenaAllocator.init(unlimited_allocator);
     defer page_load_allocator.deinit();
 
-    var page_it: PageSource = .{
+    var page_it: page.Source = .{
         .root = site_root,
         .subpath = "pages",
     };
-    while (try page_it.next()) |page| {
+    while (try page_it.next()) |entry| {
         const zone = tracy.initZone(@src(), .{ .name = "Load Page from File" });
         defer zone.deinit();
 
-        const file = try page.openFile();
+        const file = try entry.openFile();
         defer file.close();
 
         debug.assert(try file.getPos() == 0);
@@ -162,7 +159,7 @@ pub fn main() !void {
         const frontmatter = code_fence_result.within;
 
         const allocator = page_load_allocator.allocator();
-        const data = try PageData.fromYamlString(allocator, @ptrCast(frontmatter), frontmatter.len);
+        const data = try page.Data.fromYamlString(allocator, @ptrCast(frontmatter), frontmatter.len);
         defer data.deinit(allocator);
 
         var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
@@ -175,7 +172,7 @@ pub fn main() !void {
             .{
                 data.slug,
                 data.title orelse "(missing title)",
-                try page.realpath(&filepath_buf),
+                try entry.realpath(&filepath_buf),
             },
         );
 
@@ -318,14 +315,14 @@ pub fn main() !void {
 
                 var html_buffer = io.bufferedWriter(file.writer());
 
-                try renderStreamPage(
-                    allocator,
+                try page.Page.renderStream(
                     .{
                         .markdown = .{
                             .frontmatter = result.within,
                             .data = result.after,
                         },
                     },
+                    allocator,
                     html_buffer.writer(),
                 );
 

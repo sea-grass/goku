@@ -10,11 +10,11 @@ title: ?[]const u8 = null,
 date: ?[]const u8 = null,
 options_toc: bool = false,
 
-const PageData = @This();
+const Data = @This();
 
 // Duplicates slices from the input data. Caller is responsible for
 // calling page_data.deinit(allocator) afterwards.
-pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) !PageData {
+pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) !Data {
     const zone = tracy.initZone(@src(), .{ .name = "PageData.fromYamlString" });
     defer zone.deinit();
 
@@ -128,7 +128,7 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
     };
 }
 
-pub fn deinit(self: PageData, allocator: mem.Allocator) void {
+pub fn deinit(self: Data, allocator: mem.Allocator) void {
     allocator.free(self.slug);
     if (self.title) |title| {
         allocator.free(title);
