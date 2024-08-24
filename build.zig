@@ -1,23 +1,64 @@
 const std = @import("std");
 const debug = std.debug;
 
-pub fn build(b: *std.Build) void {
-    const build_steps = .{
-        .check = b.step("check", "Check the Zig code"),
-        .generate_benchmark_site = b.step("generate-benchmark", "Generate a site dir used to benchmark goku."),
-        .run = b.step("run", "Run the app"),
-        .run_benchmark = b.step("run-benchmark", "Run the benchmark."),
-        .@"test" = b.step("test", "Run unit tests"),
-    };
-    defer {
-        inline for (@typeInfo(@TypeOf(build_steps)).Struct.fields) |f| {
-            const step = @field(build_steps, f.name);
+const BuildSteps = struct {
+    check: *std.Build.Step,
+    generate_benchmark_site: *std.Build.Step,
+    run: *std.Build.Step,
+    run_benchmark: *std.Build.Step,
+    site: *std.Build.Step,
+    @"test": *std.Build.Step,
+
+    pub fn init(b: *std.Build) BuildSteps {
+        return .{
+            .check = b.step(
+                "check",
+                "Check the Zig code",
+            ),
+            .generate_benchmark_site = b.step(
+                "generate-benchmark",
+                "Generate a site dir used to benchmark goku.",
+            ),
+            .run = b.step(
+                "run",
+                "Run the app",
+            ),
+            .run_benchmark = b.step(
+                "run-benchmark",
+                "Run the benchmark.",
+            ),
+            .site = b.step(
+                "site",
+                "Build the Goku site",
+            ),
+            .@"test" = b.step(
+                "test",
+                "Run unit tests",
+            ),
+        };
+    }
+    pub fn deinit(self: @This()) void {
+        inline for (@typeInfo(@This()).Struct.fields) |f| {
+            const step = @field(self, f.name);
             debug.assert(step.dependencies.items.len > 0);
         }
     }
+};
 
-    const wasm_option = b.option(bool, "wasm", "Compile to webassembly (supported on e.g. wasmtime)") orelse false;
-    const tracy_enable = b.option(bool, "tracy_enable", "Enable profiling") orelse false;
+pub fn build(b: *std.Build) void {
+    const build_steps = BuildSteps.init(b);
+    defer build_steps.deinit();
+
+    const wasm_option = b.option(
+        bool,
+        "wasm",
+        "Compile to webassembly (supported on e.g. wasmtime)",
+    ) orelse false;
+    const tracy_enable = b.option(
+        bool,
+        "tracy_enable",
+        "Enable profiling",
+    ) orelse false;
 
     const target = if (wasm_option) b.resolveTargetQuery(.{
         .cpu_arch = .wasm32,
@@ -330,4 +371,9 @@ pub fn build(b: *std.Build) void {
     run_benchmark_cmd.addDirectoryArg(benchmark_site);
     run_benchmark_cmd.addArgs(&.{ "-o", "benchmark-build" });
     build_steps.run_benchmark.dependOn(&run_benchmark_cmd.step);
+
+    const build_site_cmd = b.addRunArtifact(exe);
+    build_site_cmd.addDirectoryArg(b.path("site"));
+    build_site_cmd.addArgs(&.{ "-o", "build" });
+    build_steps.site.dependOn(&build_site_cmd.step);
 }
