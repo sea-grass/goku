@@ -319,7 +319,7 @@ pub fn main() !void {
                     .{
                         .markdown = .{
                             .frontmatter = result.within,
-                            .data = result.after,
+                            .content = result.after,
                         },
                     },
                     allocator,

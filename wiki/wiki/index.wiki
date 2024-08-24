@@ -1,0 +1,15 @@
+= Goku =
+
+- [[Docs]]
+
+== Prioritized ==
+- Support user templates
+- Support user assets
+
+== Planned ==
+
+== Changelog ==
+=== 0.0.2 (in-progress) ===
+- Users can now place `template: this` in a page's frontmatter for it to be interpreted as a mustache template, in addition to markdown content
+=== 0.0.1 ===
+- Initial release

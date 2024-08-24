@@ -81,6 +81,7 @@ pub fn build(b: *std.Build) void {
     const lucide = b.dependency("lucide", .{
         .icons = @as([]const []const u8, &.{
             "apple",
+            "loader-pinwheel",
         }),
     });
 
