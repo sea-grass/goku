@@ -1,5 +1,6 @@
 const std = @import("std");
 const fs = std.fs;
+const log = std.log.scoped(.build_lucide);
 const math = std.math;
 
 pub fn build(b: *std.Build) !void {
@@ -24,7 +25,11 @@ pub fn build(b: *std.Build) !void {
         for (icons) |i| {
             const path = lucide_src.path(b.fmt("icons/{s}.svg", .{i}));
 
-            const file = try fs.openFileAbsolute(path.getPath(b), .{});
+            const file = fs.openFileAbsolute(path.getPath(b), .{}) catch |err| {
+                log.err("Could not load icon ({s})\n", .{i});
+                return err;
+            };
+
             const svg = try file.readToEndAlloc(b.allocator, math.maxInt(u32));
             options.addOption([]const u8, i, svg);
         }

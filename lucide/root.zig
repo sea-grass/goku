@@ -1,4 +1,5 @@
 const std = @import("std");
+const log = std.log.scoped(.lucide);
 const mem = std.mem;
 const icons = @import("icons");
 
@@ -13,5 +14,6 @@ pub fn icon(name: []const u8) []const u8 {
         }
     }
 
+    log.err("Unknown icon ({s})\n", .{name});
     @panic("Unknown icon. Did you forget to add it to the lucide dependency's `icons` list?");
 }
