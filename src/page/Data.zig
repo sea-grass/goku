@@ -8,6 +8,7 @@ slug: []const u8,
 collection: ?[]const u8 = null,
 title: ?[]const u8 = null,
 date: ?[]const u8 = null,
+template: ?[]const u8 = null,
 options_toc: bool = false,
 
 const Data = @This();
@@ -40,10 +41,12 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
         date,
         collection,
         description,
+        template,
         tags,
     } = .key;
     var slug: ?[]const u8 = null;
     var title: ?[]const u8 = null;
+    var template: ?[]const u8 = null;
     while (!done) {
         if (c.yaml_parser_parse(ptr, ev_ptr) == 0) {
             debug.print("Encountered a yaml parsing error: {s}\nLine: {d} Column: {d}\n", .{
@@ -77,12 +80,18 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
                             next_scalar_expected = .tags;
                         } else if (mem.eql(u8, value, "description")) {
                             next_scalar_expected = .description;
+                        } else if (mem.eql(u8, value, "template")) {
+                            next_scalar_expected = .template;
                         } else {
                             next_scalar_expected = .discard;
                         }
                     },
                     .slug => {
                         slug = try allocator.dupe(u8, value);
+                        next_scalar_expected = .key;
+                    },
+                    .template => {
+                        template = try allocator.dupe(u8, value);
                         next_scalar_expected = .key;
                     },
                     .title => {
@@ -125,6 +134,7 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
     return .{
         .slug = slug.?,
         .title = title,
+        .template = template,
     };
 }
 

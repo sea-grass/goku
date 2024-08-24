@@ -4,6 +4,8 @@ const heap = std.heap;
 const mem = std.mem;
 const lucide = @import("lucide");
 const c = @import("c");
+const Data = @import("Data.zig");
+const Markdown = @import("Markdown.zig");
 const Page = @import("page.zig").Page;
 const tmpl = @embedFile("templates/basic.html");
 
@@ -11,6 +13,7 @@ pub fn Parser(comptime Writer: type) type {
     return struct {
         writer: Writer,
         page: Page,
+        data: Data,
         arena: mem.Allocator,
 
         const Self = @This();
@@ -50,16 +53,30 @@ pub fn Parser(comptime Writer: type) type {
 
                     const key = buf[0..len];
                     if (mem.eql(u8, key, "title")) {
-                        // TODO lookup title
-                        const fallback_title = "(missing title)";
+                        const title = ctx.data.title orelse "(missing title)";
                         sbuf.* = .{
-                            .value = ctx.arena.dupeZ(u8, fallback_title) catch return -1,
-                            .length = fallback_title.len,
+                            .value = ctx.arena.dupeZ(
+                                u8,
+                                title,
+                            ) catch return -1,
+                            .length = title.len,
                             .closure = null,
                         };
                         return 0;
                     } else if (mem.eql(u8, key, "content")) {
-                        const content = ctx.arena.dupeZ(u8, "content") catch return -1;
+                        // Render page content
+                        var content_buf = std.ArrayList(u8).init(ctx.arena);
+                        defer content_buf.deinit();
+
+                        var markdown = Markdown.init(ctx.arena);
+                        defer markdown.deinit();
+
+                        markdown.renderStream(
+                            ctx.page.markdown.data,
+                            content_buf.writer(),
+                        ) catch return -1;
+
+                        const content = content_buf.toOwnedSliceSentinel(0) catch return -1;
 
                         sbuf.* = .{
                             .value = content,
@@ -111,11 +128,23 @@ pub fn Parser(comptime Writer: type) type {
             var arena = heap.ArenaAllocator.init(allocator);
             defer arena.deinit();
 
+            const data = try Data.fromYamlString(
+                arena.allocator(),
+                try arena.allocator().dupeZ(
+                    u8,
+                    page.markdown.frontmatter,
+                ),
+                page.markdown.frontmatter.len,
+            );
+
             var parser: Self = .{
                 .arena = arena.allocator(),
                 .page = page,
+                .data = data,
                 .writer = writer,
             };
+
+            // TODO read template from Data
 
             switch (c.mini_mustach(
                 @ptrCast(tmpl),

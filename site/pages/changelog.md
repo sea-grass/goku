@@ -3,4 +3,5 @@ slug: /changelog
 title: Changelog
 ---
 
-# Changelog
+- [Back home](/)
+
