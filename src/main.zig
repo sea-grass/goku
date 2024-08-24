@@ -1,14 +1,17 @@
 const std = @import("std");
 const debug = std.debug;
+const fmt = std.fmt;
 const fs = std.fs;
 const heap = std.heap;
 const io = std.io;
+const log = std.log.scoped(.goku);
 const math = std.math;
 const mem = std.mem;
 const process = std.process;
 const time = std.time;
 const tracy = @import("tracy");
 const clap = @import("clap");
+const Database = @import("Database.zig");
 const sqlite = @import("sqlite");
 const parseCodeFence = @import("parse_code_fence.zig").parseCodeFence;
 const page = @import("page.zig");
@@ -61,7 +64,7 @@ fn printHelp() !void {
 
 pub fn main() !void {
     const start = time.milliTimestamp();
-    defer debug.print("Elapsed: {d}ms\n", .{time.milliTimestamp() - start});
+    defer log.info("Elapsed: {d}ms", .{time.milliTimestamp() - start});
 
     tracy.startupProfiler();
     defer tracy.shutdownProfiler();
@@ -72,7 +75,7 @@ pub fn main() !void {
     var gpa = heap.GeneralPurposeAllocator(.{}){};
     defer switch (gpa.deinit()) {
         .leak => {
-            debug.print("Memory leak...\n", .{});
+            log.err("Memory leak...", .{});
         },
         else => {},
     };
@@ -98,7 +101,7 @@ pub fn main() !void {
 
     const site_root = if (res.positionals.len == 1) res.positionals[0] else {
         if (res.positionals.len < 1) {
-            debug.print("Fatal error: Missing required <site_root> argument.\n", .{});
+            log.err("Fatal error: Missing required <site_root> argument.", .{});
             process.exit(1);
         }
 
@@ -111,18 +114,10 @@ pub fn main() !void {
         process.exit(1);
     };
 
-    defer debug.print("Site Root {s} -> Out Dir {s}\n", .{ site_root, out_dir_path });
+    defer log.info("Site Root {s} -> Out Dir {s}", .{ site_root, out_dir_path });
 
-    var db = try sqlite.Db.init(.{
-        .mode = .Memory,
-        .open_flags = .{ .write = true, .create = true },
-        .threading_mode = .SingleThread,
-    });
+    var db = try Database.init(unlimited_allocator);
     defer db.deinit();
-
-    try db.exec(
-        \\CREATE TABLE pages(slug TEXT, title TEXT, filepath TEXT);
-    , .{}, .{});
 
     var page_count: u32 = 0;
 
@@ -137,42 +132,41 @@ pub fn main() !void {
         const zone = tracy.initZone(@src(), .{ .name = "Load Page from File" });
         defer zone.deinit();
 
-        const file = try entry.openFile();
-        defer file.close();
-
-        debug.assert(try file.getPos() == 0);
-        const length = try file.getEndPos();
-
-        // alice.txt is 148.57kb. I doubt I'll write a single markdown file
-        // longer than the entire Alice's Adventures in Wonderland.
-        debug.assert(length < size_of_alice_txt);
-        var buffer: [size_of_alice_txt]u8 = undefined;
-        var fba = heap.FixedBufferAllocator.init(&buffer);
-        var buf = std.ArrayList(u8).init(fba.allocator());
-        file.reader().streamUntilDelimiter(buf.writer(), 0, null) catch |err| switch (err) {
-            error.EndOfStream => {},
-            else => return err,
-        };
-        debug.assert(buf.items.len == length);
-
-        const code_fence_result = parseCodeFence(buf.items) orelse return error.MissingFrontmatter;
-        const frontmatter = code_fence_result.within;
-
         const allocator = page_load_allocator.allocator();
-        const data = try page.Data.fromYamlString(allocator, @ptrCast(frontmatter), frontmatter.len);
+        const data = data: {
+            const file = try entry.openFile();
+            defer file.close();
+
+            debug.assert(try file.getPos() == 0);
+            const length = try file.getEndPos();
+
+            // alice.txt is 148.57kb. I doubt I'll write a single markdown file
+            // longer than the entire Alice's Adventures in Wonderland.
+            debug.assert(length < size_of_alice_txt);
+
+            var buffer: [size_of_alice_txt]u8 = undefined;
+            const file_content = try file.reader().readUntilDelimiterOrEof(&buffer, 0) orelse "";
+
+            const code_fence_result = parseCodeFence(file_content) orelse return error.MissingFrontmatter;
+            const frontmatter = code_fence_result.within;
+
+            break :data try page.Data.fromYamlString(
+                allocator,
+
+                @ptrCast(frontmatter),
+                frontmatter.len,
+            );
+        };
         defer data.deinit(allocator);
 
         var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
-        try db.execAlloc(
-            unlimited_allocator,
 
-            \\INSERT INTO pages(slug, title, filepath) VALUES (?, ?, ?);
-        ,
-            .{},
+        try Database.Page.insert(
+            &db,
             .{
-                data.slug,
-                data.title orelse "(missing title)",
-                try entry.realpath(&filepath_buf),
+                .slug = data.slug,
+                .title = data.title orelse "(missing title)",
+                .filepath = try entry.realpath(&filepath_buf),
             },
         );
 
@@ -206,7 +200,7 @@ pub fn main() !void {
                     \\SELECT slug, title FROM pages;
                 ;
 
-                var get_stmt = try db.prepare(get_pages);
+                var get_stmt = try db.db.prepare(get_pages);
                 defer get_stmt.deinit();
 
                 var it = try get_stmt.iterator(
@@ -255,7 +249,7 @@ pub fn main() !void {
                 \\SELECT slug, filepath FROM pages;
             ;
 
-            var get_stmt = try db.prepare(get_pages);
+            var get_stmt = try db.db.prepare(get_pages);
             defer get_stmt.deinit();
 
             var it = try get_stmt.iterator(
