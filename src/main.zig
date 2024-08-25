@@ -15,6 +15,11 @@ const Database = @import("Database.zig");
 const sqlite = @import("sqlite");
 const parseCodeFence = @import("parse_code_fence.zig").parseCodeFence;
 const page = @import("page.zig");
+const source = @import("source.zig");
+
+pub const std_options = .{
+    .log_level = .debug,
+};
 
 const size_of_alice_txt = 1189000;
 
@@ -124,54 +129,92 @@ pub fn main() !void {
     var page_load_allocator = heap.ArenaAllocator.init(unlimited_allocator);
     defer page_load_allocator.deinit();
 
-    var page_it: page.Source = .{
-        .root = site_root,
-        .subpath = "pages",
-    };
-    while (try page_it.next()) |entry| {
-        const zone = tracy.initZone(@src(), .{ .name = "Load Page from File" });
-        defer zone.deinit();
+    {
+        var page_it: source.Filesystem = .{
+            .root = site_root,
+            .subpath = "pages",
+        };
+        while (try page_it.next()) |entry| {
+            const zone = tracy.initZone(@src(), .{ .name = "Load Page from File" });
+            defer zone.deinit();
 
-        const allocator = page_load_allocator.allocator();
-        const data = data: {
+            const allocator = page_load_allocator.allocator();
+            const data = data: {
+                const file = try entry.openFile();
+                defer file.close();
+
+                debug.assert(try file.getPos() == 0);
+                const length = try file.getEndPos();
+
+                // alice.txt is 148.57kb. I doubt I'll write a single markdown file
+                // longer than the entire Alice's Adventures in Wonderland.
+                debug.assert(length < size_of_alice_txt);
+
+                var buffer: [size_of_alice_txt]u8 = undefined;
+                const file_content = try file.reader().readUntilDelimiterOrEof(&buffer, 0) orelse "";
+
+                const code_fence_result = parseCodeFence(file_content) orelse return error.MissingFrontmatter;
+                const frontmatter = code_fence_result.within;
+
+                break :data try page.Data.fromYamlString(
+                    allocator,
+
+                    @ptrCast(frontmatter),
+                    frontmatter.len,
+                );
+            };
+            defer data.deinit(allocator);
+
+            var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
+
+            try Database.Page.insert(
+                &db,
+                .{
+                    .slug = data.slug,
+                    .title = data.title orelse "(missing title)",
+                    .filepath = try entry.realpath(&filepath_buf),
+                },
+            );
+
+            page_count += 1;
+            tracy.plot(u32, "Discovered Page Count", page_count);
+        }
+    }
+
+    var template_count: u32 = 0;
+
+    {
+        var template_it: source.Filesystem = .{
+            .root = site_root,
+            .subpath = "templates",
+        };
+        while (try template_it.next()) |entry| {
+            const zone = tracy.initZone(@src(), .{ .name = "Scan for template files" });
+            defer zone.deinit();
+
             const file = try entry.openFile();
             defer file.close();
 
             debug.assert(try file.getPos() == 0);
             const length = try file.getEndPos();
 
-            // alice.txt is 148.57kb. I doubt I'll write a single markdown file
-            // longer than the entire Alice's Adventures in Wonderland.
-            debug.assert(length < size_of_alice_txt);
+            // I don't think it makes sense to have an empty template file, right?
+            debug.assert(length > 0);
 
-            var buffer: [size_of_alice_txt]u8 = undefined;
-            const file_content = try file.reader().readUntilDelimiterOrEof(&buffer, 0) orelse "";
+            var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
 
-            const code_fence_result = parseCodeFence(file_content) orelse return error.MissingFrontmatter;
-            const frontmatter = code_fence_result.within;
-
-            break :data try page.Data.fromYamlString(
-                allocator,
-
-                @ptrCast(frontmatter),
-                frontmatter.len,
+            try Database.Template.insert(
+                &db,
+                .{
+                    .filepath = try entry.realpath(&filepath_buf),
+                },
             );
-        };
-        defer data.deinit(allocator);
 
-        var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
+            template_count += 1;
+            tracy.plot(u32, "Discovered Template Count", template_count);
+        }
 
-        try Database.Page.insert(
-            &db,
-            .{
-                .slug = data.slug,
-                .title = data.title orelse "(missing title)",
-                .filepath = try entry.realpath(&filepath_buf),
-            },
-        );
-
-        page_count += 1;
-        tracy.plot(u32, "Discovered Page Count", page_count);
+        log.debug("Discovered template count {d}", .{template_count});
     }
 
     {
@@ -317,6 +360,11 @@ pub fn main() !void {
                         },
                     },
                     allocator,
+                    .{
+                        .bytes =
+                        \\<!doctype html><html><body><div>{{& content}}</div></body></html>
+                        ,
+                    },
                     html_buffer.writer(),
                 );
 

@@ -15,6 +15,15 @@ pub const Page = Table("pages", .{
     ,
 });
 
+pub const Template = Table("templates", .{
+    .create =
+    \\CREATE TABLE templates(filepath TEXT);
+    ,
+    .insert =
+    \\INSERT INTO templates(filepath) VALUES (?);
+    ,
+});
+
 const Database = @This();
 
 pub fn init(allocator: mem.Allocator) !Database {
@@ -26,7 +35,9 @@ pub fn init(allocator: mem.Allocator) !Database {
     errdefer db.deinit();
 
     var self: Database = .{ .allocator = allocator, .db = db };
+
     try Page.init(&self);
+    try Template.init(&self);
 
     return self;
 }
@@ -43,9 +54,7 @@ fn Table(
         pub const name = table_name;
 
         pub fn init(db: *Database) !void {
-            try db.db.exec(
-                \\CREATE TABLE pages(slug TEXT, title TEXT, filepath TEXT);
-            , .{}, .{});
+            try db.db.exec(statements.create, .{}, .{});
         }
 
         pub fn insert(db: *Database, data: anytype) !void {

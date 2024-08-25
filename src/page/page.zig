@@ -24,25 +24,29 @@ pub const Page = union(enum) {
     }
 
     // Write `page` as an html document to the `writer`.
-    pub fn renderStream(self: Page, allocator: mem.Allocator, writer: anytype) !void {
+    pub const TemplateOption = union(enum) {
+        this: void,
+        bytes: []const u8,
+    };
+    pub fn renderStream(self: Page, allocator: mem.Allocator, tmpl: TemplateOption, writer: anytype) !void {
         const meta = try self.data(allocator);
         defer meta.deinit(allocator);
 
-        var content = self.markdown.content;
+        switch (tmpl) {
+            .this => {
+                var buf = std.ArrayList(u8).init(allocator);
+                defer buf.deinit();
 
-        const template = meta.template orelse "this";
-        if (mem.eql(u8, template, "this")) {
-            var buf = std.ArrayList(u8).init(allocator);
-            defer buf.deinit();
+                try mustache.Mustache(Data).renderStream(
+                    allocator,
+                    self.markdown.content,
+                    meta,
+                    buf.writer(),
+                );
 
-            try mustache.Mustache(Data).renderStream(
-                allocator,
-                self.markdown.content,
-                meta,
-                buf.writer(),
-            );
-
-            content = try buf.toOwnedSlice();
+                try writer.writeAll(buf.items);
+            },
+            else => {},
         }
 
         // Render page content
@@ -56,17 +60,16 @@ pub const Page = union(enum) {
         defer markdown.deinit();
 
         try markdown.renderStream(
-            content,
+            self.markdown.content,
             content_buf.writer(),
         );
 
         const content_final = try content_buf.toOwnedSliceSentinel(0);
 
-        const tmpl = @embedFile("templates/basic.html");
         try mustache.Mustache(struct {
             content: []const u8,
             title: []const u8,
-        }).renderStream(allocator, tmpl, .{
+        }).renderStream(allocator, tmpl.bytes, .{
             .content = content_final,
             .title = meta.title orelse "(missing title)",
         }, writer);
