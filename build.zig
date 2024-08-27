@@ -377,4 +377,5 @@ pub fn build(b: *std.Build) void {
     build_site_cmd.addDirectoryArg(b.path("site"));
     build_site_cmd.addArgs(&.{ "-o", "build" });
     build_steps.site.dependOn(&build_site_cmd.step);
+    build_steps.site.dependOn(b.getInstallStep());
 }
