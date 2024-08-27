@@ -19,4 +19,4 @@ template: this
 <div id="spinner">{{&lucide.loader-pinwheel}}</div>
 
 - [Releases](/releases)
-- [Changelog](/Changelog)
+- [Changelog](/changelog)
