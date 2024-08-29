@@ -6,8 +6,9 @@
     .dependencies = .{
         .tracy = .{
             // Point back to cipharius/zig-tracy once it's been updated to support Zig 0.13
-            .url = "https://github.com/kcbanner/zig-tracy/archive/40ad7b4c7976dcd94b2f3a89470b2e84d42b7b8c.tar.gz",
-            .hash = "1220847a8e1395c15ac39e200227a1f102c5a93be2ef12528d4ff97dd79ce164906a",
+            //.url = "https://github.com/kcbanner/zig-tracy/archive/40ad7b4c7976dcd94b2f3a89470b2e84d42b7b8c.tar.gz",
+            //.hash = "1220847a8e1395c15ac39e200227a1f102c5a93be2ef12528d4ff97dd79ce164906a",
+            .path = "../zig-tracy",
         },
         .clap = .{
             .url = "https://github.com/Hejsil/zig-clap/archive/refs/tags/0.9.1.tar.gz",
@@ -31,6 +32,9 @@
         },
         .lucide = .{
             .path = "./lucide",
+        },
+        .bulma = .{
+            .path = "./bulma",
         },
     },
 

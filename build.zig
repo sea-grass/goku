@@ -64,7 +64,7 @@ pub fn build(b: *std.Build) void {
         .cpu_arch = .wasm32,
         .os_tag = .wasi,
     }) else b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSafe });
+    const optimize = b.standardOptimizeOption(.{});
 
     const tracy = b.dependency("tracy", .{
         .target = target,
@@ -84,6 +84,8 @@ pub fn build(b: *std.Build) void {
             "loader-pinwheel",
         }),
     });
+
+    const bulma = b.dependency("bulma", .{});
 
     const c_mod = c: {
         const yaml_src = b.dependency("yaml-src", .{});
@@ -270,6 +272,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("clap", clap.module("clap"));
     exe.root_module.addImport("sqlite", sqlite.module("sqlite"));
     exe.root_module.addImport("lucide", lucide.module("lucide"));
+    exe.root_module.addImport("bulma", bulma.module("bulma"));
     exe.linkLibrary(sqlite.artifact("sqlite"));
     if (tracy_enable) {
         exe.linkLibrary(tracy.artifact("tracy"));
@@ -295,6 +298,7 @@ pub fn build(b: *std.Build) void {
     exe_unit_tests.root_module.addImport("clap", clap.module("clap"));
     exe_unit_tests.root_module.addImport("sqlite", sqlite.module("sqlite"));
     exe_unit_tests.root_module.addImport("lucide", lucide.module("lucide"));
+    exe_unit_tests.root_module.addImport("bulma", bulma.module("bulma"));
     exe_unit_tests.linkLibrary(sqlite.artifact("sqlite"));
     if (tracy_enable) {
         exe_unit_tests.linkLibrary(tracy.artifact("tracy"));
@@ -315,6 +319,7 @@ pub fn build(b: *std.Build) void {
     exe_check.root_module.addImport("clap", clap.module("clap"));
     exe_check.root_module.addImport("sqlite", sqlite.module("sqlite"));
     exe_check.root_module.addImport("lucide", lucide.module("lucide"));
+    exe_check.root_module.addImport("bulma", bulma.module("bulma"));
     exe_check.linkLibrary(sqlite.artifact("sqlite"));
     if (tracy_enable) {
         exe_check.linkLibrary(tracy.artifact("tracy"));

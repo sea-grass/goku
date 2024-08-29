@@ -32,46 +32,37 @@ pub const Page = union(enum) {
         const meta = try self.data(allocator);
         defer meta.deinit(allocator);
 
-        switch (tmpl) {
-            .this => {
-                var buf = std.ArrayList(u8).init(allocator);
-                defer buf.deinit();
+        var buf = std.ArrayList(u8).init(allocator);
+        defer buf.deinit();
+        const content = if (meta.allow_html) content: {
+            try mustache.Mustache(Data).renderStream(allocator, self.markdown.content, meta, buf.writer());
+            break :content buf.items;
+        } else self.markdown.content;
 
-                try mustache.Mustache(Data).renderStream(
-                    allocator,
-                    self.markdown.content,
-                    meta,
-                    buf.writer(),
-                );
+        const template = tmpl.bytes;
+        const title = meta.title;
 
-                try writer.writeAll(buf.items);
-            },
-            else => {},
-        }
-
-        // Render page content
         var content_buf = std.ArrayList(u8).init(allocator);
         defer content_buf.deinit();
 
-        // Render content as a mustache doc
-        // Then pass that into the markdown renderer
+        {
+            var markdown = Markdown.init(allocator);
+            defer markdown.deinit();
 
-        var markdown = Markdown.init(allocator);
-        defer markdown.deinit();
-
-        try markdown.renderStream(
-            self.markdown.content,
-            content_buf.writer(),
-        );
-
-        const content_final = try content_buf.toOwnedSliceSentinel(0);
+            try markdown.renderStream(content, content_buf.writer());
+        }
 
         try mustache.Mustache(struct {
             content: []const u8,
             title: []const u8,
-        }).renderStream(allocator, tmpl.bytes, .{
-            .content = content_final,
-            .title = meta.title orelse "(missing title)",
-        }, writer);
+        }).renderStream(
+            allocator,
+            template,
+            .{
+                .content = content_buf.items,
+                .title = title orelse "(missing title)",
+            },
+            writer,
+        );
     }
 };

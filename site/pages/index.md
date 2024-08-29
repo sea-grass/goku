@@ -1,7 +1,8 @@
 ---
 slug: /
 title: Goku
-template: this
+allow_html: true
+template: basic.html
 ---
 
 <style>

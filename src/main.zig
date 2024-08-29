@@ -16,6 +16,7 @@ const sqlite = @import("sqlite");
 const parseCodeFence = @import("parse_code_fence.zig").parseCodeFence;
 const page = @import("page.zig");
 const source = @import("source.zig");
+const bulma = @import("bulma");
 
 pub const std_options = .{
     .log_level = .debug,
@@ -126,9 +127,6 @@ pub fn main() !void {
 
     var page_count: u32 = 0;
 
-    var page_load_allocator = heap.ArenaAllocator.init(unlimited_allocator);
-    defer page_load_allocator.deinit();
-
     {
         var page_it: source.Filesystem = .{
             .root = site_root,
@@ -138,41 +136,28 @@ pub fn main() !void {
             const zone = tracy.initZone(@src(), .{ .name = "Load Page from File" });
             defer zone.deinit();
 
-            const allocator = page_load_allocator.allocator();
-            const data = data: {
-                const file = try entry.openFile();
-                defer file.close();
+            const file = try entry.openFile();
+            defer file.close();
 
-                debug.assert(try file.getPos() == 0);
-                const length = try file.getEndPos();
+            debug.assert(try file.getPos() == 0);
+            const length = try file.getEndPos();
 
-                // alice.txt is 148.57kb. I doubt I'll write a single markdown file
-                // longer than the entire Alice's Adventures in Wonderland.
-                debug.assert(length < size_of_alice_txt);
+            // alice.txt is 148.57kb. I doubt I'll write a single markdown file
+            // longer than the entire Alice's Adventures in Wonderland.
+            debug.assert(length < size_of_alice_txt);
 
-                var buffer: [size_of_alice_txt]u8 = undefined;
-                const file_content = try file.reader().readUntilDelimiterOrEof(&buffer, 0) orelse "";
-
-                const code_fence_result = parseCodeFence(file_content) orelse return error.MissingFrontmatter;
-                const frontmatter = code_fence_result.within;
-
-                break :data try page.Data.fromYamlString(
-                    allocator,
-
-                    @ptrCast(frontmatter),
-                    frontmatter.len,
-                );
-            };
-            defer data.deinit(allocator);
+            const data = try page.Data.fromReader(unlimited_allocator, file.reader(), size_of_alice_txt);
+            defer data.deinit(unlimited_allocator);
 
             var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
+            const filepath = try entry.realpath(&filepath_buf);
 
             try Database.Page.insert(
                 &db,
                 .{
                     .slug = data.slug,
                     .title = data.title orelse "(missing title)",
-                    .filepath = try entry.realpath(&filepath_buf),
+                    .filepath = filepath,
                 },
             );
 
@@ -281,6 +266,12 @@ pub fn main() !void {
         }
 
         {
+            var file = try out_dir.createFile("bulma.css", .{});
+            defer file.close();
+            try file.writer().writeAll(bulma.css);
+        }
+
+        {
             // We create an arena allocator for processing the pages. To avoid
             // allocating/freeing memory at the start/end of each page render,
             // we let the memory grow according to the maximum needs of a page
@@ -352,18 +343,40 @@ pub fn main() !void {
 
                 var html_buffer = io.bufferedWriter(file.writer());
 
-                try page.Page.renderStream(
-                    .{
-                        .markdown = .{
-                            .frontmatter = result.within,
-                            .content = result.after,
-                        },
+                const p: page.Page = .{
+                    .markdown = .{
+                        .frontmatter = result.within,
+                        .content = result.after,
                     },
+                };
+
+                const data = try p.data(allocator);
+                defer data.deinit(allocator);
+
+                var tmpl_arena = heap.ArenaAllocator.init(allocator);
+                defer tmpl_arena.deinit();
+
+                const template = template: {
+                    if (data.template) |t| {
+                        const template_path = try fs.path.join(tmpl_arena.allocator(), &.{ site_root, "templates", t });
+                        log.info("{s}", .{template_path});
+                        defer allocator.free(template_path);
+
+                        var template_file = try fs.openFileAbsolute(template_path, .{});
+                        defer template_file.close();
+
+                        const template = try template_file.readToEndAlloc(tmpl_arena.allocator(), math.maxInt(u32));
+                        break :template template;
+                    }
+
+                    // no template, so use some sort of fallback
+                    break :template "{{& content }}";
+                };
+
+                try p.renderStream(
                     allocator,
                     .{
-                        .bytes =
-                        \\<!doctype html><html><body><div>{{& content}}</div></body></html>
-                        ,
+                        .bytes = template,
                     },
                     html_buffer.writer(),
                 );
