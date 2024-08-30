@@ -1,13 +1,14 @@
 .{
     .name = "goku",
 
-    .version = "0.0.1",
+    .version = "0.0.2",
 
     .dependencies = .{
         .tracy = .{
             // Point back to cipharius/zig-tracy once it's been updated to support Zig 0.13
             .url = "https://github.com/kcbanner/zig-tracy/archive/40ad7b4c7976dcd94b2f3a89470b2e84d42b7b8c.tar.gz",
             .hash = "1220847a8e1395c15ac39e200227a1f102c5a93be2ef12528d4ff97dd79ce164906a",
+            //.path = "../zig-tracy",
         },
         .clap = .{
             .url = "https://github.com/Hejsil/zig-clap/archive/refs/tags/0.9.1.tar.gz",
@@ -24,6 +25,16 @@
         .sqlite = .{
             .url = "https://github.com/vrischmann/zig-sqlite/archive/7f4be7d30b126affb66b390c7825addb1c3506bd.tar.gz",
             .hash = "1220940ae067451e7e6824e9b92baceac93b0bd6fa9ffd315179cc9a7ce5430a46ac",
+        },
+        .@"mustach-src" = .{
+            .url = "https://gitlab.com/jobol/mustach/-/archive/bfadeda286d038a2fa31d247da7ad4c0ea7b6441/mustach-bfadeda286d038a2fa31d247da7ad4c0ea7b6441.tar.gz",
+            .hash = "12209fab7728f3d8b17eaecaf7d6a8f083fc603af92226d05c3e951258bf951fa51f",
+        },
+        .lucide = .{
+            .path = "./lucide",
+        },
+        .bulma = .{
+            .path = "./bulma",
         },
     },
 

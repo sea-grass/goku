@@ -1,20 +1,25 @@
-const std = @import("std");
+const bulma = @import("bulma");
+const clap = @import("clap");
 const debug = std.debug;
+const fmt = std.fmt;
 const fs = std.fs;
 const heap = std.heap;
 const io = std.io;
+const log = std.log.scoped(.goku);
 const math = std.math;
 const mem = std.mem;
+const page = @import("page.zig");
 const process = std.process;
+const source = @import("source.zig");
+const sqlite = @import("sqlite");
+const std = @import("std");
 const time = std.time;
 const tracy = @import("tracy");
-const clap = @import("clap");
-const sqlite = @import("sqlite");
-const Page = @import("page.zig").Page;
-const PageData = @import("PageData.zig");
-const PageSource = @import("PageSource.zig");
-const parseCodeFence = @import("parse_code_fence.zig").parseCodeFence;
-const renderStreamPage = @import("render_stream_page.zig").renderStreamPage;
+const Database = @import("Database.zig");
+
+pub const std_options = .{
+    .log_level = .debug,
+};
 
 const size_of_alice_txt = 1189000;
 
@@ -64,7 +69,7 @@ fn printHelp() !void {
 
 pub fn main() !void {
     const start = time.milliTimestamp();
-    defer debug.print("Elapsed: {d}ms\n", .{time.milliTimestamp() - start});
+    defer log.info("Elapsed: {d}ms", .{time.milliTimestamp() - start});
 
     tracy.startupProfiler();
     defer tracy.shutdownProfiler();
@@ -75,7 +80,7 @@ pub fn main() !void {
     var gpa = heap.GeneralPurposeAllocator(.{}){};
     defer switch (gpa.deinit()) {
         .leak => {
-            debug.print("Memory leak...\n", .{});
+            log.err("Memory leak...", .{});
         },
         else => {},
     };
@@ -99,96 +104,120 @@ pub fn main() !void {
         process.exit(0);
     }
 
-    const site_root = if (res.positionals.len == 1) res.positionals[0] else {
-        if (res.positionals.len < 1) {
-            debug.print("Fatal error: Missing required <site_root> argument.\n", .{});
+    var site_root_buf: [fs.max_path_bytes]u8 = undefined;
+    const site_root = try absolutePath(
+        site_root: {
+            break :site_root if (res.positionals.len == 1) res.positionals[0] else {
+                if (res.positionals.len < 1) {
+                    log.err("Fatal error: Missing required <site_root> argument.", .{});
+                    process.exit(1);
+                }
+
+                try printHelp();
+                process.exit(1);
+            };
+        },
+        &site_root_buf,
+        .{},
+    );
+
+    var out_dir_buf: [fs.max_path_bytes]u8 = undefined;
+    const out_dir_path = try absolutePath(
+        if (res.args.out) |out| out else {
+            try printHelp();
             process.exit(1);
-        }
+        },
+        &out_dir_buf,
+        .{ .make = true },
+    );
 
-        try printHelp();
-        process.exit(1);
-    };
+    defer log.info("Site Root {s} -> Out Dir {s}", .{ site_root, out_dir_path });
 
-    const out_dir_path = if (res.args.out) |out| out else {
-        try printHelp();
-        process.exit(1);
-    };
-
-    defer debug.print("Site Root {s} -> Out Dir {s}\n", .{ site_root, out_dir_path });
-
-    var db = try sqlite.Db.init(.{
-        .mode = .Memory,
-        .open_flags = .{ .write = true, .create = true },
-        .threading_mode = .SingleThread,
-    });
+    var db = try Database.init(unlimited_allocator);
     defer db.deinit();
-
-    try db.exec(
-        \\CREATE TABLE pages(slug TEXT, title TEXT, filepath TEXT);
-    , .{}, .{});
 
     var page_count: u32 = 0;
 
-    var page_load_allocator = heap.ArenaAllocator.init(unlimited_allocator);
-    defer page_load_allocator.deinit();
-
-    var page_it: PageSource = .{
-        .root = site_root,
-        .subpath = "pages",
-    };
-    while (try page_it.next()) |page| {
-        const zone = tracy.initZone(@src(), .{ .name = "Load Page from File" });
-        defer zone.deinit();
-
-        const file = try page.openFile();
-        defer file.close();
-
-        debug.assert(try file.getPos() == 0);
-        const length = try file.getEndPos();
-
-        // alice.txt is 148.57kb. I doubt I'll write a single markdown file
-        // longer than the entire Alice's Adventures in Wonderland.
-        debug.assert(length < size_of_alice_txt);
-        var buffer: [size_of_alice_txt]u8 = undefined;
-        var fba = heap.FixedBufferAllocator.init(&buffer);
-        var buf = std.ArrayList(u8).init(fba.allocator());
-        file.reader().streamUntilDelimiter(buf.writer(), 0, null) catch |err| switch (err) {
-            error.EndOfStream => {},
-            else => return err,
+    {
+        var page_it: source.Filesystem = .{
+            .root = site_root,
+            .subpath = "pages",
         };
-        debug.assert(buf.items.len == length);
+        while (try page_it.next()) |entry| {
+            const zone = tracy.initZone(@src(), .{ .name = "Load Page from File" });
+            defer zone.deinit();
 
-        const code_fence_result = parseCodeFence(buf.items) orelse return error.MissingFrontmatter;
-        const frontmatter = code_fence_result.within;
+            const file = try entry.openFile();
+            defer file.close();
 
-        const allocator = page_load_allocator.allocator();
-        const data = try PageData.fromYamlString(allocator, @ptrCast(frontmatter), frontmatter.len);
-        defer data.deinit(allocator);
+            debug.assert(try file.getPos() == 0);
+            const length = try file.getEndPos();
 
-        var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
-        try db.execAlloc(
-            unlimited_allocator,
+            // alice.txt is 148.57kb. I doubt I'll write a single markdown file
+            // longer than the entire Alice's Adventures in Wonderland.
+            debug.assert(length < size_of_alice_txt);
 
-            \\INSERT INTO pages(slug, title, filepath) VALUES (?, ?, ?);
-        ,
-            .{},
-            .{
-                data.slug,
-                data.title orelse "(missing title)",
-                try page.realpath(&filepath_buf),
-            },
-        );
+            const data = try page.Data.fromReader(unlimited_allocator, file.reader(), size_of_alice_txt);
+            defer data.deinit(unlimited_allocator);
 
-        page_count += 1;
-        tracy.plot(u32, "Discovered Page Count", page_count);
+            var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
+            const filepath = try entry.realpath(&filepath_buf);
+
+            try Database.Page.insert(
+                &db,
+                .{
+                    .slug = data.slug,
+                    .title = data.title orelse "(missing title)",
+                    .filepath = filepath,
+                },
+            );
+
+            page_count += 1;
+            tracy.plot(u32, "Discovered Page Count", page_count);
+        }
+    }
+
+    var template_count: u32 = 0;
+
+    {
+        var template_it: source.Filesystem = .{
+            .root = site_root,
+            .subpath = "templates",
+        };
+        while (try template_it.next()) |entry| {
+            const zone = tracy.initZone(@src(), .{ .name = "Scan for template files" });
+            defer zone.deinit();
+
+            const file = try entry.openFile();
+            defer file.close();
+
+            debug.assert(try file.getPos() == 0);
+            const length = try file.getEndPos();
+
+            // I don't think it makes sense to have an empty template file, right?
+            debug.assert(length > 0);
+
+            var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
+
+            try Database.Template.insert(
+                &db,
+                .{
+                    .filepath = try entry.realpath(&filepath_buf),
+                },
+            );
+
+            template_count += 1;
+            tracy.plot(u32, "Discovered Template Count", template_count);
+        }
+
+        log.debug("Discovered template count {d}", .{template_count});
     }
 
     {
         const write_output_zone = tracy.initZone(@src(), .{ .name = "Write Site to Output Dir" });
         defer write_output_zone.deinit();
 
-        // TODO support potentially absolute out dir
-        var out_dir = try std.fs.cwd().makeOpenPath(out_dir_path, .{});
+        var out_dir = try fs.openDirAbsolute(out_dir_path, .{});
         defer out_dir.close();
 
         // TODO restore skip-to-main-content
@@ -209,7 +238,7 @@ pub fn main() !void {
                     \\SELECT slug, title FROM pages;
                 ;
 
-                var get_stmt = try db.prepare(get_pages);
+                var get_stmt = try db.db.prepare(get_pages);
                 defer get_stmt.deinit();
 
                 var it = try get_stmt.iterator(
@@ -241,15 +270,15 @@ pub fn main() !void {
         }
 
         {
-            var file = try out_dir.createFile("htmx.js", .{});
-            defer file.close();
-            try file.writer().writeAll(@embedFile("assets/htmx.js"));
-        }
-
-        {
             var file = try out_dir.createFile("style.css", .{});
             defer file.close();
             try file.writer().writeAll(@embedFile("assets/style.css"));
+        }
+
+        {
+            var file = try out_dir.createFile("bulma.css", .{});
+            defer file.close();
+            try file.writer().writeAll(bulma.css);
         }
 
         {
@@ -264,7 +293,7 @@ pub fn main() !void {
                 \\SELECT slug, filepath FROM pages;
             ;
 
-            var get_stmt = try db.prepare(get_pages);
+            var get_stmt = try db.db.prepare(get_pages);
             defer get_stmt.deinit();
 
             var it = try get_stmt.iterator(
@@ -290,7 +319,7 @@ pub fn main() !void {
                 const contents = try in_file.readToEndAlloc(allocator, math.maxInt(u32));
                 defer allocator.free(contents);
 
-                const result = parseCodeFence(contents) orelse return error.MalformedPageFile;
+                const result = page.parseCodeFence(contents) orelse return error.MalformedPageFile;
 
                 const slug = entry.slug;
 
@@ -324,13 +353,40 @@ pub fn main() !void {
 
                 var html_buffer = io.bufferedWriter(file.writer());
 
-                try renderStreamPage(
+                const p: page.Page = .{
+                    .markdown = .{
+                        .frontmatter = result.within,
+                        .content = result.after,
+                    },
+                };
+
+                const data = try p.data(allocator);
+                defer data.deinit(allocator);
+
+                var tmpl_arena = heap.ArenaAllocator.init(allocator);
+                defer tmpl_arena.deinit();
+
+                const template = template: {
+                    if (data.template) |t| {
+                        const template_path = try fs.path.join(tmpl_arena.allocator(), &.{ site_root, "templates", t });
+                        log.info("{s}", .{template_path});
+                        defer allocator.free(template_path);
+
+                        var template_file = try fs.openFileAbsolute(template_path, .{});
+                        defer template_file.close();
+
+                        const template = try template_file.readToEndAlloc(tmpl_arena.allocator(), math.maxInt(u32));
+                        break :template template;
+                    }
+
+                    // no template, so use some sort of fallback
+                    break :template "{{& content }}";
+                };
+
+                try p.renderStream(
                     allocator,
                     .{
-                        .markdown = .{
-                            .frontmatter = result.within,
-                            .data = result.after,
-                        },
+                        .bytes = template,
                     },
                     html_buffer.writer(),
                 );
@@ -343,4 +399,31 @@ pub fn main() !void {
     // const assets_dir = try root_dir.openDir("assets");
     // const partials_dir = try root_dir.openDir("partials");
     // const themes_dir = try root_dir.openDir("themes");
+}
+
+const AbsolutePathOptions = struct {
+    // Make the directory if it does not exist
+    make: bool = false,
+};
+fn absolutePath(path: []const u8, buf: []u8, options: AbsolutePathOptions) ![]const u8 {
+    if (fs.path.isAbsolute(path)) {
+        if (options.make) {
+            try fs.makeDirAbsolute(path);
+        }
+
+        return path;
+    }
+
+    const cwd = fs.cwd();
+
+    if (options.make) {
+        try cwd.makePath(path);
+    }
+
+    return try cwd.realpath(path, buf);
+}
+
+test {
+    _ = @import("page.zig");
+    _ = @import("source.zig");
 }

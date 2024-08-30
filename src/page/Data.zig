@@ -1,20 +1,60 @@
-const std = @import("std");
-const debug = std.debug;
-const mem = std.mem;
 const c = @import("c");
+const debug = std.debug;
+const fmt = std.fmt;
+const mem = std.mem;
+const parseCodeFence = @import("parse_code_fence.zig").parseCodeFence;
+const std = @import("std");
+const testing = std.testing;
 const tracy = @import("tracy");
 
 slug: []const u8,
 collection: ?[]const u8 = null,
 title: ?[]const u8 = null,
 date: ?[]const u8 = null,
+template: ?[]const u8 = null,
+allow_html: bool = false,
 options_toc: bool = false,
 
-const PageData = @This();
+const Data = @This();
+
+pub fn fromReader(allocator: mem.Allocator, reader: anytype, max_len: usize) !Data {
+    var buf = std.ArrayList(u8).init(allocator);
+    defer buf.deinit();
+
+    try reader.readAllArrayList(&buf, max_len);
+
+    const code_fence_result = parseCodeFence(buf.items) orelse return error.MissingFrontmatter;
+    const frontmatter = code_fence_result.within;
+
+    return try fromYamlString(allocator, @ptrCast(frontmatter), frontmatter.len);
+}
+
+test fromReader {
+    const input =
+        \\---
+        \\slug: /
+        \\title: Home page
+        \\---
+    ;
+
+    var fbs = std.io.fixedBufferStream(input);
+    const reader = fbs.reader();
+
+    const yaml = try fromReader(
+        testing.allocator,
+        reader,
+        std.math.maxInt(usize),
+    );
+
+    defer yaml.deinit(testing.allocator);
+
+    try testing.expectEqualStrings("/", yaml.slug);
+    try testing.expectEqualStrings("Home page", yaml.title.?);
+}
 
 // Duplicates slices from the input data. Caller is responsible for
 // calling page_data.deinit(allocator) afterwards.
-pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) !PageData {
+pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) !Data {
     const zone = tracy.initZone(@src(), .{ .name = "PageData.fromYamlString" });
     defer zone.deinit();
 
@@ -40,10 +80,14 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
         date,
         collection,
         description,
+        template,
+        allow_html,
         tags,
     } = .key;
     var slug: ?[]const u8 = null;
     var title: ?[]const u8 = null;
+    var template: ?[]const u8 = null;
+    var allow_html: bool = false;
     while (!done) {
         if (c.yaml_parser_parse(ptr, ev_ptr) == 0) {
             debug.print("Encountered a yaml parsing error: {s}\nLine: {d} Column: {d}\n", .{
@@ -77,6 +121,10 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
                             next_scalar_expected = .tags;
                         } else if (mem.eql(u8, value, "description")) {
                             next_scalar_expected = .description;
+                        } else if (mem.eql(u8, value, "template")) {
+                            next_scalar_expected = .template;
+                        } else if (mem.eql(u8, value, "allow_html")) {
+                            next_scalar_expected = .allow_html;
                         } else {
                             next_scalar_expected = .discard;
                         }
@@ -85,8 +133,22 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
                         slug = try allocator.dupe(u8, value);
                         next_scalar_expected = .key;
                     },
+                    .template => {
+                        template = try allocator.dupe(u8, value);
+                        next_scalar_expected = .key;
+                    },
                     .title => {
                         title = try allocator.dupe(u8, value);
+                        next_scalar_expected = .key;
+                    },
+                    .allow_html => {
+                        if (mem.eql(u8, value, "true")) {
+                            allow_html = true;
+                        } else if (mem.eql(u8, value, "false")) {
+                            allow_html = false;
+                        } else {
+                            return error.UnexpectedValue;
+                        }
                         next_scalar_expected = .key;
                     },
                     .collection => {
@@ -125,12 +187,35 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
     return .{
         .slug = slug.?,
         .title = title,
+        .template = template,
+        .allow_html = allow_html,
     };
 }
 
-pub fn deinit(self: PageData, allocator: mem.Allocator) void {
+test fromYamlString {
+    const input =
+        \\slug: /
+        \\title: Home page
+    ;
+
+    const yaml = try fromYamlString(
+        testing.allocator,
+        @ptrCast(input),
+        input.len,
+    );
+
+    defer yaml.deinit(testing.allocator);
+
+    try testing.expectEqualStrings("/", yaml.slug);
+    try testing.expectEqualStrings("Home page", yaml.title.?);
+}
+
+pub fn deinit(self: Data, allocator: mem.Allocator) void {
     allocator.free(self.slug);
     if (self.title) |title| {
         allocator.free(title);
+    }
+    if (self.template) |template| {
+        allocator.free(template);
     }
 }
