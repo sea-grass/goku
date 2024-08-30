@@ -4,7 +4,7 @@ title: Page
 template: basic.html
 ---
 
-[Back to docs](/docs)
+[Back to docs](/goku/docs)
 
 
 ## Overview

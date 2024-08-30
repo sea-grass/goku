@@ -4,6 +4,6 @@ title: Goku Docs
 template: basic.html
 ---
 
-[Back home](/)
+[Back home](/goku)
 
-- [Page](/docs/page)
+- [Page](/goku/docs/page)

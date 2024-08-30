@@ -4,7 +4,7 @@ title: Changelog
 template: page.html
 ---
 
-- [Back home](/)
+- [Back home](/goku)
 
 ## 0.0.2
 
