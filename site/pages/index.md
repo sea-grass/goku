@@ -5,8 +5,10 @@ allow_html: true
 template: basic.html
 ---
 
+A static site generator written in Zig.
+
 <style>
-  #spinner svg {
+  #spinner {
     animation: spin 4s infinite linear;
     display: inline-block;
     transform-origin: center;
@@ -16,8 +18,12 @@ template: basic.html
     to { transform: rotate(360deg); }
   }
 </style>
-  
-<div id="spinner">{{&lucide.loader-pinwheel}}</div>
 
-- [Releases](/releases)
+<div id="spinner">
+
+- [Docs](/docs)
+- [Source code](https://github.com/sea-grass/goku)
 - [Changelog](/changelog)
+  
+</div>
+

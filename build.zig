@@ -1,6 +1,12 @@
 const debug = std.debug;
 const std = @import("std");
 
+const bundled_lucide_icons = @as([]const []const u8, &.{
+    "github",
+    "apple",
+    "loader-pinwheel",
+});
+
 const BuildSteps = struct {
     check: *std.Build.Step,
     generate_benchmark_site: *std.Build.Step,
@@ -79,10 +85,7 @@ pub fn build(b: *std.Build) void {
     const sqlite = b.dependency("sqlite", .{ .target = target, .optimize = optimize });
 
     const lucide = b.dependency("lucide", .{
-        .icons = @as([]const []const u8, &.{
-            "apple",
-            "loader-pinwheel",
-        }),
+        .icons = bundled_lucide_icons,
     });
 
     const bulma = b.dependency("bulma", .{});
