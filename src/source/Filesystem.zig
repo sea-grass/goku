@@ -2,6 +2,7 @@ const std = @import("std");
 const debug = std.debug;
 const fs = std.fs;
 const heap = std.heap;
+const mem = std.mem;
 
 root: []const u8,
 subpath: []const u8,
@@ -81,16 +82,16 @@ fn ensureHandle(self: *Filesystem) !void {
     debug.assert(!self.done);
 
     if (self.dir_handle == null) {
-        if (std.mem.startsWith(u8, self.root, "/")) {
-            var root = try std.fs.openDirAbsolute(self.root, .{});
-            defer root.close();
-            self.dir_handle = try root.openDir(self.subpath, .{ .iterate = true });
-        } else {
-            // TODO in wasmtime if no directories are mounted, the module panics
-            var root = try fs.cwd().openDir(self.root, .{});
-            defer root.close();
-            self.dir_handle = try root.openDir(self.subpath, .{ .iterate = true });
-        }
+        var root = root: {
+            if (fs.path.isAbsolute(self.root)) {
+                break :root try fs.openDirAbsolute(self.root, .{});
+            } else {
+                break :root try fs.cwd().openDir(self.root, .{});
+            }
+        };
+        defer root.close();
+
+        self.dir_handle = try root.openDir(self.subpath, .{ .iterate = true });
     }
 
     debug.assert(self.dir_handle != null);

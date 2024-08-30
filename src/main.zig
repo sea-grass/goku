@@ -105,20 +105,30 @@ pub fn main() !void {
         process.exit(0);
     }
 
-    const site_root = if (res.positionals.len == 1) res.positionals[0] else {
-        if (res.positionals.len < 1) {
-            log.err("Fatal error: Missing required <site_root> argument.", .{});
+    var site_root_buf: [fs.max_path_bytes]u8 = undefined;
+    const site_root = try absolutePath(
+        site_root: {
+            break :site_root if (res.positionals.len == 1) res.positionals[0] else {
+                if (res.positionals.len < 1) {
+                    log.err("Fatal error: Missing required <site_root> argument.", .{});
+                    process.exit(1);
+                }
+
+                try printHelp();
+                process.exit(1);
+            };
+        },
+        &site_root_buf,
+    );
+
+    var out_dir_buf: [fs.max_path_bytes]u8 = undefined;
+    const out_dir_path = try absolutePath(
+        if (res.args.out) |out| out else {
+            try printHelp();
             process.exit(1);
-        }
-
-        try printHelp();
-        process.exit(1);
-    };
-
-    const out_dir_path = if (res.args.out) |out| out else {
-        try printHelp();
-        process.exit(1);
-    };
+        },
+        &out_dir_buf,
+    );
 
     defer log.info("Site Root {s} -> Out Dir {s}", .{ site_root, out_dir_path });
 
@@ -206,8 +216,7 @@ pub fn main() !void {
         const write_output_zone = tracy.initZone(@src(), .{ .name = "Write Site to Output Dir" });
         defer write_output_zone.deinit();
 
-        // TODO support potentially absolute out dir
-        var out_dir = try std.fs.cwd().makeOpenPath(out_dir_path, .{});
+        var out_dir = try fs.openDirAbsolute(out_dir_path, .{});
         defer out_dir.close();
 
         // TODO restore skip-to-main-content
@@ -389,6 +398,11 @@ pub fn main() !void {
     // const assets_dir = try root_dir.openDir("assets");
     // const partials_dir = try root_dir.openDir("partials");
     // const themes_dir = try root_dir.openDir("themes");
+}
+
+fn absolutePath(path: []const u8, buf: []u8) ![]const u8 {
+    if (fs.path.isAbsolute(path)) return path;
+    return try fs.cwd().realpath(path, buf);
 }
 
 test {
