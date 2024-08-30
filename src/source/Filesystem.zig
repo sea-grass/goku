@@ -3,6 +3,7 @@ const fs = std.fs;
 const heap = std.heap;
 const mem = std.mem;
 const std = @import("std");
+const testing = std.testing;
 
 root: []const u8,
 subpath: []const u8,
@@ -67,6 +68,13 @@ pub fn next(self: *Filesystem) !?Entry {
     return null;
 }
 
+// TODO how should I test this?
+test next {
+    var instance: Filesystem = .{ .root = ".", .subpath = ".", .done = true };
+
+    try testing.expectEqual(null, try instance.next());
+}
+
 fn ensureBuffer(self: *Filesystem) !void {
     debug.assert(!self.done);
 
@@ -76,6 +84,16 @@ fn ensureBuffer(self: *Filesystem) !void {
     }
 
     debug.assert(self.dir_queue != null);
+}
+
+test ensureBuffer {
+    var instance: Filesystem = .{ .root = ".", .subpath = "." };
+
+    try testing.expectEqual(null, instance.dir_queue);
+
+    try instance.ensureBuffer();
+
+    try testing.expect(instance.dir_queue != null);
 }
 
 fn ensureHandle(self: *Filesystem) !void {
@@ -97,6 +115,19 @@ fn ensureHandle(self: *Filesystem) !void {
     debug.assert(self.dir_handle != null);
 }
 
+test ensureHandle {
+    var instance: Filesystem = .{
+        .root = ".",
+        .subpath = ".",
+    };
+
+    try testing.expectEqual(null, instance.dir_handle);
+
+    try instance.ensureHandle();
+
+    try testing.expect(instance.dir_handle != null);
+}
+
 fn ensureIterator(self: *Filesystem) !void {
     debug.assert(!self.done);
     debug.assert(self.dir_handle != null);
@@ -106,4 +137,22 @@ fn ensureIterator(self: *Filesystem) !void {
     }
 
     debug.assert(self.dir_iterator != null);
+}
+
+test ensureIterator {
+    // TODO Is there a better way to provide an open, iterable directory handle in a test?
+    var dir_handle = try fs.cwd().openDir(".", .{ .iterate = true });
+    defer dir_handle.close();
+
+    var instance: Filesystem = .{
+        .root = ".",
+        .subpath = ".",
+        .dir_handle = dir_handle,
+    };
+
+    try testing.expectEqual(null, instance.dir_iterator);
+
+    try instance.ensureIterator();
+
+    try testing.expect(instance.dir_iterator != null);
 }

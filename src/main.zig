@@ -406,4 +406,5 @@ fn absolutePath(path: []const u8, buf: []u8) ![]const u8 {
 
 test {
     _ = @import("page.zig");
+    _ = @import("source.zig");
 }

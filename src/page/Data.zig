@@ -4,6 +4,7 @@ const fmt = std.fmt;
 const mem = std.mem;
 const parseCodeFence = @import("parse_code_fence.zig").parseCodeFence;
 const std = @import("std");
+const testing = std.testing;
 const tracy = @import("tracy");
 
 slug: []const u8,
@@ -26,6 +27,29 @@ pub fn fromReader(allocator: mem.Allocator, reader: anytype, max_len: usize) !Da
     const frontmatter = code_fence_result.within;
 
     return try fromYamlString(allocator, @ptrCast(frontmatter), frontmatter.len);
+}
+
+test fromReader {
+    const input =
+        \\---
+        \\slug: /
+        \\title: Home page
+        \\---
+    ;
+
+    var fbs = std.io.fixedBufferStream(input);
+    const reader = fbs.reader();
+
+    const yaml = try fromReader(
+        testing.allocator,
+        reader,
+        std.math.maxInt(usize),
+    );
+
+    defer yaml.deinit(testing.allocator);
+
+    try testing.expectEqualStrings("/", yaml.slug);
+    try testing.expectEqualStrings("Home page", yaml.title.?);
 }
 
 // Duplicates slices from the input data. Caller is responsible for
@@ -166,6 +190,24 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
         .template = template,
         .allow_html = allow_html,
     };
+}
+
+test fromYamlString {
+    const input =
+        \\slug: /
+        \\title: Home page
+    ;
+
+    const yaml = try fromYamlString(
+        testing.allocator,
+        @ptrCast(input),
+        input.len,
+    );
+
+    defer yaml.deinit(testing.allocator);
+
+    try testing.expectEqualStrings("/", yaml.slug);
+    try testing.expectEqualStrings("Home page", yaml.title.?);
 }
 
 pub fn deinit(self: Data, allocator: mem.Allocator) void {
