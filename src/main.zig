@@ -118,6 +118,7 @@ pub fn main() !void {
             };
         },
         &site_root_buf,
+        .{},
     );
 
     var out_dir_buf: [fs.max_path_bytes]u8 = undefined;
@@ -127,6 +128,7 @@ pub fn main() !void {
             process.exit(1);
         },
         &out_dir_buf,
+        .{ .make = true },
     );
 
     defer log.info("Site Root {s} -> Out Dir {s}", .{ site_root, out_dir_path });
@@ -399,9 +401,26 @@ pub fn main() !void {
     // const themes_dir = try root_dir.openDir("themes");
 }
 
-fn absolutePath(path: []const u8, buf: []u8) ![]const u8 {
-    if (fs.path.isAbsolute(path)) return path;
-    return try fs.cwd().realpath(path, buf);
+const AbsolutePathOptions = struct {
+    // Make the directory if it does not exist
+    make: bool = false,
+};
+fn absolutePath(path: []const u8, buf: []u8, options: AbsolutePathOptions) ![]const u8 {
+    if (fs.path.isAbsolute(path)) {
+        if (options.make) {
+            try fs.makeDirAbsolute(path);
+        }
+
+        return path;
+    }
+
+    const cwd = fs.cwd();
+
+    if (options.make) {
+        try cwd.makePath(path);
+    }
+
+    return try cwd.realpath(path, buf);
 }
 
 test {
