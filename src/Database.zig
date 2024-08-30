@@ -1,7 +1,7 @@
-const std = @import("std");
 const fmt = @import("fmt");
 const mem = std.mem;
 const sqlite = @import("sqlite");
+const std = @import("std");
 
 allocator: mem.Allocator,
 db: sqlite.Db,

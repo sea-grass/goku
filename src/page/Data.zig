@@ -1,10 +1,10 @@
-const std = @import("std");
+const c = @import("c");
 const debug = std.debug;
 const fmt = std.fmt;
 const mem = std.mem;
-const c = @import("c");
-const tracy = @import("tracy");
 const parseCodeFence = @import("parse_code_fence.zig").parseCodeFence;
+const std = @import("std");
+const tracy = @import("tracy");
 
 slug: []const u8,
 collection: ?[]const u8 = null,

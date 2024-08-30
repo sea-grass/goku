@@ -1,13 +1,13 @@
-const std = @import("std");
+const c = @import("c");
 const debug = std.debug;
 const heap = std.heap;
 const log = std.log.scoped(.page);
-const mem = std.mem;
-const c = @import("c");
-const Data = @import("Data.zig");
 const lucide = @import("lucide");
-const Markdown = @import("Markdown.zig");
+const mem = std.mem;
 const mustache = @import("mustache.zig");
+const std = @import("std");
+const Data = @import("Data.zig");
+const Markdown = @import("Markdown.zig");
 
 pub const Page = union(enum) {
     markdown: struct {

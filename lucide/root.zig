@@ -1,7 +1,7 @@
-const std = @import("std");
+const icons = @import("icons");
 const log = std.log.scoped(.lucide);
 const mem = std.mem;
-const icons = @import("icons");
+const std = @import("std");
 
 pub fn embedIconZ(comptime name: []const u8) [:0]const u8 {
     return @embedFile("icons/" ++ name ++ ".svg");

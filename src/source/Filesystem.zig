@@ -1,8 +1,8 @@
-const std = @import("std");
 const debug = std.debug;
 const fs = std.fs;
 const heap = std.heap;
 const mem = std.mem;
+const std = @import("std");
 
 root: []const u8,
 subpath: []const u8,

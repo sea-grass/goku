@@ -1,8 +1,8 @@
-const std = @import("std");
+const c = @import("c");
 const debug = std.debug;
 const math = std.math;
 const mem = std.mem;
-const c = @import("c");
+const std = @import("std");
 
 const MarkdownParser = @This();
 const Callback = struct {

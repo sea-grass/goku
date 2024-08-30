@@ -1,10 +1,10 @@
-const std = @import("std");
+const c = @import("c");
 const debug = std.debug;
 const heap = std.heap;
 const log = std.log.scoped(.mustache);
-const mem = std.mem;
-const c = @import("c");
 const lucide = @import("lucide");
+const mem = std.mem;
+const std = @import("std");
 
 pub fn Mustache(comptime Context: type) type {
     return struct {

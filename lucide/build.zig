@@ -1,7 +1,7 @@
-const std = @import("std");
 const fs = std.fs;
 const log = std.log.scoped(.build_lucide);
 const math = std.math;
+const std = @import("std");
 
 pub fn build(b: *std.Build) !void {
     const lucide_src = b.dependency("lucide-icons", .{});

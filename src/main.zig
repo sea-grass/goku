@@ -1,4 +1,5 @@
-const std = @import("std");
+const bulma = @import("bulma");
+const clap = @import("clap");
 const debug = std.debug;
 const fmt = std.fmt;
 const fs = std.fs;
@@ -7,16 +8,14 @@ const io = std.io;
 const log = std.log.scoped(.goku);
 const math = std.math;
 const mem = std.mem;
+const page = @import("page.zig");
 const process = std.process;
+const source = @import("source.zig");
+const sqlite = @import("sqlite");
+const std = @import("std");
 const time = std.time;
 const tracy = @import("tracy");
-const clap = @import("clap");
 const Database = @import("Database.zig");
-const sqlite = @import("sqlite");
-const parseCodeFence = @import("parse_code_fence.zig").parseCodeFence;
-const page = @import("page.zig");
-const source = @import("source.zig");
-const bulma = @import("bulma");
 
 pub const std_options = .{
     .log_level = .debug,
@@ -318,7 +317,7 @@ pub fn main() !void {
                 const contents = try in_file.readToEndAlloc(allocator, math.maxInt(u32));
                 defer allocator.free(contents);
 
-                const result = parseCodeFence(contents) orelse return error.MalformedPageFile;
+                const result = page.parseCodeFence(contents) orelse return error.MalformedPageFile;
 
                 const slug = entry.slug;
 
@@ -406,5 +405,5 @@ fn absolutePath(path: []const u8, buf: []u8) ![]const u8 {
 }
 
 test {
-    _ = @import("parse_code_fence.zig");
+    _ = @import("page.zig");
 }

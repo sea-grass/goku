@@ -1,5 +1,5 @@
-const std = @import("std");
 const debug = std.debug;
+const std = @import("std");
 
 const BuildSteps = struct {
     check: *std.Build.Step,
