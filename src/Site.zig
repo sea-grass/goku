@@ -216,7 +216,7 @@ pub fn writePages(self: Site, out_dir: fs.Dir) !void {
 
         try renderPage(allocator, p, .{
             .bytes = template,
-        }, html_buffer.writer());
+        }, self.db, html_buffer.writer());
 
         try html_buffer.flush();
     }
@@ -227,14 +227,14 @@ pub const TemplateOption = union(enum) {
     bytes: []const u8,
 };
 // Write `page` as an html document to the `writer`.
-fn renderPage(allocator: mem.Allocator, p: page.Page, tmpl: TemplateOption, writer: anytype) !void {
+fn renderPage(allocator: mem.Allocator, p: page.Page, tmpl: TemplateOption, db: *Database, writer: anytype) !void {
     const meta = try p.data(allocator);
     defer meta.deinit(allocator);
 
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
     const content = if (meta.allow_html) content: {
-        try mustache.Mustache(page.Data).renderStream(allocator, p.markdown.content, meta, buf.writer());
+        try mustache.Mustache(page.Data).renderStream(allocator, p.markdown.content, db, meta, buf.writer());
         break :content buf.items;
     } else p.markdown.content;
 
@@ -257,6 +257,7 @@ fn renderPage(allocator: mem.Allocator, p: page.Page, tmpl: TemplateOption, writ
     }).renderStream(
         allocator,
         template,
+        db,
         .{
             .content = content_buf.items,
             .title = title orelse "(missing title)",

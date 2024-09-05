@@ -5,18 +5,20 @@ const log = std.log.scoped(.mustache);
 const lucide = @import("lucide");
 const mem = std.mem;
 const std = @import("std");
+const Database = @import("Database.zig");
 
 pub fn Mustache(comptime Context: type) type {
     return struct {
         pub const Self = @This();
 
-        pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: Context, writer: anytype) !void {
+        pub fn renderStream(allocator: mem.Allocator, template: []const u8, db: *Database, context: Context, writer: anytype) !void {
             var arena = heap.ArenaAllocator.init(allocator);
             defer arena.deinit();
 
             var x: RenderContext(Context, @TypeOf(writer)) = .{
                 .arena = arena.allocator(),
                 .context = context,
+                .db = db,
                 .writer = writer,
             };
 
@@ -29,6 +31,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
     return struct {
         arena: mem.Allocator,
         context: Context,
+        db: *Database,
         writer: Writer,
 
         const vtable: c.mini_mustach_itf = .{
@@ -149,12 +152,81 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
 
             if (mem.startsWith(u8, key, "collections.")) {
                 if (mem.endsWith(u8, key, ".list")) {
-                    const value = "<ul><li>list of</li><li>collection items</li></ul>";
-                    sbuf.* = .{
-                        .value = @ptrCast(value),
-                        .length = value.len,
-                        .closure = null,
+                    const collection = key["collections.".len .. key.len - ".list".len];
+                    log.info("{s}", .{collection});
+
+                    // get db it for pages in collection
+                    //
+                    var list_buf = std.ArrayList(u8).init(ctx.arena);
+                    defer list_buf.deinit();
+
+                    const get_pages =
+                        \\SELECT slug, title FROM pages WHERE collection = ?
+                    ;
+
+                    var get_stmt = ctx.db.db.prepare(get_pages) catch {
+                        log.err("Could not prepare db statement", .{});
+                        return -1;
                     };
+                    defer get_stmt.deinit();
+
+                    var it = get_stmt.iterator(
+                        struct { slug: []const u8, title: []const u8 },
+                        .{
+                            .collection = collection,
+                        },
+                    ) catch {
+                        log.err("Could not execute db statement", .{});
+                        return -1;
+                    };
+
+                    var arena = heap.ArenaAllocator.init(ctx.arena);
+                    defer arena.deinit();
+
+                    list_buf.appendSlice("<ul>") catch {
+                        log.err("Could not render collection list", .{});
+                        return -1;
+                    };
+
+                    var num_items: u32 = 0;
+                    while (it.nextAlloc(arena.allocator(), .{}) catch {
+                        log.err("Could not get next db entry", .{});
+                        return -1;
+                    }) |entry| {
+                        list_buf.writer().print(
+                            \\<li><a href="{s}">{s}</a></li>
+                        ,
+                            .{ entry.slug, entry.title },
+                        ) catch {
+                            log.err("Could not add collection list entry", .{});
+                            return -1;
+                        };
+
+                        num_items += 1;
+                    }
+
+                    if (num_items > 0) {
+                        list_buf.appendSlice("</ul>") catch {
+                            log.err("Could not render collection list", .{});
+                            return -1;
+                        };
+                        const value = list_buf.toOwnedSlice() catch {
+                            log.err("Could not render collection list", .{});
+                            return -1;
+                        };
+                        sbuf.* = .{
+                            .value = @ptrCast(value),
+                            .length = value.len,
+                            .closure = null,
+                        };
+                    } else {
+                        sbuf.* = .{
+                            .value = "",
+                            .length = 0,
+                            .closure = null,
+                        };
+                    }
+
                     return 0;
                 } else if (mem.endsWith(u8, key, ".latest")) {
                     const value = "<article><div>Title</div><div>Synopsis of latest article.</div></article>";

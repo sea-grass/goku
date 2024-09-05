@@ -1,10 +1,10 @@
 ---
 slug: /changelog
 title: Changelog
-template: page.html
+template: basic.html
 ---
 
-- [Back home](/goku)
+- [Back home](/)
 
 ## 0.0.2
 

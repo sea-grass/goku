@@ -21,9 +21,9 @@ A static site generator written in Zig.
 
 <div id="spinner">
 
-- [Docs](/goku/docs)
+- [Docs](/docs)
 - [Source code](https://github.com/sea-grass/goku)
-- [Changelog](/goku/changelog)
+- [Changelog](/changelog)
   
 </div>
 

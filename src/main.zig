@@ -201,6 +201,7 @@ pub fn main() !void {
                     .slug = data.slug,
                     .title = data.title orelse "(missing title)",
                     .filepath = filepath,
+                    .collection = data.collection orelse "",
                 },
             );
 

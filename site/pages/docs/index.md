@@ -2,8 +2,9 @@
 slug: /docs
 title: Goku Docs
 template: basic.html
+allow_html: true
 ---
 
-[Back home](/goku)
+[Back home](/)
 
-- [Page](/goku/docs/page)
+{{& collections.docs.list }}
