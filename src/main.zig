@@ -1,7 +1,6 @@
 const bulma = @import("bulma");
 const clap = @import("clap");
 const debug = std.debug;
-const fmt = std.fmt;
 const fs = std.fs;
 const heap = std.heap;
 const io = std.io;
@@ -11,7 +10,6 @@ const mem = std.mem;
 const page = @import("page.zig");
 const process = std.process;
 const source = @import("source.zig");
-const sqlite = @import("sqlite");
 const std = @import("std");
 const time = std.time;
 const tracy = @import("tracy");
@@ -19,6 +17,71 @@ const Database = @import("Database.zig");
 
 pub const std_options = .{
     .log_level = .debug,
+};
+
+const BuildCommand = struct {
+    site_root: []const u8,
+    out_dir: []const u8,
+
+    arena: heap.ArenaAllocator,
+
+    pub fn parse(allocator: mem.Allocator) !BuildCommand {
+        var arena = heap.ArenaAllocator.init(allocator);
+        errdefer arena.deinit();
+
+        var diag: clap.Diagnostic = .{};
+        var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
+            .diagnostic = &diag,
+            .allocator = allocator,
+        }) catch |err| {
+            // Report useful error on exit
+            diag.report(io.getStdErr().writer(), err) catch {};
+            return err;
+        };
+        defer res.deinit();
+
+        if (res.args.help != 0) {
+            try printHelp();
+            process.exit(0);
+        }
+
+        var site_root_buf: [fs.max_path_bytes]u8 = undefined;
+        const site_root = try absolutePath(
+            site_root: {
+                break :site_root if (res.positionals.len == 1) res.positionals[0] else {
+                    if (res.positionals.len < 1) {
+                        log.err("Fatal error: Missing required <site_root> argument.", .{});
+                        process.exit(1);
+                    }
+
+                    try printHelp();
+                    process.exit(1);
+                };
+            },
+            &site_root_buf,
+            .{},
+        );
+
+        var out_dir_buf: [fs.max_path_bytes]u8 = undefined;
+        const out_dir_path = try absolutePath(
+            if (res.args.out) |out| out else {
+                try printHelp();
+                process.exit(1);
+            },
+            &out_dir_buf,
+            .{ .make = true },
+        );
+
+        return .{
+            .site_root = try arena.allocator().dupe(u8, site_root),
+            .out_dir = try arena.allocator().dupe(u8, out_dir_path),
+            .arena = arena,
+        };
+    }
+
+    pub fn deinit(self: BuildCommand) void {
+        self.arena.deinit();
+    }
 };
 
 const size_of_alice_txt = 1189000;
@@ -88,59 +151,27 @@ pub fn main() !void {
     var tracy_allocator = tracy.TracingAllocator.init(gpa.allocator());
     const unlimited_allocator = tracy_allocator.allocator();
 
-    var diag: clap.Diagnostic = .{};
-    var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
-        .diagnostic = &diag,
-        .allocator = unlimited_allocator,
-    }) catch |err| {
-        // Report useful error on exit
-        diag.report(io.getStdErr().writer(), err) catch {};
-        return err;
-    };
-    defer res.deinit();
+    //
+    // PARSE CLI ARGUMENTS
+    //
 
-    if (res.args.help != 0) {
-        try printHelp();
-        process.exit(0);
-    }
+    const build = try BuildCommand.parse(unlimited_allocator);
+    defer build.deinit();
 
-    var site_root_buf: [fs.max_path_bytes]u8 = undefined;
-    const site_root = try absolutePath(
-        site_root: {
-            break :site_root if (res.positionals.len == 1) res.positionals[0] else {
-                if (res.positionals.len < 1) {
-                    log.err("Fatal error: Missing required <site_root> argument.", .{});
-                    process.exit(1);
-                }
-
-                try printHelp();
-                process.exit(1);
-            };
-        },
-        &site_root_buf,
-        .{},
-    );
-
-    var out_dir_buf: [fs.max_path_bytes]u8 = undefined;
-    const out_dir_path = try absolutePath(
-        if (res.args.out) |out| out else {
-            try printHelp();
-            process.exit(1);
-        },
-        &out_dir_buf,
-        .{ .make = true },
-    );
-
-    defer log.info("Site Root {s} -> Out Dir {s}", .{ site_root, out_dir_path });
+    defer log.info("Site Root {s} -> Out Dir {s}", .{ build.site_root, build.out_dir });
 
     var db = try Database.init(unlimited_allocator);
     defer db.deinit();
+
+    //
+    // INDEX SITE
+    //
 
     var page_count: u32 = 0;
 
     {
         var page_it: source.Filesystem = .{
-            .root = site_root,
+            .root = build.site_root,
             .subpath = "pages",
         };
         while (try page_it.next()) |entry| {
@@ -181,7 +212,7 @@ pub fn main() !void {
 
     {
         var template_it: source.Filesystem = .{
-            .root = site_root,
+            .root = build.site_root,
             .subpath = "templates",
         };
         while (try template_it.next()) |entry| {
@@ -213,11 +244,15 @@ pub fn main() !void {
         log.debug("Discovered template count {d}", .{template_count});
     }
 
+    //
+    // BUILD SITE
+    //
+
     {
         const write_output_zone = tracy.initZone(@src(), .{ .name = "Write Site to Output Dir" });
         defer write_output_zone.deinit();
 
-        var out_dir = try fs.openDirAbsolute(out_dir_path, .{});
+        var out_dir = try fs.openDirAbsolute(build.out_dir, .{});
         defer out_dir.close();
 
         // TODO restore skip-to-main-content
@@ -368,7 +403,7 @@ pub fn main() !void {
 
                 const template = template: {
                     if (data.template) |t| {
-                        const template_path = try fs.path.join(tmpl_arena.allocator(), &.{ site_root, "templates", t });
+                        const template_path = try fs.path.join(tmpl_arena.allocator(), &.{ build.site_root, "templates", t });
                         log.info("{s}", .{template_path});
                         defer allocator.free(template_path);
 
