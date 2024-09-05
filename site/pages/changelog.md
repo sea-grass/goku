@@ -8,21 +8,56 @@ template: basic.html
 
 ## 0.0.3
 
-This release includes some more user-friendly error messages, collections and tags support, and additional documentation on how to build and deploy a site with Goku.
+This release includes some more user-friendly error messages, collections support, and additional documentation on how to build and deploy a site with Goku.
+
+### Page Parameters
+
+Pages now support some additional parameters.
+
+Added:
+
+- `collection: <name>` - Add this page to the collection named `<name>`.
+- `date: <date>` - This date will be used for sorting when displaying a list of pages inside a collection.
 
 ### Improved error messages
 
-### Collections and tags support
+TODO
 
-#### `collections.*.list`
+### Collections
 
-Each page now has an optional parameter, `collection`. Inside a template, you are now able to render a list of all pages within a collection. For example, if you have a collection named "blog" you can write the following:
+You can add pages to a collection in Goku using the `collection` parameter. You can then make lists of pages using `collections.<name>.list` and display a link to the latest page in a collection using `collections.<name>.latest`.
+
+#### `collections.<name>.list`
+
+Let's say you have a few pages in a collection named "blog" and you want to render a list of blog articles for a navigation. In a template (or a page with `allow_html: true`, you can generate a list like this:
 
 ```
-{{& collections.blog.list }}
+{{& collections.blog.list}}
 ```
 
-This will generate a list of all of the pages marked with `collection: blog`.
+This will result, roughly, in the corresponding HTML:
+
+```
+<ul>
+<li><a href="/blog/foo">Foo</a></li>
+<li><a href="/blog/bar">Bar</a></li>
+<li><a href="/blog/baz">Baz</a></li>
+</ul>
+```
+
+#### `collections.<name>.latest`
+
+Let's say you want to advertise the latest blog article on your home page. You can generate a chunk for the latest blog page, based on its `date` parameter, like this:
+
+```
+{{& collections.blog.latest}}
+```
+
+This will result in the corresponding HTML:
+
+```
+<a href="/blog/baz">Baz</a>
+```
 
 ## 0.0.2
 
