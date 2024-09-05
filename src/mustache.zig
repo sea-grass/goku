@@ -1,5 +1,6 @@
 const c = @import("c");
 const debug = std.debug;
+const fmt = std.fmt;
 const heap = std.heap;
 const log = std.log.scoped(.mustache);
 const lucide = @import("lucide");
@@ -101,39 +102,49 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
         }
 
         fn get(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, sbuf: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
-            const ctx: *Self = @ptrCast(@alignCast(ptr));
+            _get(
+                @ptrCast(@alignCast(ptr)),
+                buf[0..len],
+                sbuf,
+            ) catch {
+                log.err("get failed for key ({s})", .{buf[0..len]});
+                return -1;
+            };
 
-            const key = buf[0..len];
+            return 0;
+        }
+
+        fn _get(ctx: *Self, key: []const u8, sbuf: [*c]c.struct_mustach_sbuf) !void {
             inline for (@typeInfo(Context).Struct.fields) |f| {
                 if (mem.eql(u8, key, f.name)) {
                     switch (@typeInfo(f.type)) {
                         .Optional => {
                             const value = @field(ctx.context, f.name);
                             sbuf.* = .{
-                                .value = ctx.arena.dupeZ(u8, value.?) catch return -1,
+                                .value = try ctx.arena.dupeZ(u8, value.?),
                                 .length = value.?.len,
                                 .closure = null,
                             };
-                            return 0;
+                            return;
                         },
                         .Bool => {
                             const str = if (@field(ctx.context, f.name)) "true" else "false";
 
                             sbuf.* = .{
-                                .value = ctx.arena.dupeZ(u8, str) catch return -1,
+                                .value = try ctx.arena.dupeZ(u8, str),
                                 .length = str.len,
                                 .closure = null,
                             };
-                            return 0;
+                            return;
                         },
                         else => {
                             const value = @field(ctx.context, f.name);
                             sbuf.* = .{
-                                .value = ctx.arena.dupeZ(u8, value) catch return -1,
+                                .value = try ctx.arena.dupeZ(u8, value),
                                 .length = value.len,
                                 .closure = null,
                             };
-                            return 0;
+                            return;
                         },
                     }
                 }
@@ -147,13 +158,12 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                     .length = icon.len,
                     .closure = null,
                 };
-                return 0;
+                return;
             }
 
             if (mem.startsWith(u8, key, "collections.")) {
                 if (mem.endsWith(u8, key, ".list")) {
                     const collection = key["collections.".len .. key.len - ".list".len];
-                    log.info("{s}", .{collection});
 
                     // get db it for pages in collection
                     //
@@ -164,56 +174,35 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                         \\SELECT slug, title FROM pages WHERE collection = ?
                     ;
 
-                    var get_stmt = ctx.db.db.prepare(get_pages) catch {
-                        log.err("Could not prepare db statement", .{});
-                        return -1;
-                    };
+                    var get_stmt = try ctx.db.db.prepare(get_pages);
                     defer get_stmt.deinit();
 
-                    var it = get_stmt.iterator(
+                    var it = try get_stmt.iterator(
                         struct { slug: []const u8, title: []const u8 },
                         .{
                             .collection = collection,
                         },
-                    ) catch {
-                        log.err("Could not execute db statement", .{});
-                        return -1;
-                    };
+                    );
 
                     var arena = heap.ArenaAllocator.init(ctx.arena);
                     defer arena.deinit();
 
-                    list_buf.appendSlice("<ul>") catch {
-                        log.err("Could not render collection list", .{});
-                        return -1;
-                    };
+                    try list_buf.appendSlice("<ul>");
 
                     var num_items: u32 = 0;
-                    while (it.nextAlloc(arena.allocator(), .{}) catch {
-                        log.err("Could not get next db entry", .{});
-                        return -1;
-                    }) |entry| {
-                        list_buf.writer().print(
+                    while (try it.nextAlloc(arena.allocator(), .{})) |entry| {
+                        try list_buf.writer().print(
                             \\<li><a href="{s}">{s}</a></li>
                         ,
                             .{ entry.slug, entry.title },
-                        ) catch {
-                            log.err("Could not add collection list entry", .{});
-                            return -1;
-                        };
+                        );
 
                         num_items += 1;
                     }
 
                     if (num_items > 0) {
-                        list_buf.appendSlice("</ul>") catch {
-                            log.err("Could not render collection list", .{});
-                            return -1;
-                        };
-                        const value = list_buf.toOwnedSlice() catch {
-                            log.err("Could not render collection list", .{});
-                            return -1;
-                        };
+                        try list_buf.appendSlice("</ul>");
+                        const value = try list_buf.toOwnedSlice();
                         sbuf.* = .{
                             .value = @ptrCast(value),
                             .length = value.len,
@@ -227,20 +216,57 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                         };
                     }
 
-                    return 0;
+                    return;
                 } else if (mem.endsWith(u8, key, ".latest")) {
-                    const value = "<article><div>Title</div><div>Synopsis of latest article.</div></article>";
+                    const collection = key["collections.".len .. key.len - ".latest".len];
+
+                    const get_page =
+                        \\SELECT slug, title FROM pages WHERE collection = ?
+                        \\ORDER BY date DESC
+                        \\LIMIT 1
+                    ;
+
+                    var get_stmt = try ctx.db.db.prepare(get_page);
+                    defer get_stmt.deinit();
+
+                    const row = try get_stmt.oneAlloc(
+                        struct { slug: []const u8, title: []const u8 },
+                        ctx.arena,
+                        .{},
+                        .{
+                            .collection = collection,
+                        },
+                    ) orelse return error.EmptyCollection;
+                    // TODO is there a way to free this?
+                    //defer row.deinit();
+
+                    var arena = heap.ArenaAllocator.init(ctx.arena);
+                    defer arena.deinit();
+
+                    const value = try fmt.allocPrint(
+                        ctx.arena,
+                        \\<article>
+                        \\<a href="{s}">{s}</a>
+                        \\</article>
+                    ,
+                        .{
+                            row.slug,
+                            row.title,
+                        },
+                    );
+                    errdefer ctx.arena.free(value);
 
                     sbuf.* = .{
                         .value = @ptrCast(value),
                         .length = value.len,
                         .closure = null,
                     };
-                    return 0;
+
+                    return;
                 }
             }
 
-            return -1;
+            return error.KeyNotFound;
         }
 
         fn enter(_: ?*anyopaque, _: [*c]const u8, _: usize) callconv(.C) c_int {

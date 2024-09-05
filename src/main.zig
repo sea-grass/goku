@@ -17,7 +17,10 @@ const Database = @import("Database.zig");
 const Site = @import("Site.zig");
 
 pub const std_options = .{
-    .log_level = .debug,
+    .log_level = switch (@import("builtin").mode) {
+        .Debug => .debug,
+        else => .info,
+    },
 };
 
 const size_of_alice_txt = 1189000;
@@ -159,7 +162,9 @@ pub fn main() !void {
     const build = try BuildCommand.parse(unlimited_allocator);
     defer build.deinit();
 
-    defer log.info("Site Root {s} -> Out Dir {s}", .{ build.site_root, build.out_dir });
+    log.info("Goku Build", .{});
+    log.info("Site Root: {s}", .{build.site_root});
+    log.info("Out Dir: {s}", .{build.out_dir});
 
     var db = try Database.init(unlimited_allocator);
     defer db.deinit();
@@ -202,6 +207,7 @@ pub fn main() !void {
                     .title = data.title orelse "(missing title)",
                     .filepath = filepath,
                     .collection = data.collection orelse "",
+                    .date = data.date,
                 },
             );
 

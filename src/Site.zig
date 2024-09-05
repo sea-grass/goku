@@ -200,7 +200,6 @@ pub fn writePages(self: Site, out_dir: fs.Dir) !void {
         const template = template: {
             if (data.template) |t| {
                 const template_path = try fs.path.join(tmpl_arena.allocator(), &.{ self.site_root, "templates", t });
-                log.info("{s}", .{template_path});
                 defer allocator.free(template_path);
 
                 var template_file = try fs.openFileAbsolute(template_path, .{});
@@ -211,7 +210,7 @@ pub fn writePages(self: Site, out_dir: fs.Dir) !void {
             }
 
             // no template, so use some sort of fallback
-            break :template "{{& content }}";
+            break :template "<!-- Missing template in page frontmatter -->{{& content }}";
         };
 
         try renderPage(allocator, p, .{
