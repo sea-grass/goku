@@ -6,6 +6,24 @@ template: basic.html
 
 - [Back home](/)
 
+## 0.0.3
+
+This release includes some more user-friendly error messages, collections and tags support, and additional documentation on how to build and deploy a site with Goku.
+
+### Improved error messages
+
+### Collections and tags support
+
+#### `collections.*.list`
+
+Each page now has an optional parameter, `collection`. Inside a template, you are now able to render a list of all pages within a collection. For example, if you have a collection named "blog" you can write the following:
+
+```
+{{& collections.blog.list }}
+```
+
+This will generate a list of all of the pages marked with `collection: blog`.
+
 ## 0.0.2
 
 - Mustache templates are now supported by Goku (using the [mustach](https://github.com/RekGRpth/mustach) library)
