@@ -147,6 +147,27 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                 return 0;
             }
 
+            if (mem.startsWith(u8, key, "collections.")) {
+                if (mem.endsWith(u8, key, ".list")) {
+                    const value = "<ul><li>list of</li><li>collection items</li></ul>";
+                    sbuf.* = .{
+                        .value = @ptrCast(value),
+                        .length = value.len,
+                        .closure = null,
+                    };
+                    return 0;
+                } else if (mem.endsWith(u8, key, ".latest")) {
+                    const value = "<article><div>Title</div><div>Synopsis of latest article.</div></article>";
+
+                    sbuf.* = .{
+                        .value = @ptrCast(value),
+                        .length = value.len,
+                        .closure = null,
+                    };
+                    return 0;
+                }
+            }
+
             return -1;
         }
 
