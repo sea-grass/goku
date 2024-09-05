@@ -8,17 +8,25 @@
   <body>
     <section class="section">
       <div class="columns">
-        <nav class="column">
 
+        <nav class="column">
+          <a href="/">Back home</a>
+
+          <aside class="menu">
+            {{& collections.blog.list}}
+          </aside>
         </nav>
-        <div class="column is-four-fifths container">
+
+        <div class="column is-four-fifths">
           <h1 class="title"><span class="icon-text">{{& lucide.apple}} <span>{{title}}</span></span></h1>
           <div id="content" class="content">
             {{& content}}
           </div>
         </div>
+
       </div>
     </section>
   </body>
 </html>
+
 

@@ -1,12 +1,9 @@
 ---
 slug: /docs/page
 title: Page
-template: basic.html
+template: docs.html
 collection: docs
 ---
-
-[Back to docs](/docs)
-
 
 ## Overview
 
