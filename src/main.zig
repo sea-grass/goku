@@ -1,11 +1,9 @@
-const bulma = @import("bulma");
 const clap = @import("clap");
 const debug = std.debug;
 const fs = std.fs;
 const heap = std.heap;
 const io = std.io;
 const log = std.log.scoped(.goku);
-const math = std.math;
 const mem = std.mem;
 const page = @import("page.zig");
 const process = std.process;
@@ -38,7 +36,16 @@ const BuildCommand = struct {
         ,
     );
 
-    pub fn parse(allocator: mem.Allocator) !BuildCommand {
+    pub const ParseError = error{
+        Help,
+        MemoryError,
+        MissingOutDir,
+        MissingSiteRoot,
+        ParseError,
+        SiteRootDoesNotExist,
+        TooManyParameters,
+    };
+    pub fn parse(allocator: mem.Allocator) ParseError!BuildCommand {
         var arena = heap.ArenaAllocator.init(allocator);
         errdefer arena.deinit();
 
@@ -49,45 +56,41 @@ const BuildCommand = struct {
         }) catch |err| {
             // Report useful error on exit
             diag.report(io.getStdErr().writer(), err) catch {};
-            return err;
+            return error.ParseError;
         };
         defer res.deinit();
 
         if (res.args.help != 0) {
-            try printHelp();
-            process.exit(0);
+            return error.Help;
         }
 
         var site_root_buf: [fs.max_path_bytes]u8 = undefined;
-        const site_root = try absolutePath(
+        const site_root = absolutePath(
             site_root: {
                 break :site_root if (res.positionals.len == 1) res.positionals[0] else {
                     if (res.positionals.len < 1) {
-                        log.err("Fatal error: Missing required <site_root> argument.", .{});
-                        process.exit(1);
+                        return error.MissingSiteRoot;
                     }
 
-                    try printHelp();
-                    process.exit(1);
+                    return error.TooManyParameters;
                 };
             },
             &site_root_buf,
             .{},
-        );
+        ) catch return error.SiteRootDoesNotExist;
 
         var out_dir_buf: [fs.max_path_bytes]u8 = undefined;
-        const out_dir_path = try absolutePath(
+        const out_dir_path = absolutePath(
             if (res.args.out) |out| out else {
-                try printHelp();
-                process.exit(1);
+                return error.MissingOutDir;
             },
             &out_dir_buf,
             .{ .make = true },
-        );
+        ) catch return error.ParseError;
 
         return .{
-            .site_root = try arena.allocator().dupe(u8, site_root),
-            .out_dir = try arena.allocator().dupe(u8, out_dir_path),
+            .site_root = arena.allocator().dupe(u8, site_root) catch return error.MemoryError,
+            .out_dir = arena.allocator().dupe(u8, out_dir_path) catch return error.MemoryError,
             .arena = arena,
         };
     }
@@ -118,9 +121,10 @@ const BuildCommand = struct {
         return try cwd.realpath(path, buf);
     }
 
-    fn printHelp() !void {
+    pub fn printHelp() void {
         const stderr = io.getStdErr().writer();
-        try stderr.print(
+
+        stderr.print(
             \\Goku - A static site generator
             \\----
             \\Usage:
@@ -129,8 +133,9 @@ const BuildCommand = struct {
             \\
         ,
             .{},
-        );
-        try clap.help(stderr, clap.Help, &params, .{});
+        ) catch @panic("Could not print help to stderr");
+
+        clap.help(stderr, clap.Help, &params, .{}) catch @panic("Could not print help to stderr");
     }
 };
 
@@ -159,7 +164,24 @@ pub fn main() !void {
     // PARSE CLI ARGUMENTS
     //
 
-    const build = try BuildCommand.parse(unlimited_allocator);
+    const build = BuildCommand.parse(unlimited_allocator) catch |err| switch (err) {
+        BuildCommand.ParseError.Help => {
+            BuildCommand.printHelp();
+            process.exit(0);
+        },
+        BuildCommand.ParseError.MissingOutDir,
+        BuildCommand.ParseError.MissingSiteRoot,
+        BuildCommand.ParseError.TooManyParameters,
+        => {
+            BuildCommand.printHelp();
+            process.exit(1);
+        },
+        BuildCommand.ParseError.SiteRootDoesNotExist => {
+            log.err("Provided site root directory does not exist. Exiting.", .{});
+            process.exit(1);
+        },
+        else => process.exit(1),
+    };
     defer build.deinit();
 
     log.info("Goku Build", .{});
