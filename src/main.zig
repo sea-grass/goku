@@ -106,7 +106,10 @@ const BuildCommand = struct {
     fn absolutePath(path: []const u8, buf: []u8, options: AbsolutePathOptions) ![]const u8 {
         if (fs.path.isAbsolute(path)) {
             if (options.make) {
-                try fs.makeDirAbsolute(path);
+                fs.makeDirAbsolute(path) catch |err| switch (err) {
+                    error.PathAlreadyExists => {},
+                    else => return err,
+                };
             }
 
             return path;
