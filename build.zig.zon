@@ -36,6 +36,9 @@
         .bulma = .{
             .path = "./bulma",
         },
+        .htmx = .{
+            .path = "./htmx",
+        },
     },
 
     .paths = .{

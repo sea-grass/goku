@@ -90,6 +90,8 @@ pub fn build(b: *std.Build) void {
 
     const bulma = b.dependency("bulma", .{});
 
+    const htmx = b.dependency("htmx", .{});
+
     const c_mod = c: {
         const yaml_src = b.dependency("yaml-src", .{});
         const md4c_src = b.dependency("md4c-src", .{});
@@ -276,6 +278,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("sqlite", sqlite.module("sqlite"));
     exe.root_module.addImport("lucide", lucide.module("lucide"));
     exe.root_module.addImport("bulma", bulma.module("bulma"));
+    exe.root_module.addImport("htmx", htmx.module("htmx"));
     exe.linkLibrary(sqlite.artifact("sqlite"));
     if (tracy_enable) {
         exe.linkLibrary(tracy.artifact("tracy"));
@@ -302,6 +305,7 @@ pub fn build(b: *std.Build) void {
     exe_unit_tests.root_module.addImport("sqlite", sqlite.module("sqlite"));
     exe_unit_tests.root_module.addImport("lucide", lucide.module("lucide"));
     exe_unit_tests.root_module.addImport("bulma", bulma.module("bulma"));
+    exe_unit_tests.root_module.addImport("htmx", htmx.module("htmx"));
     exe_unit_tests.linkLibrary(sqlite.artifact("sqlite"));
     if (tracy_enable) {
         exe_unit_tests.linkLibrary(tracy.artifact("tracy"));
@@ -323,6 +327,7 @@ pub fn build(b: *std.Build) void {
     exe_check.root_module.addImport("sqlite", sqlite.module("sqlite"));
     exe_check.root_module.addImport("lucide", lucide.module("lucide"));
     exe_check.root_module.addImport("bulma", bulma.module("bulma"));
+    exe_check.root_module.addImport("htmx", htmx.module("htmx"));
     exe_check.linkLibrary(sqlite.artifact("sqlite"));
     if (tracy_enable) {
         exe_check.linkLibrary(tracy.artifact("tracy"));

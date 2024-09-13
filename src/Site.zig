@@ -1,4 +1,5 @@
 const bulma = @import("bulma");
+const htmx = @import("htmx");
 const debug = std.debug;
 const fs = std.fs;
 const heap = std.heap;
@@ -107,9 +108,17 @@ pub fn writeSitemap(self: Site, out_dir: fs.Dir) !void {
 pub fn writeAssets(self: Site, out_dir: fs.Dir) !void {
     _ = self;
 
-    var file = try out_dir.createFile("bulma.css", .{});
-    defer file.close();
-    try file.writer().writeAll(bulma.css);
+    {
+        var file = try out_dir.createFile("bulma.css", .{});
+        defer file.close();
+        try file.writer().writeAll(bulma.min.css);
+    }
+
+    {
+        var file = try out_dir.createFile("htmx.js", .{});
+        defer file.close();
+        try file.writer().writeAll(htmx.js);
+    }
 }
 
 pub fn writePages(self: Site, out_dir: fs.Dir) !void {
