@@ -17,16 +17,16 @@ options_toc: bool = false,
 
 const Data = @This();
 
-pub fn fromReader(allocator: mem.Allocator, reader: anytype, max_len: usize) !Data {
+pub fn fromReader(allocator: mem.Allocator, reader: anytype, max_len: usize) error{ ParseError, ReadError, MissingFrontmatter }!Data {
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
-    try reader.readAllArrayList(&buf, max_len);
+    reader.readAllArrayList(&buf, max_len) catch return error.ReadError;
 
     const code_fence_result = parseCodeFence(buf.items) orelse return error.MissingFrontmatter;
     const frontmatter = code_fence_result.within;
 
-    return try fromYamlString(allocator, @ptrCast(frontmatter), frontmatter.len);
+    return fromYamlString(allocator, @ptrCast(frontmatter), frontmatter.len) catch return error.ParseError;
 }
 
 test fromReader {

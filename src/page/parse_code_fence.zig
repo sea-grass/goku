@@ -2,6 +2,7 @@ const debug = std.debug;
 const mem = std.mem;
 const std = @import("std");
 const testing = std.testing;
+const log = std.log.scoped(.parse_code_fence);
 
 const fence = "---";
 const first_fence = fence ++ "\n";

@@ -5,6 +5,7 @@ const bundled_lucide_icons = @as([]const []const u8, &.{
     "github",
     "apple",
     "loader-pinwheel",
+    "arrow-down-to-line",
 });
 
 const BuildSteps = struct {

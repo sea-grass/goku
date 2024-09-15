@@ -144,7 +144,6 @@ const BuildCommand = struct {
 
 pub fn main() !void {
     const start = time.milliTimestamp();
-    defer log.info("Elapsed: {d}ms", .{time.milliTimestamp() - start});
 
     tracy.startupProfiler();
     defer tracy.shutdownProfiler();
@@ -219,11 +218,20 @@ pub fn main() !void {
             // longer than the entire Alice's Adventures in Wonderland.
             debug.assert(length < size_of_alice_txt);
 
-            const data = try page.Data.fromReader(unlimited_allocator, file.reader(), size_of_alice_txt);
-            defer data.deinit(unlimited_allocator);
-
             var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
             const filepath = try entry.realpath(&filepath_buf);
+
+            const data = page.Data.fromReader(unlimited_allocator, file.reader(), size_of_alice_txt) catch |err| {
+                switch (err) {
+                    error.MissingFrontmatter => {
+                        log.err("Malformed page in source file: {s}", .{filepath});
+                    },
+                    else => {},
+                }
+
+                return err;
+            };
+            defer data.deinit(unlimited_allocator);
 
             try Database.Page.insert(
                 &db,
@@ -297,6 +305,8 @@ pub fn main() !void {
         try site.writeAssets(out_dir);
         try site.writePages(out_dir);
     }
+
+    log.info("Elapsed: {d}ms", .{time.milliTimestamp() - start});
 
     // const assets_dir = try root_dir.openDir("assets");
     // const partials_dir = try root_dir.openDir("partials");

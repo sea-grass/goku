@@ -242,12 +242,17 @@ fn renderPage(allocator: mem.Allocator, p: page.Page, tmpl: TemplateOption, db: 
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
     const content = if (meta.allow_html) content: {
-        try mustache.Mustache(page.Data).renderStream(allocator, p.markdown.content, db, meta, buf.writer());
+        try mustache.Mustache(struct { data: page.Data }).renderStream(
+            allocator,
+            p.markdown.content,
+            db,
+            .{ .data = meta },
+            buf.writer(),
+        );
         break :content buf.items;
     } else p.markdown.content;
 
     const template = tmpl.bytes;
-    const title = meta.title;
 
     var content_buf = std.ArrayList(u8).init(allocator);
     defer content_buf.deinit();
@@ -261,14 +266,14 @@ fn renderPage(allocator: mem.Allocator, p: page.Page, tmpl: TemplateOption, db: 
 
     try mustache.Mustache(struct {
         content: []const u8,
-        title: []const u8,
+        data: page.Data,
     }).renderStream(
         allocator,
         template,
         db,
         .{
+            .data = meta,
             .content = content_buf.items,
-            .title = title orelse "(missing title)",
         },
         writer,
     );

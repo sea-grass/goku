@@ -115,11 +115,25 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
         }
 
         fn _get(ctx: *Self, key: []const u8, sbuf: [*c]c.struct_mustach_sbuf) !void {
-            inline for (@typeInfo(Context).Struct.fields) |f| {
+            if (mem.eql(u8, key, "content")) {
+                if (!@hasField(@TypeOf(ctx.context), "content")) {
+                    return error.ContextIsMissingContent;
+                }
+
+                const value = try ctx.arena.dupeZ(u8, ctx.context.content);
+                sbuf.* = .{
+                    .value = value,
+                    .length = value.len,
+                    .closure = null,
+                };
+                return;
+            }
+
+            inline for (@typeInfo(@TypeOf(ctx.context.data)).Struct.fields) |f| {
                 if (mem.eql(u8, key, f.name)) {
                     switch (@typeInfo(f.type)) {
                         .Optional => {
-                            const value = @field(ctx.context, f.name);
+                            const value = @field(ctx.context.data, f.name);
                             sbuf.* = .{
                                 .value = try ctx.arena.dupeZ(u8, value.?),
                                 .length = value.?.len,
@@ -128,7 +142,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                             return;
                         },
                         .Bool => {
-                            const str = if (@field(ctx.context, f.name)) "true" else "false";
+                            const str = if (@field(ctx.context.data, f.name)) "true" else "false";
 
                             sbuf.* = .{
                                 .value = try ctx.arena.dupeZ(u8, str),
@@ -138,7 +152,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                             return;
                         },
                         else => {
-                            const value = @field(ctx.context, f.name);
+                            const value = @field(ctx.context.data, f.name);
                             sbuf.* = .{
                                 .value = try ctx.arena.dupeZ(u8, value),
                                 .length = value.len,
@@ -172,6 +186,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
 
                     const get_pages =
                         \\SELECT slug, title FROM pages WHERE collection = ?
+                        \\ORDER BY date DESC, title ASC
                     ;
 
                     var get_stmt = try ctx.db.db.prepare(get_pages);
@@ -264,6 +279,34 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
 
                     return;
                 }
+            }
+
+            if (mem.eql(u8, key, "frontmatter-code-block")) {
+                var arena = heap.ArenaAllocator.init(ctx.arena);
+                defer arena.deinit();
+
+                const value = try fmt.allocPrint(
+                    ctx.arena,
+                    "<pre><code>" ++
+                        \\---
+                        \\slug: {s}
+                        \\title: {s}
+                        \\---
+                    ++ "</code></pre>",
+                    .{
+                        ctx.context.data.slug,
+                        if (@TypeOf(ctx.context.data.title) == ?[]const u8) ctx.context.data.title.? else ctx.context.data.title,
+                    },
+                );
+                errdefer ctx.arena.free(value);
+
+                sbuf.* = .{
+                    .value = @ptrCast(value),
+                    .length = value.len,
+                    .closure = null,
+                };
+
+                return;
             }
 
             return error.KeyNotFound;
