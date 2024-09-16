@@ -6,7 +6,7 @@ template: page.html
 
 ## 0.0.3
 
-This release includes some more user-friendly error messages, collections support, and additional documentation on how to build and deploy a site with Goku.
+This release includes basic support for collections (a way to group pages in order to link to and search through them) along with some UX improvements at when building a Goku site, in the form of more helpful error messages.
 
 ### Page Parameters
 
@@ -16,6 +16,11 @@ Added:
 
 - `collection: <name>` - Add this page to the collection named `<name>`.
 - `date: <date>` - This date will be used for sorting when displaying a list of pages inside a collection.
+- `description: <string>` - An optional piece of metadata that may be used inside of a template.
+
+### Bug fixes
+
+- Fixed issue where an absolute build path would cause the program to crash
 
 ### Improved error messages
 
@@ -23,39 +28,36 @@ TODO
 
 ### Collections
 
-You can add pages to a collection in Goku using the `collection` parameter. You can then make lists of pages using `collections.<name>.list` and display a link to the latest page in a collection using `collections.<name>.latest`.
+You can add a Page to a Collection using the `collection` page parameter. This allows you to group pages for ordering and viewing. See the docs for more information.
 
-#### `collections.<name>.list`
+### Shortcodes
 
-Let's say you have a few pages in a collection named "blog" and you want to render a list of blog articles for a navigation. In a template (or a page with `allow_html: true`, you can generate a list like this:
+In an effort to use standard lingo to communicate about Goku's features, a Shortcode is an identifier or pattern that corresponds to some data retrieval/html rendering within a template.
 
-```
-{{& collections.blog.list}}
-```
+Pre-0.0.3, these shortcodes were available:
 
-This will result, roughly, in the corresponding HTML:
+- `{{& content}}` - Render the page content (i.e. the HTML generated from the page markdown content).
+- `{{title}}` - Render the page title, specified by the page parameter `title`.
+- `{{& lucide.<icon name>}}` - Embed the SVG for the corresponding icon in the lucide icon library.
 
-```
-<ul>
-<li><a href="/blog/foo">Foo</a></li>
-<li><a href="/blog/bar">Bar</a></li>
-<li><a href="/blog/baz">Baz</a></li>
-</ul>
-```
+In this version, these shortcodes were added:
 
-#### `collections.<name>.latest`
+- `{{& meta}}` - Render some of the page parameters as tags.
+- `{{& collections.<collection name>.list}}` - Render a list of links for all of the pages in the corresponding collection.
+-  `{{& collections.<collection name>.latest}}` - Render a link to the page in the corresponding collection with the latest date (based on its frontmatter `date` parameter).
 
-Let's say you want to advertise the latest blog article on your home page. You can generate a chunk for the latest blog page, based on its `date` parameter, like this:
+##
 
-```
-{{& collections.blog.latest}}
-```
+### Theming
 
-This will result in the corresponding HTML:
+#### Added HTMX
 
-```
-<a href="/blog/baz">Baz</a>
-```
+Goku now includes `htmx` in addition to `bulma` to every built site.
+
+#### Default theme
+
+Note that Goku doesn't necessarily support the concept of "themes" yet. The "default theme" could be considered to be the combination of shortcodes, UI libraries (lucide, htmx, bulma), and templates that are used in a site. The choice of shortcodes and UI libraries aren't customizable at this stage. On the other hand, templates must be entirely user-defined. So, you can make use of the "default theme" by referencing the templates for Goku's own site (see the source code).
+
 
 ## 0.0.2
 
