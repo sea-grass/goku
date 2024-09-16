@@ -2,7 +2,7 @@
 <html>
   <head>
     <title>{{title}}</title>
-    <link rel="stylesheet" lang="text/css" href="/bulma.css">
+    <link rel="stylesheet" lang="text/css" href="{{site_root}}/bulma.css">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>a[href^="https://"]::after {
         content: " [*]";
@@ -17,9 +17,9 @@
         <nav class="navbar mb-4" role="navigation">
           <div class="navbar-menu is-active">
             <div class="navbar-end">
-              <a href="/" class="navbar-item">Home</a>
-              <a href="/docs" class="navbar-item">Docs</a>
-              <a href="/changelog" class="navbar-item">Changelog</a>
+              <a href="{{site_root}}/" class="navbar-item">Home</a>
+              <a href="{{site_root}}/docs" class="navbar-item">Docs</a>
+              <a href="{{site_root}}/changelog" class="navbar-item">Changelog</a>
               <a href="https://github.com/sea-grass/goku" class="navbar-item">Source code</a>
             </div>
           </div>

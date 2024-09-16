@@ -6,7 +6,7 @@ template: page.html
 
 ## 0.0.3
 
-This release includes basic support for collections (a way to group pages in order to link to and search through them) along with some UX improvements at when building a Goku site, in the form of more helpful error messages.
+This release includes basic support for collections (a way to group pages in order to link to and search through them), improvements for published sites at subpaths, and some UX improvements at when building a Goku site, in the form of more helpful error messages.
 
 ### Page Parameters
 
@@ -17,6 +17,23 @@ Added:
 - `collection: <name>` - Add this page to the collection named `<name>`.
 - `date: <date>` - This date will be used for sorting when displaying a list of pages inside a collection.
 - `description: <string>` - An optional piece of metadata that may be used inside of a template.
+
+### Site root
+
+If you want to publish your site as the subpath of some domain, you need to let Goku know where the root of the built site will live, in order for it to produce correct links among assets and pages.
+
+To use this feature, you need to do two things. 1) You need to provide the url prefix while building your site; and 2) You need to use the `{{site_root}}` shortcode wherever you create links or assets. (Note that `site_root` is automatically taken into account in shortcodes such as `collections.<name>.list`.)
+
+When building, you can specify the site root with the `-p` (or `--prefix`) argument:
+
+```shell-session
+$ goku site -o build -p my-site
+```
+
+Then, the site_root will be available to shortcodes, templates, and pages.
+
+Note that all page slugs are always relative to the site root.
+
 
 ### Bug fixes
 
@@ -45,6 +62,7 @@ In this version, these shortcodes were added:
 - `{{& meta}}` - Render some of the page parameters as tags.
 - `{{& collections.<collection name>.list}}` - Render a list of links for all of the pages in the corresponding collection.
 -  `{{& collections.<collection name>.latest}}` - Render a link to the page in the corresponding collection with the latest date (based on its frontmatter `date` parameter).
+- `{{site_root}}` - Use in conjunction with the `--prefix` command line argument to create links relative to your the site root.
 
 ##
 

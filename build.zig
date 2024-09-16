@@ -390,6 +390,9 @@ pub fn build(b: *std.Build) void {
     const build_site_cmd = b.addRunArtifact(exe);
     build_site_cmd.addDirectoryArg(b.path("site"));
     build_site_cmd.addArgs(&.{ "-o", "build" });
+    if (b.args) |args| {
+        build_site_cmd.addArgs(args);
+    }
     build_steps.site.dependOn(&build_site_cmd.step);
     build_steps.site.dependOn(b.getInstallStep());
 }

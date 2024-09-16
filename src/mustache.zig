@@ -127,6 +127,18 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                     .closure = null,
                 };
                 return;
+            } else if (mem.eql(u8, key, "site_root")) {
+                if (!@hasField(@TypeOf(ctx.context), "site_root")) {
+                    return error.ContextIsMissingSiteRoot;
+                }
+
+                const value = try ctx.arena.dupeZ(u8, ctx.context.site_root);
+                sbuf.* = .{
+                    .value = value,
+                    .length = value.len,
+                    .closure = null,
+                };
+                return;
             }
 
             inline for (@typeInfo(@TypeOf(ctx.context.data)).Struct.fields) |f| {
@@ -214,9 +226,9 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                     var num_items: u32 = 0;
                     while (try it.nextAlloc(arena.allocator(), .{})) |entry| {
                         try list_buf.writer().print(
-                            \\<li><a href="{s}">{s}</a></li>
+                            \\<li><a href="{s}{s}">{s}</a></li>
                         ,
-                            .{ entry.slug, entry.title },
+                            .{ ctx.context.site_root, entry.slug, entry.title },
                         );
 
                         num_items += 1;
@@ -268,10 +280,11 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                     const value = try fmt.allocPrint(
                         ctx.arena,
                         \\<article>
-                        \\<a href="{s}">{s}</a>
+                        \\<a href="{s}{s}">{s}</a>
                         \\</article>
                     ,
                         .{
+                            ctx.context.site_root,
                             row.slug,
                             row.title,
                         },

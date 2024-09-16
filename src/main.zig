@@ -26,6 +26,7 @@ const size_of_alice_txt = 1189000;
 const BuildCommand = struct {
     site_root: []const u8,
     out_dir: []const u8,
+    url_prefix: ?[]const u8,
 
     arena: heap.ArenaAllocator,
 
@@ -33,6 +34,7 @@ const BuildCommand = struct {
         \\-h, --help    Display this help text and exit.
         \\<str>         The absolute or relative path to your site's source directory.
         \\-o, --out <str>      The directory to place the generated site.
+        \\-p, --prefix <str>    The URL prefix to use when the site root will be published to a subpath. Default: none
         ,
     );
 
@@ -88,9 +90,12 @@ const BuildCommand = struct {
             .{ .make = true },
         ) catch return error.ParseError;
 
+        const url_prefix: ?[]const u8 = if (res.args.prefix) |prefix| prefix else null;
+
         return .{
             .site_root = arena.allocator().dupe(u8, site_root) catch return error.MemoryError,
             .out_dir = arena.allocator().dupe(u8, out_dir_path) catch return error.MemoryError,
+            .url_prefix = if (url_prefix == null) null else arena.allocator().dupe(u8, url_prefix.?) catch return error.MemoryError,
             .arena = arena,
         };
     }
@@ -290,7 +295,7 @@ pub fn main() !void {
         var out_dir = try fs.openDirAbsolute(build.out_dir, .{});
         defer out_dir.close();
 
-        var site = Site.init(unlimited_allocator, &db, build.site_root);
+        var site = Site.init(unlimited_allocator, &db, build.site_root, build.url_prefix);
         defer site.deinit();
 
         try site.writeSitemap(out_dir);

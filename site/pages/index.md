@@ -3,9 +3,8 @@ slug: /
 title: Goku
 allow_html: true
 template: home.html
+description: A static site generator written in Zig.
 ---
-
-A static site generator written in Zig.
 
 <style>
   #spinner {
@@ -21,9 +20,9 @@ A static site generator written in Zig.
 
 <div id="spinner">
 
-- [Docs](/docs)
+- [Docs]({{site_root}}/docs)
 - [Source code](https://github.com/sea-grass/goku)
-- [Changelog](/changelog)
+- [Changelog]({{site_root}}/changelog)
   
 </div>
 

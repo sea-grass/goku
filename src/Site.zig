@@ -19,6 +19,7 @@ const Markdown = @import("Markdown.zig");
 // a template file. The db should be used for looking up templates
 // instead.
 site_root: []const u8,
+url_prefix: ?[]const u8,
 allocator: mem.Allocator,
 db: *Database,
 
@@ -46,11 +47,12 @@ const http_uri_len_max = 2000;
 const sitemap_item_surround = "<li><a href=\"\"></a></li>";
 const html_sitemap_item_size_max = sitemap_item_surround.len + http_uri_len_max + sitemap_url_title_len_max;
 
-pub fn init(allocator: mem.Allocator, database: *Database, site_root: []const u8) Site {
+pub fn init(allocator: mem.Allocator, database: *Database, site_root: []const u8, url_prefix: ?[]const u8) Site {
     return .{
         .allocator = allocator,
         .db = database,
         .site_root = site_root,
+        .url_prefix = url_prefix,
     };
 }
 
@@ -91,9 +93,9 @@ pub fn writeSitemap(self: Site, out_dir: fs.Dir) !void {
             var buf = std.ArrayList(u8).init(fba.allocator());
 
             try buf.writer().print(
-                \\<li><a href="{s}">{s}</a></li>
+                \\<li><a href="{s}{s}">{s}</a></li>
             ,
-                .{ entry.slug, entry.title },
+                .{ self.url_prefix orelse "", entry.slug, entry.title },
             );
 
             try file_buf.writer().writeAll(buf.items);
@@ -224,7 +226,7 @@ pub fn writePages(self: Site, out_dir: fs.Dir) !void {
 
         try renderPage(allocator, p, .{
             .bytes = template,
-        }, self.db, html_buffer.writer());
+        }, self.db, self.url_prefix, html_buffer.writer());
 
         try html_buffer.flush();
     }
@@ -235,18 +237,21 @@ pub const TemplateOption = union(enum) {
     bytes: []const u8,
 };
 // Write `page` as an html document to the `writer`.
-fn renderPage(allocator: mem.Allocator, p: page.Page, tmpl: TemplateOption, db: *Database, writer: anytype) !void {
+fn renderPage(allocator: mem.Allocator, p: page.Page, tmpl: TemplateOption, db: *Database, url_prefix: ?[]const u8, writer: anytype) !void {
     const meta = try p.data(allocator);
     defer meta.deinit(allocator);
 
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
     const content = if (meta.allow_html) content: {
-        try mustache.Mustache(struct { data: page.Data }).renderStream(
+        try mustache.Mustache(struct { data: page.Data, site_root: []const u8 }).renderStream(
             allocator,
             p.markdown.content,
             db,
-            .{ .data = meta },
+            .{
+                .data = meta,
+                .site_root = url_prefix orelse "",
+            },
             buf.writer(),
         );
         break :content buf.items;
@@ -267,6 +272,7 @@ fn renderPage(allocator: mem.Allocator, p: page.Page, tmpl: TemplateOption, db: 
     try mustache.Mustache(struct {
         content: []const u8,
         data: page.Data,
+        site_root: []const u8,
     }).renderStream(
         allocator,
         template,
@@ -274,6 +280,7 @@ fn renderPage(allocator: mem.Allocator, p: page.Page, tmpl: TemplateOption, db: 
         .{
             .data = meta,
             .content = content_buf.items,
+            .site_root = url_prefix orelse "",
         },
         writer,
     );
