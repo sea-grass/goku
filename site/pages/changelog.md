@@ -1,10 +1,8 @@
 ---
 slug: /changelog
 title: Changelog
-template: basic.html
+template: page.html
 ---
-
-- [Back home](/)
 
 ## 0.0.3
 

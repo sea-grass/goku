@@ -25,7 +25,7 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
         dir_handle: ?fs.Dir = null,
         dir_iterator: ?fs.Dir.Iterator = null,
 
-        // Can hold up to 1024 directory handles
+        // Can hold up to `max_dir_handles` directory handles
         buf: [config.max_dir_handles * @sizeOf(fs.Dir)]u8 = undefined,
         fba: heap.FixedBufferAllocator = undefined,
         dir_queue: ?std.ArrayList(fs.Dir) = null,

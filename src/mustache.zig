@@ -134,6 +134,13 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                     switch (@typeInfo(f.type)) {
                         .Optional => {
                             const value = @field(ctx.context.data, f.name);
+                            // TODO should a missing optional value be an error?
+                            // I'm tempted to just make it ""
+                            if (value == null) {
+                                sbuf.* = .{ .value = "", .length = 0, .closure = null };
+                                return;
+                            }
+
                             sbuf.* = .{
                                 .value = try ctx.arena.dupeZ(u8, value.?),
                                 .length = value.?.len,
@@ -281,18 +288,28 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                 }
             }
 
-            if (mem.eql(u8, key, "frontmatter-code-block")) {
+            if (mem.eql(u8, key, "meta")) {
                 var arena = heap.ArenaAllocator.init(ctx.arena);
                 defer arena.deinit();
 
                 const value = try fmt.allocPrint(
                     ctx.arena,
-                    "<pre><code>" ++
-                        \\---
-                        \\slug: {s}
-                        \\title: {s}
-                        \\---
-                    ++ "</code></pre>",
+                    \\<div class="field is-grouped is-grouped-multiline">
+                    \\<div class="control">
+                    \\<div class="tags has-addons">
+                    \\<span class="tag is-white">slug</span>
+                    \\<span class="tag is-light">{s}</span>
+                    \\</div>
+                    \\</div>
+                    \\
+                    \\<div class="control">
+                    \\<div class="tags has-addons">
+                    \\<span class="tag is-white">title</span>
+                    \\<span class="tag is-light">{s}</span>
+                    \\</div>
+                    \\</div>
+                    \\</div>
+                ,
                     .{
                         ctx.context.data.slug,
                         if (@TypeOf(ctx.context.data.title) == ?[]const u8) ctx.context.data.title.? else ctx.context.data.title,

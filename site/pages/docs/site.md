@@ -1,7 +1,7 @@
 ---
 slug: /docs/site
 title: Site
-template: docs.html
+template: page.html
 collection: docs
 ---
 

@@ -12,6 +12,7 @@ collection: ?[]const u8 = null,
 title: ?[]const u8 = null,
 date: ?[]const u8 = null,
 template: ?[]const u8 = null,
+description: ?[]const u8 = null,
 allow_html: bool = false,
 options_toc: bool = false,
 
@@ -66,6 +67,7 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
     var title: ?[]const u8 = null;
     var template: ?[]const u8 = null;
     var collection: ?[]const u8 = null;
+    var description: ?[]const u8 = null;
     var date: ?[]const u8 = null;
     var allow_html: bool = false;
     while (!done) {
@@ -143,6 +145,7 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
                         next_scalar_expected = .key;
                     },
                     .description => {
+                        description = try allocator.dupe(u8, value);
                         next_scalar_expected = .key;
                     },
                     .discard => {
@@ -173,6 +176,7 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
         .collection = collection,
         .allow_html = allow_html,
         .date = date,
+        .description = description,
     };
 }
 
@@ -191,6 +195,10 @@ pub fn deinit(self: Data, allocator: mem.Allocator) void {
 
     if (self.date) |date| {
         allocator.free(date);
+    }
+
+    if (self.description) |description| {
+        allocator.free(description);
     }
 }
 

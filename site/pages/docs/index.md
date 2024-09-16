@@ -1,10 +1,9 @@
 ---
 slug: /docs
 title: Goku Docs
-template: basic.html
+template: page.html
 allow_html: true
+description: Learn how to create, modify, and publish your own website with Goku.
 ---
-
-[Back home](/)
 
 {{& collections.docs.list }}
