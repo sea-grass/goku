@@ -1,5 +1,5 @@
-pub const Filesystem = @import("source/Filesystem.zig");
+pub const filesystem = @import("source/filesystem.zig");
 
 test {
-    _ = @import("source/Filesystem.zig");
+    _ = @import("source/filesystem.zig");
 }
