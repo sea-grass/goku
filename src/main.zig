@@ -290,8 +290,6 @@ pub fn main() !void {
         var out_dir = try fs.openDirAbsolute(build.out_dir, .{});
         defer out_dir.close();
 
-        // TODO restore skip-to-main-content
-
         var site = Site.init(unlimited_allocator, &db, build.site_root);
         defer site.deinit();
 

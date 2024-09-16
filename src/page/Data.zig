@@ -18,38 +18,16 @@ options_toc: bool = false,
 const Data = @This();
 
 pub fn fromReader(allocator: mem.Allocator, reader: anytype, max_len: usize) error{ ParseError, ReadError, MissingFrontmatter }!Data {
-    var buf = std.ArrayList(u8).init(allocator);
-    defer buf.deinit();
+    const bytes: []const u8 = reader.readAllAlloc(allocator, max_len) catch return error.ReadError;
+    defer allocator.free(bytes);
 
-    reader.readAllArrayList(&buf, max_len) catch return error.ReadError;
+    const code_fence_result = parseCodeFence(bytes) orelse return error.MissingFrontmatter;
 
-    const code_fence_result = parseCodeFence(buf.items) orelse return error.MissingFrontmatter;
-    const frontmatter = code_fence_result.within;
-
-    return fromYamlString(allocator, @ptrCast(frontmatter), frontmatter.len) catch return error.ParseError;
-}
-
-test fromReader {
-    const input =
-        \\---
-        \\slug: /
-        \\title: Home page
-        \\---
-    ;
-
-    var fbs = std.io.fixedBufferStream(input);
-    const reader = fbs.reader();
-
-    const yaml = try fromReader(
-        testing.allocator,
-        reader,
-        std.math.maxInt(usize),
-    );
-
-    defer yaml.deinit(testing.allocator);
-
-    try testing.expectEqualStrings("/", yaml.slug);
-    try testing.expectEqualStrings("Home page", yaml.title.?);
+    return fromYamlString(
+        allocator,
+        @ptrCast(code_fence_result.within),
+        code_fence_result.within.len,
+    ) catch return error.ParseError;
 }
 
 // Duplicates slices from the input data. Caller is responsible for
@@ -198,24 +176,6 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
     };
 }
 
-test fromYamlString {
-    const input =
-        \\slug: /
-        \\title: Home page
-    ;
-
-    const yaml = try fromYamlString(
-        testing.allocator,
-        @ptrCast(input),
-        input.len,
-    );
-
-    defer yaml.deinit(testing.allocator);
-
-    try testing.expectEqualStrings("/", yaml.slug);
-    try testing.expectEqualStrings("Home page", yaml.title.?);
-}
-
 pub fn deinit(self: Data, allocator: mem.Allocator) void {
     allocator.free(self.slug);
     if (self.title) |title| {
@@ -232,4 +192,45 @@ pub fn deinit(self: Data, allocator: mem.Allocator) void {
     if (self.date) |date| {
         allocator.free(date);
     }
+}
+
+test fromReader {
+    const input =
+        \\---
+        \\slug: /
+        \\title: Home page
+        \\---
+    ;
+
+    var fbs = std.io.fixedBufferStream(input);
+    const reader = fbs.reader();
+
+    const yaml = try fromReader(
+        testing.allocator,
+        reader,
+        std.math.maxInt(usize),
+    );
+
+    defer yaml.deinit(testing.allocator);
+
+    try testing.expectEqualStrings("/", yaml.slug);
+    try testing.expectEqualStrings("Home page", yaml.title.?);
+}
+
+test fromYamlString {
+    const input =
+        \\slug: /
+        \\title: Home page
+    ;
+
+    const yaml = try fromYamlString(
+        testing.allocator,
+        @ptrCast(input),
+        input.len,
+    );
+
+    defer yaml.deinit(testing.allocator);
+
+    try testing.expectEqualStrings("/", yaml.slug);
+    try testing.expectEqualStrings("Home page", yaml.title.?);
 }

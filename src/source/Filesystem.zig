@@ -13,6 +13,9 @@ pub fn walker(root: []const u8, subpath: []const u8) Walker {
 pub const WalkerConfig = struct {
     max_dir_handles: comptime_int = 2,
 };
+
+// Creates a zero-allocation filesystem walker, to iterate over all files
+// in a directory, recursively.
 pub fn WalkerType(comptime config: WalkerConfig) type {
     return struct {
         root: []const u8,
