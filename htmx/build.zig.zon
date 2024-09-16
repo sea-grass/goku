@@ -1,0 +1,17 @@
+.{
+    .name = "bulma",
+
+    .version = "1.0.2",
+
+    .dependencies = .{
+        .htmx_src = .{
+            .url = "git+https://github.com/bigskysoftware/htmx#e6a2ea15a2254986bd40160d62afbb289aa0f3dd",
+            .hash = "1220e7de8efaf7e21873c9c787e6e7fc58bab002e786681b9697114fe45be60d1cca",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "root.zig",
+    },
+}

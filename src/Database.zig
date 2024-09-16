@@ -8,10 +8,10 @@ db: sqlite.Db,
 
 pub const Page = Table("pages", .{
     .create =
-    \\CREATE TABLE pages(slug TEXT, title TEXT, filepath TEXT);
+    \\CREATE TABLE pages(slug TEXT, title TEXT, filepath TEXT, collection TEXT, date DATE);
     ,
     .insert =
-    \\INSERT INTO pages(slug, title, filepath) VALUES (?, ?, ?);
+    \\INSERT INTO pages(slug, title, filepath, collection, date) VALUES (?, ?, ?, ?, ?);
     ,
 });
 

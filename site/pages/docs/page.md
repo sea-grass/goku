@@ -1,11 +1,9 @@
 ---
 slug: /docs/page
 title: Page
-template: basic.html
+template: page.html
+collection: docs
 ---
-
-[Back to docs](/goku/docs)
-
 
 ## Overview
 
