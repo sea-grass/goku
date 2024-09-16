@@ -159,7 +159,7 @@ pub fn writePages(self: Site, out_dir: fs.Dir) !void {
         const contents = try in_file.readToEndAlloc(allocator, math.maxInt(u32));
         defer allocator.free(contents);
 
-        const result = page.parseCodeFence(contents) orelse return error.MalformedPageFile;
+        const result = page.CodeFence.parse(contents) orelse return error.MalformedPageFile;
 
         const slug = entry.slug;
 

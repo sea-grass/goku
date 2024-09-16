@@ -2,18 +2,18 @@ const debug = std.debug;
 const mem = std.mem;
 const std = @import("std");
 const testing = std.testing;
-const log = std.log.scoped(.parse_code_fence);
+const log = std.log.scoped(.CodeFence);
 
 const fence = "---";
 const first_fence = fence ++ "\n";
 const second_fence = "\n" ++ fence;
 
-pub const ParseCodeFenceResult = @This();
+const CodeFence = @This();
 
 within: []const u8,
 after: []const u8,
 
-pub fn parseCodeFence(buf: []const u8) ?ParseCodeFenceResult {
+pub fn parse(buf: []const u8) ?CodeFence {
     const first_index = mem.indexOf(u8, buf, first_fence) orelse return null;
     const start = first_index + first_fence.len;
 
@@ -30,39 +30,39 @@ pub fn parseCodeFence(buf: []const u8) ?ParseCodeFenceResult {
     };
 }
 
-test parseCodeFence {
-    try testing.expect(parseCodeFence("") == null);
-    try testing.expect(parseCodeFence("---") == null);
-    try testing.expect(parseCodeFence("---\n") == null);
-    try testing.expect(parseCodeFence("---\n---") == null);
+test parse {
+    try testing.expect(parse("") == null);
+    try testing.expect(parse("---") == null);
+    try testing.expect(parse("---\n") == null);
+    try testing.expect(parse("---\n---") == null);
 
-    try testing.expect(parseCodeFence("---\n\n---") != null);
+    try testing.expect(parse("---\n\n---") != null);
 
     try testing.expectEqualStrings(
         "",
-        parseCodeFence("---\n\n---").?.within,
+        parse("---\n\n---").?.within,
     );
     try testing.expectEqualStrings(
         "",
-        parseCodeFence("---\n\n---").?.after,
+        parse("---\n\n---").?.after,
     );
 
     try testing.expectEqualStrings(
         "\n",
-        parseCodeFence("---\n\n\n---").?.within,
+        parse("---\n\n\n---").?.within,
     );
 
     try testing.expectEqualStrings(
         "id: foo",
-        parseCodeFence("---\nid: foo\n---").?.within,
+        parse("---\nid: foo\n---").?.within,
     );
 
     try testing.expectEqualStrings(
         "\nFoobar",
-        parseCodeFence("---\n\n---\nFoobar").?.after,
+        parse("---\n\n---\nFoobar").?.after,
     );
     try testing.expectEqual(
         7,
-        parseCodeFence("---\n\n---\nFoobar").?.after.len,
+        parse("---\n\n---\nFoobar").?.after.len,
     );
 }

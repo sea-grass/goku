@@ -2,7 +2,7 @@ const c = @import("c");
 const debug = std.debug;
 const fmt = std.fmt;
 const mem = std.mem;
-const parseCodeFence = @import("parse_code_fence.zig").parseCodeFence;
+const CodeFence = @import("CodeFence.zig");
 const std = @import("std");
 const testing = std.testing;
 const tracy = @import("tracy");
@@ -21,7 +21,7 @@ pub fn fromReader(allocator: mem.Allocator, reader: anytype, max_len: usize) err
     const bytes: []const u8 = reader.readAllAlloc(allocator, max_len) catch return error.ReadError;
     defer allocator.free(bytes);
 
-    const code_fence_result = parseCodeFence(bytes) orelse return error.MissingFrontmatter;
+    const code_fence_result = CodeFence.parse(bytes) orelse return error.MissingFrontmatter;
 
     return fromYamlString(
         allocator,
