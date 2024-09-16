@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>Goku</title>
+    <title>Collection</title>
     <link rel="stylesheet" lang="text/css" href="/goku/bulma.css">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>a[href^="https://"]::after {
@@ -16,8 +16,10 @@
       <div class="container">
         <nav class="navbar mb-4" role="navigation">
           <div class="navbar-menu is-active">
+            <div class="navbar-start">
+              <a href="/goku/" class="navbar-item">Back home</a>
+            </div>
             <div class="navbar-end">
-              <a href="/goku/" class="navbar-item">Home</a>
               <a href="/goku/docs" class="navbar-item">Docs</a>
               <a href="/goku/changelog" class="navbar-item">Changelog</a>
               <a href="https://github.com/sea-grass/goku" class="navbar-item">Source code</a>
@@ -42,43 +44,44 @@
   <path d="M10 2c1 .5 2 2 2 5" />
 </svg>
 
-            <span>Goku</span></span>
+            <span>Collection</span></span>
         </h1>
         <div class="field is-grouped is-grouped-multiline">
 <div class="control">
 <div class="tags has-addons">
 <span class="tag is-white">slug</span>
-<span class="tag is-light">/</span>
+<span class="tag is-light">/docs/collection</span>
 </div>
 </div>
 
 <div class="control">
 <div class="tags has-addons">
 <span class="tag is-white">title</span>
-<span class="tag is-light">Goku</span>
+<span class="tag is-light">Collection</span>
 </div>
 </div>
 </div>
-        <p class="subtitle">A static site generator written in Zig.</p>
+        <p class="subtitle"></p>
         <section class="content">
-          <style>
-  #spinner {
-    animation: spin 4s infinite linear;
-    display: inline-block;
-    transform-origin: center;
-  }
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-</style>
-<div id="spinner">
-<ul>
-<li><a href="/goku/docs">Docs</a></li>
-<li><a href="https://github.com/sea-grass/goku">Source code</a></li>
-<li><a href="/goku/changelog">Changelog</a></li>
-</ul>
-</div>
+          <p>You can add pages to a collection in Goku using the <code>collection</code> parameter. You can then make lists of pages using <code>collections.&lt;name&gt;.list</code> and display a link to the latest page in a collection using <code>collections.&lt;name&gt;.latest</code>.</p>
+<h4>Using <code>collections.&lt;name&gt;.list</code></h4>
+<p>Let's say you have a few pages in a collection named &quot;blog&quot; and you want to render a list of blog articles for a navigation. In a template (or a page with <code>allow_html: true</code>, you can generate a list like this:</p>
+<pre><code>{{&amp; collections.blog.list}}
+</code></pre>
+<p>This will result, roughly, in the corresponding HTML:</p>
+<pre><code>&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;/blog/foo&quot;&gt;Foo&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;/blog/bar&quot;&gt;Bar&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;/blog/baz&quot;&gt;Baz&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+</code></pre>
+<h4>Using <code>collections.&lt;name&gt;.latest</code></h4>
+<p>Let's say you want to advertise the latest blog article on your home page. You can generate a chunk for the latest blog page, based on its <code>date</code> parameter, like this:</p>
+<pre><code>{{&amp; collections.blog.latest}}
+</code></pre>
+<p>This will result in the corresponding HTML:</p>
+<pre><code>&lt;a href=&quot;/blog/baz&quot;&gt;Baz&lt;/a&gt;
+</code></pre>
 
         </section>
       </div>

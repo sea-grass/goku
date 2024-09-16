@@ -1,14 +1,35 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
   <head>
     <title>Goku Docs</title>
-    <link rel="stylesheet" lang="text/css" href="/goku/bulma.css" />
+    <link rel="stylesheet" lang="text/css" href="/goku/bulma.css">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>a[href^="https://"]::after {
+        content: " [*]";
+      }
+      .navbar-menu {
+        box-shadow: none;
+      }</style>
   </head>
   <body>
     <section class="section">
       <div class="container">
-        <h1 class="title"><svg
+        <nav class="navbar mb-4" role="navigation">
+          <div class="navbar-menu is-active">
+            <div class="navbar-start">
+              <a href="/goku/" class="navbar-item">Back home</a>
+            </div>
+            <div class="navbar-end">
+              <a href="/goku/docs" class="navbar-item">Docs</a>
+              <a href="/goku/changelog" class="navbar-item">Changelog</a>
+              <a href="https://github.com/sea-grass/goku" class="navbar-item">Source code</a>
+            </div>
+          </div>
+        </nav>
+      </div>
+      <div class="container" id="content">
+        <h1 class="title">
+          <span class="icon-text"><svg
   xmlns="http://www.w3.org/2000/svg"
   width="24"
   height="24"
@@ -22,18 +43,30 @@
   <path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z" />
   <path d="M10 2c1 .5 2 2 2 5" />
 </svg>
- Goku Docs</h1>
-      </div>
-    </section>
-    <section class="section">
-      <div id="content" class="container content">
-        <p><a href="/goku">Back home</a></p>
-<ul>
-<li><a href="/goku/docs/page">Page</a></li>
-</ul>
 
+            <span>Goku Docs</span></span>
+        </h1>
+        <div class="field is-grouped is-grouped-multiline">
+<div class="control">
+<div class="tags has-addons">
+<span class="tag is-white">slug</span>
+<span class="tag is-light">/docs</span>
+</div>
+</div>
+
+<div class="control">
+<div class="tags has-addons">
+<span class="tag is-white">title</span>
+<span class="tag is-light">Goku Docs</span>
+</div>
+</div>
+</div>
+        <p class="subtitle">Learn how to create, modify, and publish your own website with Goku.</p>
+        <section class="content">
+          <ul><li><a href="/goku/docs/collection">Collection</a></li><li><a href="/goku/docs/page">Page</a></li><li><a href="/goku/docs/site">Site</a></li></ul>
+
+        </section>
       </div>
     </section>
   </body>
 </html>
-
