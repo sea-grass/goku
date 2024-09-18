@@ -1,6 +1,7 @@
 const c = @import("c");
 const debug = std.debug;
 const fmt = std.fmt;
+const log = std.log.scoped(.@"page.Data");
 const mem = std.mem;
 const CodeFence = @import("CodeFence.zig");
 const std = @import("std");
@@ -24,16 +25,34 @@ pub fn fromReader(allocator: mem.Allocator, reader: anytype, max_len: usize) err
 
     const code_fence_result = CodeFence.parse(bytes) orelse return error.MissingFrontmatter;
 
+    var diag: Diagnostics = undefined;
     return fromYamlString(
         allocator,
-        @ptrCast(code_fence_result.within),
-        code_fence_result.within.len,
-    ) catch return error.ParseError;
+        code_fence_result.within,
+        &diag,
+    ) catch {
+        diag.printErr(log);
+        return error.ParseError;
+    };
 }
+
+pub const Diagnostics = struct {
+    reason: []const u8,
+    line: usize,
+    col: usize,
+
+    pub fn printErr(self: Diagnostics, logger: anytype) void {
+        logger.err("Encountered a yaml parsing error: {s}\nLine: {d} Column: {d}\n", .{
+            self.reason,
+            self.line,
+            self.col,
+        });
+    }
+};
 
 // Duplicates slices from the input data. Caller is responsible for
 // calling page_data.deinit(allocator) afterwards.
-pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) !Data {
+pub fn fromYamlString(allocator: mem.Allocator, data: []const u8, diag: ?*Diagnostics) !Data {
     const zone = tracy.initZone(@src(), .{ .name = "PageData.fromYamlString" });
     defer zone.deinit();
 
@@ -41,11 +60,11 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
     const ptr: [*c]c.yaml_parser_t = &parser;
 
     if (c.yaml_parser_initialize(ptr) == 0) {
-        return error.YamlParserInitFailed;
+        return error.YamlParserInit;
     }
     defer c.yaml_parser_delete(ptr);
 
-    c.yaml_parser_set_input_string(ptr, data, len);
+    c.yaml_parser_set_input_string(ptr, @ptrCast(data), data.len);
 
     var done: bool = false;
 
@@ -64,20 +83,36 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
         tags,
     } = .key;
     var slug: ?[]const u8 = null;
+    errdefer if (slug) |f| allocator.free(f);
+
     var title: ?[]const u8 = null;
+    errdefer if (title) |f| allocator.free(f);
+
     var template: ?[]const u8 = null;
+    errdefer if (template) |f| allocator.free(f);
+
     var collection: ?[]const u8 = null;
+    errdefer if (collection) |f| allocator.free(f);
+
     var description: ?[]const u8 = null;
+    errdefer if (description) |f| allocator.free(f);
+
     var date: ?[]const u8 = null;
+    errdefer if (date) |f| allocator.free(f);
+
     var allow_html: bool = false;
+
     while (!done) {
         if (c.yaml_parser_parse(ptr, ev_ptr) == 0) {
-            debug.print("Encountered a yaml parsing error: {s}\nLine: {d} Column: {d}\n", .{
-                parser.problem,
-                parser.problem_mark.line + 1,
-                parser.problem_mark.column + 1,
-            });
-            return error.YamlParseFailed;
+            if (diag) |d| {
+                // Populate diagnostics info for later reporting
+                d.* = .{
+                    .reason = mem.sliceTo(parser.problem, 0),
+                    .line = parser.problem_mark.line + 1,
+                    .col = parser.problem_mark.column + 1,
+                };
+            }
+            return error.Parse;
         }
 
         switch (ev.type) {
@@ -233,12 +268,26 @@ test fromYamlString {
 
     const yaml = try fromYamlString(
         testing.allocator,
-        @ptrCast(input),
-        input.len,
+        input,
+        null,
     );
 
     defer yaml.deinit(testing.allocator);
 
     try testing.expectEqualStrings("/", yaml.slug);
     try testing.expectEqualStrings("Home page", yaml.title.?);
+}
+
+test "fromYamlString - Error" {
+    const invalid_input =
+        \\: 
+    ;
+
+    const result = fromYamlString(
+        testing.allocator,
+        invalid_input,
+        null,
+    );
+
+    try testing.expectError(error.Parse, result);
 }

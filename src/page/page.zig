@@ -1,4 +1,5 @@
 const mem = std.mem;
+const log = std.log.scoped(.Page);
 const std = @import("std");
 const Data = @import("Data.zig");
 
@@ -9,10 +10,14 @@ pub const Page = union(enum) {
     },
 
     pub fn data(self: Page, allocator: mem.Allocator) !Data {
-        return try Data.fromYamlString(
+        var diag: Data.Diagnostics = undefined;
+        return Data.fromYamlString(
             allocator,
-            @ptrCast(self.markdown.frontmatter),
-            self.markdown.frontmatter.len,
-        );
+            self.markdown.frontmatter,
+            &diag,
+        ) catch |err| {
+            diag.printErr(log);
+            return err;
+        };
     }
 };
