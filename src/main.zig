@@ -149,6 +149,7 @@ const BuildCommand = struct {
 
 pub fn main() !void {
     const start = time.milliTimestamp();
+    log.info("mode {s}", .{@tagName(@import("builtin").mode)});
 
     tracy.startupProfiler();
     defer tracy.shutdownProfiler();

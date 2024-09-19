@@ -17,14 +17,23 @@ pub fn Mustache(comptime Context: type) type {
             var arena = heap.ArenaAllocator.init(allocator);
             defer arena.deinit();
 
-            var x: RenderContext(Context, @TypeOf(writer)) = .{
-                .arena = arena.allocator(),
+            try renderLeaky(
+                arena.allocator(),
+                template,
+                context,
+                db,
+                writer,
+            );
+        }
+
+        fn renderLeaky(arena: mem.Allocator, template: []const u8, context: Context, db: *Database, writer: anytype) !void {
+            var render_context: RenderContext(Context, @TypeOf(writer)) = .{
+                .arena = arena,
                 .context = context,
                 .db = db,
                 .writer = writer,
             };
-
-            try x.renderLeaky(template);
+            try render_context.renderLeaky(template);
         }
     };
 }
@@ -90,6 +99,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
         }
 
         fn emit(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, escaping: c_int, _: [*c]c.FILE) callconv(.C) c_int {
+            log.debug("emit", .{});
             debug.assert(ptr != null);
             // Trying to emit a value we could not get?
             debug.assert(buf != null);
@@ -118,6 +128,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
 
         fn get(ptr: ?*anyopaque, buf: [*c]const u8, sbuf: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
             const key = mem.sliceTo(buf, 0);
+            log.debug("get({s})", .{key});
             _get(
                 @ptrCast(@alignCast(ptr)),
                 key,
@@ -131,6 +142,33 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
         }
 
         fn _get(ctx: *Self, key: []const u8, sbuf: [*c]c.struct_mustach_sbuf) !void {
+            // Need to implement some sort of a stack context system here.
+            // If someone "enters" then I need some way of reaching further into the
+            // context. Something like
+            // reachInto(ctx.context.data, .{ "path", "to", "value" });
+            // ...that I can then use like
+            // reachInto(ctx.context.data, stack.items);
+            // ...where stack is an ArrayList([]const u8).
+            // reachInto might look like
+            // fn reachInto(data: anytype, path: []const []const u8) ??? {
+            //   if (path.len == 0) return data;
+            //   if (path.len == 1) {
+            //      inline for (@typeInfo(@TypeOf(data)).Struct.fields) |f| {
+            //          if (mem.eql(u8, f.name, path[0])) {
+            //            return @field(data, f.name);
+            //          }
+            //      }
+            //      return error.CouldNotFindField;
+            //  }
+            //  return reachInto(
+            //      reachInto(data, path[0..1]),
+            //      path[1..],
+            //  );
+            // }
+            // ...The problem being that I don't know how to specify the return type of the fn
+            // And I'm not sure at call time that I'll have that information?
+            // The problem: The mustache syntax to enter a named section can work for a regular value,
+            // a struct, or an array, but....,......hm
             if (mem.eql(u8, key, "content")) {
                 if (!@hasField(@TypeOf(ctx.context), "content")) {
                     return error.ContextIsMissingContent;
@@ -358,23 +396,26 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
             return error.KeyNotFound;
         }
 
-        fn enter(_: ?*anyopaque, _: [*c]const u8) callconv(.C) c_int {
-            log.debug("enter\n", .{});
-            return 0;
+        fn enter(_: ?*anyopaque, buf: [*c]const u8) callconv(.C) c_int {
+            const key = mem.sliceTo(buf, 0);
+            log.debug("enter({s})", .{key});
+            // return 1 if entered, or 0 if not entered
+            // When 1 is returned, the function must activate the first item of the section
+            return 1;
         }
 
         fn next(_: ?*anyopaque) callconv(.C) c_int {
-            log.debug("next\n", .{});
+            log.debug("next", .{});
             return 0;
         }
 
         fn leave(_: ?*anyopaque) callconv(.C) c_int {
-            log.debug("leave\n", .{});
+            log.debug("leave", .{});
             return 0;
         }
 
         fn partial(_: ?*anyopaque, _: [*c]const u8, _: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
-            log.debug("partial\n", .{});
+            log.debug("partial", .{});
             return 0;
         }
     };

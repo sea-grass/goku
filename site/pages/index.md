@@ -6,6 +6,8 @@ template: home.html
 description: A static site generator written in Zig.
 ---
 
+{{& collections.test.list }}
+
 <style>
   #spinner {
     animation: spin 4s infinite linear;

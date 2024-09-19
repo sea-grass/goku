@@ -241,6 +241,8 @@ fn renderPage(allocator: mem.Allocator, p: page.Page, tmpl: TemplateOption, db: 
     const meta = try p.data(allocator);
     defer meta.deinit(allocator);
 
+    log.debug("rendering {s}", .{meta.title.?});
+
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
     const content = if (meta.allow_html) content: {
