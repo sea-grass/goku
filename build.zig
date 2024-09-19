@@ -80,191 +80,21 @@ pub fn build(b: *std.Build) void {
         .tracy_no_exit = true,
         .tracy_manual_lifetime = true,
     });
-
     const clap = b.dependency("clap", .{ .target = target, .optimize = optimize });
-
     const sqlite = b.dependency("sqlite", .{ .target = target, .optimize = optimize });
-
     const lucide = b.dependency("lucide", .{
         .icons = bundled_lucide_icons,
     });
-
     const bulma = b.dependency("bulma", .{});
-
     const htmx = b.dependency("htmx", .{});
 
-    const c_mod = c: {
-        const yaml_src = b.dependency("yaml-src", .{});
-        const md4c_src = b.dependency("md4c-src", .{});
-        const mustach_src = b.dependency("mustach-src", .{});
-
-        const c = b.addTranslateC(.{
-            .root_source_file = b.addWriteFiles().add(
-                "c.h",
-                \\#include <yaml.h>
-                \\#include <md4c-html.h>
-                \\#include <mini-mustach.h>
-                ,
-            ),
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        });
-
-        const mod = c.createModule();
-
-        {
-            const wf = b.addWriteFiles();
-            c.step.dependOn(&wf.step);
-
-            _ = wf.add(
-                "config.h",
-                \\#define YAML_VERSION_STRING "0.2.5"
-                \\#define YAML_VERSION_MAJOR 0
-                \\#define YAML_VERSION_MINOR 2
-                \\#define YAML_VERSION_PATCH 5
-                ,
-            );
-            inline for (&.{
-                "yaml.h",
-            }) |filename| {
-                _ = wf.addCopyFile(
-                    yaml_src.path("include/" ++ filename),
-                    filename,
-                );
-            }
-            inline for (&.{
-                "yaml_private.h",
-            }) |filename| {
-                _ = wf.addCopyFile(
-                    yaml_src.path("src/" ++ filename),
-                    filename,
-                );
-            }
-
-            // TODO Not sure why I have to do both addIncludeDir (for
-            // the translate_c step) and addIncludePath (for the C
-            // source files) -- is there a way to get them both to
-            // look in the same place?
-            // TODO `getPath` is intended to be used during the make
-            // phase only - is there a better way to `addIncludeDir`
-            // when pointing to a dependency path?
-            c.addIncludeDir(yaml_src.path("include").getPath(b));
-            mod.addIncludePath(wf.getDirectory());
-
-            const c_source_files = &.{
-                "parser.c",
-                "scanner.c",
-                "reader.c",
-                "api.c",
-            };
-            inline for (c_source_files) |filename| {
-                _ = wf.addCopyFile(
-                    yaml_src.path("src/" ++ filename),
-                    filename,
-                );
-            }
-
-            mod.addCSourceFiles(.{
-                .root = wf.getDirectory(),
-                .files = c_source_files,
-                .flags = &.{
-                    "-std=gnu99",
-                    "-DHAVE_CONFIG_H",
-                },
-            });
-        }
-
-        {
-            const wf = b.addWriteFiles();
-            c.step.dependOn(&wf.step);
-
-            inline for (&.{
-                "entity.h",
-                "md4c.h",
-                "md4c-html.h",
-            }) |filename| {
-                _ = wf.addCopyFile(
-                    md4c_src.path("src/" ++ filename),
-                    filename,
-                );
-            }
-
-            // TODO Not sure why I have to do both addIncludeDir (for
-            // the translate_c step) and addIncludePath (for the C
-            // source files) -- is there a way to get them both to
-            // look in the same place?
-            // TODO `getPath` is intended to be used during the make
-            // phase only - is there a better way to `addIncludeDir`
-            // when pointing to a dependency path?
-            c.addIncludeDir(md4c_src.path("src").getPath(b));
-            mod.addIncludePath(wf.getDirectory());
-
-            const c_source_files = &.{
-                "entity.c",
-                "md4c.c",
-                "md4c-html.c",
-            };
-            inline for (c_source_files) |filename| {
-                _ = wf.addCopyFile(
-                    md4c_src.path("src/" ++ filename),
-                    filename,
-                );
-            }
-
-            mod.addCSourceFiles(.{
-                .root = wf.getDirectory(),
-                .files = c_source_files,
-                .flags = &.{
-                    "-Wall",
-                    "-Wextra",
-                    "-Wshadow",
-                },
-            });
-        }
-
-        {
-            const wf = b.addWriteFiles();
-            c.step.dependOn(&wf.step);
-
-            inline for (&.{
-                "mini-mustach.h",
-            }) |filename| {
-                _ = wf.addCopyFile(
-                    mustach_src.path(filename),
-                    filename,
-                );
-            }
-
-            // TODO Not sure why I have to do both addIncludeDir (for
-            // the translate_c step) and addIncludePath (for the C
-            // source files) -- is there a way to get them both to
-            // look in the same place?
-            // TODO `getPath` is intended to be used during the make
-            // phase only - is there a better way to `addIncludeDir`
-            // when pointing to a dependency path?
-            c.addIncludeDir(mustach_src.path(".").getPath(b));
-            mod.addIncludePath(wf.getDirectory());
-
-            const c_source_files = &.{
-                "mini-mustach.c",
-            };
-            inline for (c_source_files) |filename| {
-                _ = wf.addCopyFile(
-                    mustach_src.path(filename),
-                    filename,
-                );
-            }
-
-            mod.addCSourceFiles(.{
-                .root = wf.getDirectory(),
-                .files = c_source_files,
-                .flags = &.{},
-            });
-        }
-
-        break :c mod;
-    };
+    const c_mod = buildCModule(b, .{
+        .yaml = b.dependency("yaml-src", .{}),
+        .md4c = b.dependency("md4c-src", .{}),
+        .mustach = b.dependency("mustach-src", .{}),
+        .target = target,
+        .optimize = optimize,
+    });
 
     const exe = b.addExecutable(.{
         .name = "goku",
@@ -336,45 +166,7 @@ pub fn build(b: *std.Build) void {
     }
     build_steps.check.dependOn(&exe_check.step);
 
-    const benchmark_site = site: {
-        const wf = b.addWriteFiles();
-        _ = wf.add(
-            "pages/home-page.md",
-            \\---
-            \\id: home
-            \\slug: /
-            \\title: Home Page
-            \\---
-            \\
-            \\ # Home
-            \\
-            \\ This is the home page.
-            ,
-        );
-        for (0..10) |i| {
-            _ = wf.add(
-                b.fmt("pages/page-{d}.md", .{i}),
-                b.fmt(
-                    \\---
-                    \\id: page-{d}
-                    \\slug: /page-{d}
-                    \\title: Hello, world {d}
-                    \\---
-                    \\
-                    \\# Hello, world {d}
-                    \\
-                    \\
-                    \\This is a paragraph with some **bolded** content.
-                    \\
-                    \\Check out the [home page](/).
-                ,
-                    .{ i, i, i, i },
-                ),
-            );
-        }
-        break :site wf.getDirectory();
-    };
-
+    const benchmark_site = buildBenchmarkSite(b);
     const install = b.addInstallDirectory(.{
         .source_dir = benchmark_site,
         .install_dir = .prefix,
@@ -395,4 +187,226 @@ pub fn build(b: *std.Build) void {
     }
     build_steps.site.dependOn(&build_site_cmd.step);
     build_steps.site.dependOn(b.getInstallStep());
+}
+
+pub fn buildCModule(b: *std.Build, opts: anytype) *std.Build.Module {
+    const yaml_src = opts.yaml;
+    const md4c_src = opts.md4c;
+    const mustach_src = opts.mustach;
+    const target = opts.target;
+    const optimize = opts.optimize;
+
+    const c = b.addTranslateC(.{
+        .root_source_file = b.addWriteFiles().add(
+            "c.h",
+            \\#include <yaml.h>
+            \\#include <md4c-html.h>
+            \\#include <mustach.h>
+            ,
+        ),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+
+    const mod = c.createModule();
+
+    {
+        const wf = b.addWriteFiles();
+        c.step.dependOn(&wf.step);
+
+        _ = wf.add(
+            "config.h",
+            \\#define YAML_VERSION_STRING "0.2.5"
+            \\#define YAML_VERSION_MAJOR 0
+            \\#define YAML_VERSION_MINOR 2
+            \\#define YAML_VERSION_PATCH 5
+            ,
+        );
+        inline for (&.{
+            "yaml.h",
+        }) |filename| {
+            _ = wf.addCopyFile(
+                yaml_src.path("include/" ++ filename),
+                filename,
+            );
+        }
+        inline for (&.{
+            "yaml_private.h",
+        }) |filename| {
+            _ = wf.addCopyFile(
+                yaml_src.path("src/" ++ filename),
+                filename,
+            );
+        }
+
+        // TODO Not sure why I have to do both addIncludeDir (for
+        // the translate_c step) and addIncludePath (for the C
+        // source files) -- is there a way to get them both to
+        // look in the same place?
+        // TODO `getPath` is intended to be used during the make
+        // phase only - is there a better way to `addIncludeDir`
+        // when pointing to a dependency path?
+        c.addIncludeDir(yaml_src.path("include").getPath(b));
+        mod.addIncludePath(wf.getDirectory());
+
+        const c_source_files = &.{
+            "parser.c",
+            "scanner.c",
+            "reader.c",
+            "api.c",
+        };
+        inline for (c_source_files) |filename| {
+            _ = wf.addCopyFile(
+                yaml_src.path("src/" ++ filename),
+                filename,
+            );
+        }
+
+        mod.addCSourceFiles(.{
+            .root = wf.getDirectory(),
+            .files = c_source_files,
+            .flags = &.{
+                "-std=gnu99",
+                "-DHAVE_CONFIG_H",
+            },
+        });
+    }
+
+    {
+        const wf = b.addWriteFiles();
+        c.step.dependOn(&wf.step);
+
+        inline for (&.{
+            "entity.h",
+            "md4c.h",
+            "md4c-html.h",
+        }) |filename| {
+            _ = wf.addCopyFile(
+                md4c_src.path("src/" ++ filename),
+                filename,
+            );
+        }
+
+        // TODO Not sure why I have to do both addIncludeDir (for
+        // the translate_c step) and addIncludePath (for the C
+        // source files) -- is there a way to get them both to
+        // look in the same place?
+        // TODO `getPath` is intended to be used during the make
+        // phase only - is there a better way to `addIncludeDir`
+        // when pointing to a dependency path?
+        c.addIncludeDir(md4c_src.path("src").getPath(b));
+        mod.addIncludePath(wf.getDirectory());
+
+        const c_source_files = &.{
+            "entity.c",
+            "md4c.c",
+            "md4c-html.c",
+        };
+        inline for (c_source_files) |filename| {
+            _ = wf.addCopyFile(
+                md4c_src.path("src/" ++ filename),
+                filename,
+            );
+        }
+
+        mod.addCSourceFiles(.{
+            .root = wf.getDirectory(),
+            .files = c_source_files,
+            .flags = &.{
+                "-Wall",
+                "-Wextra",
+                "-Wshadow",
+            },
+        });
+    }
+
+    {
+        const wf = b.addWriteFiles();
+        c.step.dependOn(&wf.step);
+
+        inline for (&.{
+            "mustach.h",
+            "mustach2.h",
+            "mini-mustach.h",
+            "mustach-helpers.h",
+            "mustach-wrap.h",
+        }) |filename| {
+            _ = wf.addCopyFile(
+                mustach_src.path(filename),
+                filename,
+            );
+        }
+
+        // TODO Not sure why I have to do both addIncludeDir (for
+        // the translate_c step) and addIncludePath (for the C
+        // source files) -- is there a way to get them both to
+        // look in the same place?
+        // TODO `getPath` is intended to be used during the make
+        // phase only - is there a better way to `addIncludeDir`
+        // when pointing to a dependency path?
+        c.addIncludeDir(mustach_src.path(".").getPath(b));
+        mod.addIncludePath(wf.getDirectory());
+
+        const c_source_files = &.{
+            "mustach.c",
+            "mustach2.c",
+            "mini-mustach.c",
+            "mustach-helpers.c",
+            "mustach-wrap.c",
+        };
+        inline for (c_source_files) |filename| {
+            _ = wf.addCopyFile(
+                mustach_src.path(filename),
+                filename,
+            );
+        }
+
+        mod.addCSourceFiles(.{
+            .root = wf.getDirectory(),
+            .files = c_source_files,
+            .flags = &.{},
+        });
+    }
+
+    return mod;
+}
+
+pub fn buildBenchmarkSite(b: *std.Build) std.Build.LazyPath {
+    const wf = b.addWriteFiles();
+    _ = wf.add(
+        "pages/home-page.md",
+        \\---
+        \\id: home
+        \\slug: /
+        \\title: Home Page
+        \\---
+        \\
+        \\ # Home
+        \\
+        \\ This is the home page.
+        ,
+    );
+    for (0..10) |i| {
+        _ = wf.add(
+            b.fmt("pages/page-{d}.md", .{i}),
+            b.fmt(
+                \\---
+                \\id: page-{d}
+                \\slug: /page-{d}
+                \\title: Hello, world {d}
+                \\---
+                \\
+                \\# Hello, world {d}
+                \\
+                \\
+                \\This is a paragraph with some **bolded** content.
+                \\
+                \\Check out the [home page](/).
+            ,
+                .{ i, i, i, i },
+            ),
+        );
+    }
+    return wf.getDirectory();
 }

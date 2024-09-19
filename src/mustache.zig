@@ -1,6 +1,7 @@
 const c = @import("c");
 const debug = std.debug;
 const fmt = std.fmt;
+const fs = std.fs;
 const heap = std.heap;
 const log = std.log.scoped(.mustache);
 const lucide = @import("lucide");
@@ -35,7 +36,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
         db: *Database,
         writer: Writer,
 
-        const vtable: c.mini_mustach_itf = .{
+        const vtable: c.mustach_itf = .{
             .emit = emit,
             .get = get,
             .enter = enter,
@@ -47,13 +48,27 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
         const Self = @This();
 
         pub fn renderLeaky(self: *Self, template: []const u8) !void {
-            switch (c.mini_mustach(
+            var result: [*c]const u8 = null;
+            var result_len: usize = undefined;
+
+            switch (c.mustach_mem(
                 @ptrCast(template),
                 template.len,
                 &Self.vtable,
                 self,
+                0,
+                @ptrCast(&result),
+                &result_len,
             )) {
-                c.MUSTACH_OK => {},
+                c.MUSTACH_OK => {
+                    // We provide our own emit callback so any result written
+                    // by mustach is undefined behaviour
+                    if (result_len != 0) return error.UnexpectedBehaviour;
+                    // We don't expect mustach to write anything to result, but it does
+                    // modify the address in result for some reason? In any case, here
+                    // we make sure that it's the empty string if it is set.
+                    if (result != null and result[0] != 0) return error.UnexpectedBehaviour;
+                },
                 c.MUSTACH_ERROR_SYSTEM,
                 c.MUSTACH_ERROR_INVALID_ITF,
                 c.MUSTACH_ERROR_UNEXPECTED_END,
@@ -74,7 +89,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
             }
         }
 
-        fn emit(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, escaping: c_int) callconv(.C) c_int {
+        fn emit(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, escaping: c_int, _: [*c]c.FILE) callconv(.C) c_int {
             debug.assert(ptr != null);
             // Trying to emit a value we could not get?
             debug.assert(buf != null);
@@ -101,13 +116,14 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
             return 0;
         }
 
-        fn get(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, sbuf: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
+        fn get(ptr: ?*anyopaque, buf: [*c]const u8, sbuf: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
+            const key = mem.sliceTo(buf, 0);
             _get(
                 @ptrCast(@alignCast(ptr)),
-                buf[0..len],
+                key,
                 sbuf,
             ) catch {
-                log.err("get failed for key ({s})", .{buf[0..len]});
+                log.err("get failed for key ({s})", .{key});
                 return -1;
             };
 
@@ -342,7 +358,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
             return error.KeyNotFound;
         }
 
-        fn enter(_: ?*anyopaque, _: [*c]const u8, _: usize) callconv(.C) c_int {
+        fn enter(_: ?*anyopaque, _: [*c]const u8) callconv(.C) c_int {
             log.debug("enter\n", .{});
             return 0;
         }
@@ -357,7 +373,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
             return 0;
         }
 
-        fn partial(_: ?*anyopaque, _: [*c]const u8, _: usize, _: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
+        fn partial(_: ?*anyopaque, _: [*c]const u8, _: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
             log.debug("partial\n", .{});
             return 0;
         }
