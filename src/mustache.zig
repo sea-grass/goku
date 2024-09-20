@@ -9,33 +9,27 @@ const mem = std.mem;
 const std = @import("std");
 const Database = @import("Database.zig");
 
-pub fn Mustache(comptime Context: type) type {
-    return struct {
-        pub const Self = @This();
+pub fn renderStream(allocator: mem.Allocator, template: []const u8, db: *Database, context: anytype, writer: anytype) !void {
+    var arena = heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
 
-        pub fn renderStream(allocator: mem.Allocator, template: []const u8, db: *Database, context: Context, writer: anytype) !void {
-            var arena = heap.ArenaAllocator.init(allocator);
-            defer arena.deinit();
+    try renderLeaky(
+        arena.allocator(),
+        template,
+        context,
+        db,
+        writer,
+    );
+}
 
-            try renderLeaky(
-                arena.allocator(),
-                template,
-                context,
-                db,
-                writer,
-            );
-        }
-
-        fn renderLeaky(arena: mem.Allocator, template: []const u8, context: Context, db: *Database, writer: anytype) !void {
-            var render_context: RenderContext(Context, @TypeOf(writer)) = .{
-                .arena = arena,
-                .context = context,
-                .db = db,
-                .writer = writer,
-            };
-            try render_context.renderLeaky(template);
-        }
+fn renderLeaky(arena: mem.Allocator, template: []const u8, context: anytype, db: *Database, writer: anytype) !void {
+    var render_context: RenderContext(@TypeOf(context), @TypeOf(writer)) = .{
+        .arena = arena,
+        .context = context,
+        .db = db,
+        .writer = writer,
     };
+    try render_context.renderLeaky(template);
 }
 
 fn RenderContext(comptime Context: type, comptime Writer: type) type {

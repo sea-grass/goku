@@ -12,7 +12,7 @@ const page = @import("page.zig");
 const std = @import("std");
 const tracy = @import("tracy");
 const Database = @import("Database.zig");
-const Markdown = @import("Markdown.zig");
+const markdown = @import("markdown.zig");
 
 // TODO remove this property
 // Site root is only used for constructing an absolute path to
@@ -246,7 +246,7 @@ fn renderPage(allocator: mem.Allocator, p: page.Page, tmpl: TemplateOption, db: 
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
     const content = if (meta.allow_html) content: {
-        try mustache.Mustache(struct { data: page.Data, site_root: []const u8 }).renderStream(
+        try mustache.renderStream(
             allocator,
             p.markdown.content,
             db,
@@ -264,18 +264,9 @@ fn renderPage(allocator: mem.Allocator, p: page.Page, tmpl: TemplateOption, db: 
     var content_buf = std.ArrayList(u8).init(allocator);
     defer content_buf.deinit();
 
-    {
-        var markdown = Markdown.init(allocator);
-        defer markdown.deinit();
+    try markdown.renderStream(content, content_buf.writer());
 
-        try markdown.renderStream(content, content_buf.writer());
-    }
-
-    try mustache.Mustache(struct {
-        content: []const u8,
-        data: page.Data,
-        site_root: []const u8,
-    }).renderStream(
+    try mustache.renderStream(
         allocator,
         template,
         db,
