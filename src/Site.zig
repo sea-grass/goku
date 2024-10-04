@@ -249,8 +249,8 @@ fn renderPage(allocator: mem.Allocator, p: page.Page, tmpl: TemplateOption, db: 
         try mustache.renderStream(
             allocator,
             p.markdown.content,
-            db,
             .{
+                .db = db,
                 .data = meta,
                 .site_root = url_prefix orelse "",
             },
@@ -269,8 +269,8 @@ fn renderPage(allocator: mem.Allocator, p: page.Page, tmpl: TemplateOption, db: 
     try mustache.renderStream(
         allocator,
         template,
-        db,
         .{
+            .db = db,
             .data = meta,
             .content = content_buf.items,
             .site_root = url_prefix orelse "",

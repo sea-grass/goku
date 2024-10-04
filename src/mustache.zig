@@ -7,9 +7,8 @@ const log = std.log.scoped(.mustache);
 const lucide = @import("lucide");
 const mem = std.mem;
 const std = @import("std");
-const Database = @import("Database.zig");
 
-pub fn renderStream(allocator: mem.Allocator, template: []const u8, db: *Database, context: anytype, writer: anytype) !void {
+pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: anytype, writer: anytype) !void {
     var arena = heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
@@ -17,16 +16,14 @@ pub fn renderStream(allocator: mem.Allocator, template: []const u8, db: *Databas
         arena.allocator(),
         template,
         context,
-        db,
         writer,
     );
 }
 
-fn renderLeaky(arena: mem.Allocator, template: []const u8, context: anytype, db: *Database, writer: anytype) !void {
+fn renderLeaky(arena: mem.Allocator, template: []const u8, context: anytype, writer: anytype) !void {
     var render_context: RenderContext(@TypeOf(context), @TypeOf(writer)) = .{
         .arena = arena,
         .context = context,
-        .db = db,
         .writer = writer,
     };
     try render_context.renderLeaky(template);
@@ -36,7 +33,6 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
     return struct {
         arena: mem.Allocator,
         context: Context,
-        db: *Database,
         writer: Writer,
 
         const vtable: c.mustach_itf = .{
@@ -256,7 +252,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                         \\ORDER BY date DESC, title ASC
                     ;
 
-                    var get_stmt = try ctx.db.db.prepare(get_pages);
+                    var get_stmt = try ctx.context.db.db.prepare(get_pages);
                     defer get_stmt.deinit();
 
                     var it = try get_stmt.iterator(
@@ -308,7 +304,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                         \\LIMIT 1
                     ;
 
-                    var get_stmt = try ctx.db.db.prepare(get_page);
+                    var get_stmt = try ctx.context.db.db.prepare(get_page);
                     defer get_stmt.deinit();
 
                     const row = try get_stmt.oneAlloc(
