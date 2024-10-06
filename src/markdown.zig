@@ -76,6 +76,10 @@ fn ParserType(comptime Writer: type) type {
                 },
                 c.MD_BLOCK_H => {
                     const detail: *c.MD_BLOCK_H_DETAIL = @ptrCast(@alignCast(detail_ptr));
+
+                    // The template is expected to print the page title.
+                    debug.assert(detail.level != 1);
+
                     writer.print("<h{d}>\n", .{detail.level}) catch return -1;
                 },
                 c.MD_BLOCK_CODE => {
