@@ -21,7 +21,10 @@ pub fn renderStream(markdown: []const u8, writer: anytype) !void {
 
 fn ParserType(comptime Writer: type) type {
     return struct {
+        pub const Parser = @This();
+
         writer: Writer,
+        image_nesting_level: u8 = 0,
 
         parser: c.MD_PARSER = .{
             // Reserved. Set to zero.
@@ -40,22 +43,59 @@ fn ParserType(comptime Writer: type) type {
         fn debug_log(buf: [*c]const u8, userdata: ?*anyopaque) c_int {
             const msg = mem.sliceTo(buf, 0);
             _ = msg;
-            _ = userdata;
+            const parser: *Parser = @ptrCast(@alignCast(userdata));
+            const writer = parser.writer;
+            _ = writer;
             return 0;
         }
 
         fn text(@"type": c.MD_TEXTTYPE, buf: [*c]const c.MD_CHAR, len: c.MD_SIZE, userdata: ?*anyopaque) callconv(.C) c_int {
-            const writer: *Writer = @ptrCast(@alignCast(userdata));
+            const parser: *Parser = @ptrCast(@alignCast(userdata));
+            const writer = parser.writer;
 
-            _ = @"type";
-            const value = buf[0..len];
-            writer.writeAll(value) catch return -1;
+            switch (@"type") {
+                c.MD_TEXT_NULLCHAR => {
+                    // TODO render null ut8 codepoint
+                },
+                c.MD_TEXT_BR => {
+                    writer.writeAll(if (parser.image_nesting_level == 0) "<br>" else " ") catch return -1;
+                },
+                c.MD_TEXT_SOFTBR => {
+                    writer.writeAll(if (parser.image_nesting_level == 0) "\n" else " ") catch return -1;
+                },
+                c.MD_TEXT_ENTITY => {
+                    log.warn("TODO not sure what it means to render a text entity...", .{});
+                    renderEscaped(buf[0..len], writer) catch return -1;
+                },
+                c.MD_TEXT_HTML => {
+                    writer.writeAll(buf[0..len]) catch return -1;
+                },
+                c.MD_TEXT_LATEXMATH,
+                c.MD_TEXT_NORMAL,
+                c.MD_TEXT_CODE,
+                => {
+                    log.info("{d} ({s})", .{ parser.image_nesting_level, buf[0..len] });
+                    renderEscaped(buf[0..len], writer) catch return -1;
+                },
+                else => unreachable,
+            }
 
             return 0;
         }
 
+        fn renderEscaped(buf: []const u8, writer: Writer) !void {
+            for (buf) |byte| {
+                switch (byte) {
+                    '>' => try writer.writeAll("&gt;"),
+                    '<' => try writer.writeAll("&lt;"),
+                    else => try writer.writeByte(byte),
+                }
+            }
+        }
+
         fn enter_block(@"type": c.MD_BLOCKTYPE, detail_ptr: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
-            const writer: *Writer = @ptrCast(@alignCast(userdata));
+            const parser: *Parser = @ptrCast(@alignCast(userdata));
+            const writer = parser.writer;
 
             switch (@"type") {
                 c.MD_BLOCK_DOC => {},
@@ -85,7 +125,7 @@ fn ParserType(comptime Writer: type) type {
                 c.MD_BLOCK_CODE => {
                     const detail: *c.MD_BLOCK_CODE_DETAIL = @ptrCast(@alignCast(detail_ptr));
                     _ = detail;
-                    writer.print("<code>", .{}) catch return -1;
+                    writer.print("<pre><code>", .{}) catch return -1;
                 },
                 c.MD_BLOCK_HTML => {},
                 c.MD_BLOCK_P => writer.writeAll("<p>\n") catch return -1,
@@ -110,7 +150,8 @@ fn ParserType(comptime Writer: type) type {
         }
 
         fn leave_block(@"type": c.MD_BLOCKTYPE, detail_ptr: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
-            const writer: *Writer = @ptrCast(@alignCast(userdata));
+            const parser: *Parser = @ptrCast(@alignCast(userdata));
+            const writer = parser.writer;
 
             switch (@"type") {
                 c.MD_BLOCK_DOC => {},
@@ -133,7 +174,7 @@ fn ParserType(comptime Writer: type) type {
                 c.MD_BLOCK_CODE => {
                     const detail: *c.MD_BLOCK_CODE_DETAIL = @ptrCast(@alignCast(detail_ptr));
                     _ = detail;
-                    writer.print("</code>", .{}) catch return -1;
+                    writer.print("</code></pre>", .{}) catch return -1;
                 },
                 c.MD_BLOCK_HTML => {},
                 c.MD_BLOCK_P => writer.writeAll("</p>") catch return -1,
@@ -156,7 +197,8 @@ fn ParserType(comptime Writer: type) type {
             return 0;
         }
         fn enter_span(@"type": c.MD_SPANTYPE, detail_ptr: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
-            const writer: *Writer = @ptrCast(@alignCast(userdata));
+            const parser: *Parser = @ptrCast(@alignCast(userdata));
+            const writer = parser.writer;
 
             switch (@"type") {
                 c.MD_SPAN_A => {
@@ -189,7 +231,8 @@ fn ParserType(comptime Writer: type) type {
         fn leave_span(@"type": c.MD_SPANTYPE, detail_ptr: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
             _ = detail_ptr;
 
-            const writer: *Writer = @ptrCast(@alignCast(userdata));
+            const parser: *Parser = @ptrCast(@alignCast(userdata));
+            const writer = parser.writer;
 
             switch (@"type") {
                 c.MD_SPAN_A => writer.writeAll("</a>") catch return -1,
