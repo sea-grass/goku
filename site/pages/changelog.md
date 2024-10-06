@@ -6,7 +6,31 @@ template: page.html
 
 ## 0.0.4 (in-progress)
 
-(tbd)
+### Getting started
+
+#### build.zig
+
+Goku now exposes a build-time API. You can use it in your build.zig like this:
+
+```
+const std = @import("std");
+const Goku = @import("goku").Goku;
+
+pub fn build(b: *std.Build) !void {
+  // ...
+  const site_source_path = b.path("site");
+  const site_dest_path = b.path("build");
+  
+  const build_site = Goku.build(b, goku_dep, site_source_path, site_dest_path);
+  const build_site_step = b.step("site", "Build the site");
+  build_site_step.dependOn(&build_site.step);
+  
+  const serve_site = Goku.serve(b, goku_dep, site_dest_path);
+  const serve_site_step = b.step("serve", "Serve the site");
+  serve_site_step.dependOn(&build_site.step);
+  serve_site_step.dependOn(&serve_site.step);
+}
+```
 
 ## 0.0.3
 
