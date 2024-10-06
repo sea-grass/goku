@@ -12,21 +12,65 @@ pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: any
     var arena = heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    try renderLeaky(
-        arena.allocator(),
-        template,
-        context,
-        writer,
-    );
-}
-
-fn renderLeaky(arena: mem.Allocator, template: []const u8, context: anytype, writer: anytype) !void {
-    var render_context: RenderContext(@TypeOf(context), @TypeOf(writer)) = .{
-        .arena = arena,
+    const Context = RenderContext(@TypeOf(context), @TypeOf(writer));
+    var render_context: Context = .{
+        .arena = arena.allocator(),
         .context = context,
         .writer = writer,
     };
-    try render_context.renderLeaky(template);
+
+    // We want renderMustache to control the rendering, so we give it a writer
+    // ...but currently the render context is responsible for the output buffering.
+    const result = try renderMustache(template, &Context.vtable, &render_context, writer);
+    _ = result;
+}
+
+const RenderMustacheError = error{ UnexpectedBehaviour, CouldNotRenderTemplate };
+const RenderMustacheResult = struct {};
+fn renderMustache(template: []const u8, vtable: *const c.mustach_itf, ctx: anytype, writer: anytype) RenderMustacheError!RenderMustacheResult {
+    _ = writer;
+
+    var result: [*c]const u8 = null;
+    var result_len: usize = undefined;
+
+    const return_val = c.mustach_mem(
+        @ptrCast(template),
+        template.len,
+        vtable,
+        ctx,
+        0,
+        @ptrCast(&result),
+        &result_len,
+    );
+
+    switch (return_val) {
+        c.MUSTACH_OK => {
+            // We provide our own emit callback so any result written
+            // by mustach is undefined behaviour
+            if (result_len != 0) return error.UnexpectedBehaviour;
+            // We don't expect mustach to write anything to result, but it does
+            // modify the address in result for some reason? In any case, here
+            // we make sure that it's the empty string if it is set.
+            if (result != null and result[0] != 0) return error.UnexpectedBehaviour;
+        },
+        c.MUSTACH_ERROR_SYSTEM,
+        c.MUSTACH_ERROR_INVALID_ITF,
+        c.MUSTACH_ERROR_UNEXPECTED_END,
+        c.MUSTACH_ERROR_BAD_UNESCAPE_TAG,
+        c.MUSTACH_ERROR_EMPTY_TAG,
+        c.MUSTACH_ERROR_BAD_DELIMITER,
+        c.MUSTACH_ERROR_TOO_DEEP,
+        c.MUSTACH_ERROR_CLOSING,
+        c.MUSTACH_ERROR_TOO_MUCH_NESTING,
+        => |err| {
+            log.debug("Uh oh! Error {any}\n", .{err});
+            return error.CouldNotRenderTemplate;
+        },
+        // We've handled all other known mustach return codes
+        else => unreachable,
+    }
+
+    return .{};
 }
 
 fn RenderContext(comptime Context: type, comptime Writer: type) type {
@@ -46,196 +90,73 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
 
         const Self = @This();
 
-        pub fn renderLeaky(self: *Self, template: []const u8) !void {
-            var result: [*c]const u8 = null;
-            var result_len: usize = undefined;
+        fn getKnownFromContext(self: *Self, key: []const u8) !?[]const u8 {
 
-            switch (c.mustach_mem(
-                @ptrCast(template),
-                template.len,
-                &Self.vtable,
-                self,
-                0,
-                @ptrCast(&result),
-                &result_len,
-            )) {
-                c.MUSTACH_OK => {
-                    // We provide our own emit callback so any result written
-                    // by mustach is undefined behaviour
-                    if (result_len != 0) return error.UnexpectedBehaviour;
-                    // We don't expect mustach to write anything to result, but it does
-                    // modify the address in result for some reason? In any case, here
-                    // we make sure that it's the empty string if it is set.
-                    if (result != null and result[0] != 0) return error.UnexpectedBehaviour;
-                },
-                c.MUSTACH_ERROR_SYSTEM,
-                c.MUSTACH_ERROR_INVALID_ITF,
-                c.MUSTACH_ERROR_UNEXPECTED_END,
-                c.MUSTACH_ERROR_BAD_UNESCAPE_TAG,
-                c.MUSTACH_ERROR_EMPTY_TAG,
-                c.MUSTACH_ERROR_BAD_DELIMITER,
-                c.MUSTACH_ERROR_TOO_DEEP,
-                c.MUSTACH_ERROR_CLOSING,
-                c.MUSTACH_ERROR_TOO_MUCH_NESTING,
-                => |err| {
-                    log.debug("Uh oh! Error {any}\n", .{err});
-                    return error.CouldNotRenderTemplate;
-                },
-                else => |value| {
-                    log.debug("Received unknown value {d}\n", .{value});
-                    unreachable;
-                },
-            }
-        }
+            // These are known goku constants that are expected to be available during page rendering.
+            const context_keys = &.{ "content", "site_root" };
 
-        fn emit(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, escaping: c_int, _: [*c]c.FILE) callconv(.C) c_int {
-            log.debug("emit", .{});
-            debug.assert(ptr != null);
-            // Trying to emit a value we could not get?
-            debug.assert(buf != null);
+            // At runtime, if a template tries to get one of these keys, we look for it in Context.
+            // If the key is found, we populate the buf with a copy.
+            // Otherwise, we return a runtime error.
+            inline for (context_keys) |context_key| {
+                if (mem.eql(u8, key, context_key)) {
+                    if (!@hasField(Context, context_key)) return error.ContextMissingRequestedKey;
 
-            const ctx: *Self = @ptrCast(@alignCast(ptr));
-
-            if (escaping == 1) {
-                var escaped = std.ArrayList(u8).init(ctx.arena);
-                defer escaped.deinit();
-
-                for (buf[0..len]) |char| {
-                    switch (char) {
-                        '<' => escaped.appendSlice("&lt;") catch return -1,
-                        '>' => escaped.appendSlice("&gt;") catch return -1,
-                        else => escaped.append(char) catch return -1,
-                    }
+                    return try self.arena.dupeZ(u8, @field(self.context, context_key));
                 }
-
-                ctx.writer.writeAll(escaped.items) catch return -1;
-            } else {
-                ctx.writer.writeAll(buf[0..len]) catch return -1;
             }
 
-            return 0;
+            return null;
         }
 
-        fn get(ptr: ?*anyopaque, buf: [*c]const u8, sbuf: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
-            const key = mem.sliceTo(buf, 0);
-            log.debug("get({s})", .{key});
-            _get(
-                @ptrCast(@alignCast(ptr)),
-                key,
-                sbuf,
-            ) catch {
-                log.err("get failed for key ({s})", .{key});
-                return -1;
-            };
-
-            return 0;
-        }
-
-        fn _get(ctx: *Self, key: []const u8, sbuf: [*c]c.struct_mustach_sbuf) !void {
-            // Need to implement some sort of a stack context system here.
-            // If someone "enters" then I need some way of reaching further into the
-            // context. Something like
-            // reachInto(ctx.context.data, .{ "path", "to", "value" });
-            // ...that I can then use like
-            // reachInto(ctx.context.data, stack.items);
-            // ...where stack is an ArrayList([]const u8).
-            // reachInto might look like
-            // fn reachInto(data: anytype, path: []const []const u8) ??? {
-            //   if (path.len == 0) return data;
-            //   if (path.len == 1) {
-            //      inline for (@typeInfo(@TypeOf(data)).Struct.fields) |f| {
-            //          if (mem.eql(u8, f.name, path[0])) {
-            //            return @field(data, f.name);
-            //          }
-            //      }
-            //      return error.CouldNotFindField;
-            //  }
-            //  return reachInto(
-            //      reachInto(data, path[0..1]),
-            //      path[1..],
-            //  );
-            // }
-            // ...The problem being that I don't know how to specify the return type of the fn
-            // And I'm not sure at call time that I'll have that information?
-            // The problem: The mustache syntax to enter a named section can work for a regular value,
-            // a struct, or an array, but....,......hm
-            if (mem.eql(u8, key, "content")) {
-                if (!@hasField(@TypeOf(ctx.context), "content")) {
-                    return error.ContextIsMissingContent;
-                }
-
-                const value = try ctx.arena.dupeZ(u8, ctx.context.content);
-                sbuf.* = .{
-                    .value = value,
-                    .length = value.len,
-                    .closure = null,
-                };
-                return;
-            } else if (mem.eql(u8, key, "site_root")) {
-                if (!@hasField(@TypeOf(ctx.context), "site_root")) {
-                    return error.ContextIsMissingSiteRoot;
-                }
-
-                const value = try ctx.arena.dupeZ(u8, ctx.context.site_root);
-                sbuf.* = .{
-                    .value = value,
-                    .length = value.len,
-                    .closure = null,
-                };
-                return;
-            }
-
-            inline for (@typeInfo(@TypeOf(ctx.context.data)).Struct.fields) |f| {
+        fn getFromContextData(self: *Self, key: []const u8) !?[]const u8 {
+            inline for (@typeInfo(@TypeOf(self.context.data)).Struct.fields) |f| {
                 if (mem.eql(u8, key, f.name)) {
                     switch (@typeInfo(f.type)) {
                         .Optional => {
-                            const value = @field(ctx.context.data, f.name);
-                            // TODO should a missing optional value be an error?
-                            // I'm tempted to just make it ""
-                            if (value == null) {
-                                sbuf.* = .{ .value = "", .length = 0, .closure = null };
-                                return;
+                            const value = @field(self.context.data, f.name);
+
+                            if (value) |v| {
+                                return try self.arena.dupeZ(u8, v);
                             }
 
-                            sbuf.* = .{
-                                .value = try ctx.arena.dupeZ(u8, value.?),
-                                .length = value.?.len,
-                                .closure = null,
-                            };
-                            return;
+                            return "";
                         },
                         .Bool => {
-                            const str = if (@field(ctx.context.data, f.name)) "true" else "false";
-
-                            sbuf.* = .{
-                                .value = try ctx.arena.dupeZ(u8, str),
-                                .length = str.len,
-                                .closure = null,
-                            };
-                            return;
+                            return if (@field(self.context.data, f.name)) "true" else "false";
                         },
                         else => {
-                            const value = @field(ctx.context.data, f.name);
-                            sbuf.* = .{
-                                .value = try ctx.arena.dupeZ(u8, value),
-                                .length = value.len,
-                                .closure = null,
-                            };
-                            return;
+                            return try self.arena.dupeZ(
+                                u8,
+                                @field(self.context.data, f.name),
+                            );
                         },
                     }
                 }
             }
 
+            return null;
+        }
+
+        fn getLucideIcon(_: *Self, key: []const u8) !?[]const u8 {
             if (mem.startsWith(u8, key, "lucide.")) {
-                const icon_name = key["lucide.".len..];
-                const icon = lucide.icon(icon_name);
-                sbuf.* = .{
-                    .value = @ptrCast(icon),
-                    .length = icon.len,
-                    .closure = null,
-                };
-                return;
+                return lucide.icon(key["lucide.".len..]);
+            }
+
+            return null;
+        }
+
+        fn gget(ctx: *Self, key: []const u8) !?[]const u8 {
+            if (try ctx.getKnownFromContext(key)) |value| {
+                return value;
+            }
+
+            if (try ctx.getFromContextData(key)) |value| {
+                return value;
+            }
+
+            if (try ctx.getLucideIcon(key)) |value| {
+                return value;
             }
 
             if (mem.startsWith(u8, key, "collections.")) {
@@ -280,21 +201,10 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
 
                     if (num_items > 0) {
                         try list_buf.appendSlice("</ul>");
-                        const value = try list_buf.toOwnedSlice();
-                        sbuf.* = .{
-                            .value = @ptrCast(value),
-                            .length = value.len,
-                            .closure = null,
-                        };
+                        return try list_buf.toOwnedSlice();
                     } else {
-                        sbuf.* = .{
-                            .value = "",
-                            .length = 0,
-                            .closure = null,
-                        };
+                        return "";
                     }
-
-                    return;
                 } else if (mem.endsWith(u8, key, ".latest")) {
                     const collection = key["collections.".len .. key.len - ".latest".len];
 
@@ -335,21 +245,12 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                     );
                     errdefer ctx.arena.free(value);
 
-                    sbuf.* = .{
-                        .value = @ptrCast(value),
-                        .length = value.len,
-                        .closure = null,
-                    };
-
-                    return;
+                    return value;
                 }
             }
 
             if (mem.eql(u8, key, "meta")) {
-                var arena = heap.ArenaAllocator.init(ctx.arena);
-                defer arena.deinit();
-
-                const value = try fmt.allocPrint(
+                return try fmt.allocPrint(
                     ctx.arena,
                     \\<div class="field is-grouped is-grouped-multiline">
                     \\<div class="control">
@@ -372,18 +273,88 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                         if (@TypeOf(ctx.context.data.title) == ?[]const u8) ctx.context.data.title.? else ctx.context.data.title,
                     },
                 );
-                errdefer ctx.arena.free(value);
+            }
 
+            if (mem.eql(u8, key, "theme.head")) {
+                return try fmt.allocPrint(
+                    ctx.arena,
+                    \\<link rel="stylesheet" type="text/css" href="/bulma.css" />
+                ,
+                    .{},
+                );
+            } else if (mem.eql(u8, key, "theme.body")) {
+                // theme.body can be used by themes to inject e.g. scripts.
+                // It's currently empty, but content authors are still recommended
+                // to include it in their templates to allow a more seamless upgrade
+                // once themes do make use of it.
+
+                return "";
+            }
+
+            return null;
+        }
+
+        // Will write the contents of `buf` to an internal buffer.
+        // If `is_escaped` is true, it will escape the contents as
+        // it streams them.
+        fn eemit(self: *Self, buf: []const u8, is_escaped: bool) !void {
+            if (is_escaped) {
+                var escaped = std.ArrayList(u8).init(self.arena);
+                defer escaped.deinit();
+                for (buf) |char| {
+                    switch (char) {
+                        '<' => try escaped.appendSlice("&lt;"),
+                        '>' => try escaped.appendSlice("&gt;"),
+                        else => try escaped.append(char),
+                    }
+                }
+
+                try self.writer.writeAll(escaped.items);
+            } else {
+                try self.writer.writeAll(buf);
+            }
+        }
+
+        // Calls the internal emit implementation
+        fn emit(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, escaping: c_int, _: [*c]c.FILE) callconv(.C) c_int {
+            log.debug("emit", .{});
+            debug.assert(ptr != null);
+            // Trying to emit a value we could not get?
+            debug.assert(buf != null);
+
+            eemit(
+                @ptrCast(@alignCast(ptr)),
+                buf[0..len],
+                escaping == 1,
+            ) catch |err| {
+                log.err("{any}", .{err});
+                return -1;
+            };
+
+            return 0;
+        }
+
+        // Calls the internal get implementation
+        fn get(ptr: ?*anyopaque, buf: [*c]const u8, sbuf: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
+            const key = mem.sliceTo(buf, 0);
+            log.debug("get({s})", .{key});
+
+            const result = gget(
+                @ptrCast(@alignCast(ptr)),
+                key,
+            ) catch null;
+
+            if (result) |value| {
                 sbuf.* = .{
                     .value = @ptrCast(value),
                     .length = value.len,
                     .closure = null,
                 };
-
-                return;
+                return 0;
             }
 
-            return error.KeyNotFound;
+            log.err("get failed for key ({s})", .{key});
+            return -1;
         }
 
         fn enter(_: ?*anyopaque, buf: [*c]const u8) callconv(.C) c_int {

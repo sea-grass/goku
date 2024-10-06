@@ -4,6 +4,10 @@ title: Changelog
 template: page.html
 ---
 
+## 0.0.4 (in-progress)
+
+(tbd)
+
 ## 0.0.3
 
 This release includes basic support for collections (a way to group pages in order to link to and search through them), improvements for published sites at subpaths, and some UX improvements at when building a Goku site, in the form of more helpful error messages.
