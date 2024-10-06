@@ -317,7 +317,6 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
 
         // Calls the internal emit implementation
         fn emit(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, escaping: c_int, _: [*c]c.FILE) callconv(.C) c_int {
-            log.debug("emit", .{});
             debug.assert(ptr != null);
             // Trying to emit a value we could not get?
             debug.assert(buf != null);
@@ -337,7 +336,6 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
         // Calls the internal get implementation
         fn get(ptr: ?*anyopaque, buf: [*c]const u8, sbuf: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
             const key = mem.sliceTo(buf, 0);
-            log.debug("get({s})", .{key});
 
             const result = gget(
                 @ptrCast(@alignCast(ptr)),
@@ -359,24 +357,21 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
 
         fn enter(_: ?*anyopaque, buf: [*c]const u8) callconv(.C) c_int {
             const key = mem.sliceTo(buf, 0);
-            log.debug("enter({s})", .{key});
+            _ = key;
             // return 1 if entered, or 0 if not entered
             // When 1 is returned, the function must activate the first item of the section
             return 1;
         }
 
         fn next(_: ?*anyopaque) callconv(.C) c_int {
-            log.debug("next", .{});
             return 0;
         }
 
         fn leave(_: ?*anyopaque) callconv(.C) c_int {
-            log.debug("leave", .{});
             return 0;
         }
 
         fn partial(_: ?*anyopaque, _: [*c]const u8, _: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
-            log.debug("partial", .{});
             return 0;
         }
     };

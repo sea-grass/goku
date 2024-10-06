@@ -49,14 +49,12 @@ fn ParserType(comptime Writer: type) type {
 
             _ = @"type";
             const value = buf[0..len];
-            log.info("text({s})", .{value});
             writer.writeAll(value) catch return -1;
 
             return 0;
         }
 
         fn enter_block(@"type": c.MD_BLOCKTYPE, detail_ptr: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
-            log.info("enter_block({any}, {any})", .{ @"type", detail_ptr });
             const writer: *Writer = @ptrCast(@alignCast(userdata));
 
             switch (@"type") {
@@ -108,7 +106,6 @@ fn ParserType(comptime Writer: type) type {
         }
 
         fn leave_block(@"type": c.MD_BLOCKTYPE, detail_ptr: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
-            log.info("leave_block({any}, {any})", .{ @"type", detail_ptr });
             const writer: *Writer = @ptrCast(@alignCast(userdata));
 
             switch (@"type") {
@@ -155,14 +152,12 @@ fn ParserType(comptime Writer: type) type {
             return 0;
         }
         fn enter_span(@"type": c.MD_SPANTYPE, detail: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
-            log.info("enter_span", .{});
             _ = @"type";
             _ = detail;
             _ = userdata;
             return 0;
         }
         fn leave_span(@"type": c.MD_SPANTYPE, detail: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
-            log.info("leave_span", .{});
             _ = @"type";
             _ = detail;
             _ = userdata;
