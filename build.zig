@@ -1,6 +1,26 @@
 const debug = std.debug;
 const std = @import("std");
 
+// The public, build-time API for goku.
+pub const Goku = struct {
+    pub fn build(b: *std.Build, goku_dep: *std.Build.Dependency, site_path: std.Build.LazyPath, out_path: std.Build.LazyPath) *std.Build.Step.Run {
+        const run_goku = b.addRunArtifact(goku_dep.artifact("goku"));
+        run_goku.has_side_effects = true;
+
+        run_goku.addDirectoryArg(site_path);
+        run_goku.addArg("-o");
+        run_goku.addDirectoryArg(out_path);
+
+        return run_goku;
+    }
+
+    pub fn serve(b: *std.Build, goku_dep: *std.Build.Dependency, public_path: std.Build.LazyPath) *std.Build.Step.Run {
+        const serve_site = b.addRunArtifact(goku_dep.artifact("serve"));
+        serve_site.addDirectoryArg(public_path);
+        return serve_site;
+    }
+};
+
 const bundled_lucide_icons = @as([]const []const u8, &.{
     "github",
     "apple",
@@ -203,17 +223,16 @@ pub fn build(b: *std.Build) void {
     run_benchmark_cmd.addArgs(&.{ "-o", "benchmark-build" });
     build_steps.run_benchmark.dependOn(&run_benchmark_cmd.step);
 
-    const build_site_cmd = b.addRunArtifact(exe);
-    build_site_cmd.addDirectoryArg(b.path("site"));
-    build_site_cmd.addArgs(&.{ "-o", "build" });
+    var this_dep_hack: std.Build.Dependency = .{ .builder = b };
+
+    const build_site_cmd = Goku.build(b, &this_dep_hack, b.path("site"), b.path("build"));
     if (b.args) |args| {
         build_site_cmd.addArgs(args);
     }
     build_steps.site.dependOn(&build_site_cmd.step);
     build_steps.site.dependOn(b.getInstallStep());
 
-    const run_serve_cmd = b.addRunArtifact(serve_exe);
-    run_serve_cmd.addDirectoryArg(b.path("build"));
+    const run_serve_cmd = Goku.serve(b, &this_dep_hack, b.path("build"));
     build_steps.serve.dependOn(build_steps.site);
     build_steps.serve.dependOn(&run_serve_cmd.step);
 }
