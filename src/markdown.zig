@@ -155,16 +155,59 @@ fn ParserType(comptime Writer: type) type {
             }
             return 0;
         }
-        fn enter_span(@"type": c.MD_SPANTYPE, detail: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
-            _ = @"type";
-            _ = detail;
-            _ = userdata;
+        fn enter_span(@"type": c.MD_SPANTYPE, detail_ptr: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
+            const writer: *Writer = @ptrCast(@alignCast(userdata));
+
+            switch (@"type") {
+                c.MD_SPAN_A => {
+                    const detail: *c.MD_SPAN_A_DETAIL = @ptrCast(@alignCast(detail_ptr));
+                    const href = detail.href.text[0..detail.href.size];
+                    writer.print(
+                        \\<a href="{s}">
+                    ,
+                        .{href},
+                    ) catch return -1;
+                },
+                c.MD_SPAN_CODE => {},
+                c.MD_SPAN_DEL => {},
+                c.MD_SPAN_EM => {},
+                c.MD_SPAN_IMG => {},
+                c.MD_SPAN_STRONG => {},
+                c.MD_SPAN_U => {},
+
+                c.MD_SPAN_LATEXMATH,
+                c.MD_SPAN_LATEXMATH_DISPLAY,
+                c.MD_SPAN_WIKILINK,
+                => {
+                    log.debug("Goku doesn't currently support rendering Latex math or wikilinks.", .{});
+                },
+                else => unreachable,
+            }
+
             return 0;
         }
-        fn leave_span(@"type": c.MD_SPANTYPE, detail: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
-            _ = @"type";
-            _ = detail;
-            _ = userdata;
+        fn leave_span(@"type": c.MD_SPANTYPE, detail_ptr: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
+            _ = detail_ptr;
+
+            const writer: *Writer = @ptrCast(@alignCast(userdata));
+
+            switch (@"type") {
+                c.MD_SPAN_A => writer.writeAll("</a>") catch return -1,
+                c.MD_SPAN_CODE => {},
+                c.MD_SPAN_DEL => {},
+                c.MD_SPAN_EM => {},
+                c.MD_SPAN_IMG => {},
+                c.MD_SPAN_STRONG => {},
+                c.MD_SPAN_U => {},
+
+                c.MD_SPAN_LATEXMATH,
+                c.MD_SPAN_LATEXMATH_DISPLAY,
+                c.MD_SPAN_WIKILINK,
+                => {
+                    log.debug("Goku doesn't currently support rendering Latex math or wikilinks.", .{});
+                },
+                else => unreachable,
+            }
             return 0;
         }
     };
