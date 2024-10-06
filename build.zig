@@ -14,6 +14,7 @@ const BuildSteps = struct {
     run: *std.Build.Step,
     run_benchmark: *std.Build.Step,
     site: *std.Build.Step,
+    serve: *std.Build.Step,
     @"test": *std.Build.Step,
 
     pub fn init(b: *std.Build) BuildSteps {
@@ -24,7 +25,7 @@ const BuildSteps = struct {
             ),
             .generate_benchmark_site = b.step(
                 "generate-benchmark",
-                "Generate a site dir used to benchmark goku.",
+                "Generate a site dir used to benchmark goku",
             ),
             .run = b.step(
                 "run",
@@ -32,11 +33,15 @@ const BuildSteps = struct {
             ),
             .run_benchmark = b.step(
                 "run-benchmark",
-                "Run the benchmark.",
+                "Run the benchmark",
             ),
             .site = b.step(
                 "site",
                 "Build the Goku site",
+            ),
+            .serve = b.step(
+                "serve",
+                "Serve the Goku site (for local previewing)",
             ),
             .@"test" = b.step(
                 "test",
@@ -87,6 +92,7 @@ pub fn build(b: *std.Build) void {
     });
     const bulma = b.dependency("bulma", .{});
     const htmx = b.dependency("htmx", .{});
+    const zap = b.dependency("zap", .{ .target = target, .optimize = optimize });
 
     const c_mod = buildCModule(b, .{
         .yaml = b.dependency("yaml-src", .{}),
@@ -166,6 +172,24 @@ pub fn build(b: *std.Build) void {
     }
     build_steps.check.dependOn(&exe_check.step);
 
+    const serve_exe = b.addExecutable(.{
+        .name = "serve",
+        .root_source_file = b.path("src/serve.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    serve_exe.root_module.addImport("zap", zap.module("zap"));
+    b.installArtifact(serve_exe);
+
+    const serve_exe_check = b.addExecutable(.{
+        .name = "serve-check",
+        .root_source_file = b.path("src/serve.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    serve_exe_check.root_module.addImport("zap", zap.module("zap"));
+    build_steps.check.dependOn(&serve_exe_check.step);
+
     const benchmark_site = buildBenchmarkSite(b);
     const install = b.addInstallDirectory(.{
         .source_dir = benchmark_site,
@@ -187,6 +211,11 @@ pub fn build(b: *std.Build) void {
     }
     build_steps.site.dependOn(&build_site_cmd.step);
     build_steps.site.dependOn(b.getInstallStep());
+
+    const run_serve_cmd = b.addRunArtifact(serve_exe);
+    run_serve_cmd.addDirectoryArg(b.path("build"));
+    build_steps.serve.dependOn(build_steps.site);
+    build_steps.serve.dependOn(&run_serve_cmd.step);
 }
 
 pub fn buildCModule(b: *std.Build, opts: anytype) *std.Build.Module {

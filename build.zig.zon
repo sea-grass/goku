@@ -39,6 +39,10 @@
         .htmx = .{
             .path = "./htmx",
         },
+        .zap = .{
+            .url = "git+https://github.com/zigzap/zap#29b923f96ee09d855b603866d2e149d506f72679",
+            .hash = "1220399fcdfff1fd73f8cbced2530ab805391f31d8c188db99ae7ba978dd77fd2814",
+        },
     },
 
     .paths = .{
