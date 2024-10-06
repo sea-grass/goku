@@ -7,6 +7,18 @@ const fmt = std.fmt;
 const heap = std.heap;
 const debug = std.debug;
 
+// Assumes that the `public_folder_path` points to a Goku site with a generated sitemap.html.
+// Returns memory owned by the caller (that the caller must free)
+fn readSitemap(allocator: mem.Allocator, public_folder_path: []const u8) ![]const u8 {
+    var dir = try fs.cwd().openDir(public_folder_path, .{});
+    defer dir.close();
+
+    const file = try dir.openFile("_sitemap.html", .{});
+    defer file.close();
+
+    return try file.readToEndAlloc(allocator, 1 * 1024 * 1024);
+}
+
 pub fn main() !void {
     var gpa = heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -21,6 +33,11 @@ pub fn main() !void {
     const public_folder = args[1];
     const result = try fs.cwd().statFile(public_folder);
     debug.assert(result.kind == .directory);
+
+    const sitemap = try readSitemap(gpa.allocator(), public_folder);
+    defer gpa.allocator().free(sitemap);
+
+    log.info("Sitemap\n{s}\n", .{sitemap});
 
     var listener = zap.HttpListener.init(.{
         .port = 3000,

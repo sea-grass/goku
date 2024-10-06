@@ -1,32 +1,172 @@
 const c = @import("c");
 const debug = std.debug;
+const log = std.log.scoped(.markdown);
 const math = std.math;
 const mem = std.mem;
 const std = @import("std");
 
-fn ProcessOutputType(comptime Writer: type) type {
-    return struct {
-        fn processOutput(buf: [*c]const u8, len: c_uint, ptr: ?*anyopaque) callconv(.C) void {
-            const writer: *Writer = @ptrCast(@alignCast(ptr));
-            writer.writeAll(buf[0..len]) catch {
-                debug.print("Could not write markdown result.\n", .{});
-                @panic("Markdown processing error.");
-            };
-        }
-    };
-}
-
 pub fn renderStream(markdown: []const u8, writer: anytype) !void {
-    const result = c.md_html(
+    const parser: ParserType(@TypeOf(writer)) = .{ .writer = writer };
+    const result = c.md_parse(
         @ptrCast(markdown),
         @as(c_uint, @intCast(markdown.len)),
-        ProcessOutputType(@TypeOf(writer)).processOutput,
-        @constCast(@ptrCast(&writer)),
-        0,
-        0,
+        &parser.parser,
+        @constCast(@ptrCast(&parser)),
     );
 
     if (result != 0) {
         return error.CouldNotTransformMarkdown;
     }
+}
+
+fn ParserType(comptime Writer: type) type {
+    return struct {
+        writer: Writer,
+
+        parser: c.MD_PARSER = .{
+            // Reserved. Set to zero.
+            .abi_version = 0,
+            // Dialect options. Bitmask of MD_FLAG_xxxx values.
+            .flags = 0,
+            .enter_block = enter_block,
+            .leave_block = leave_block,
+            .enter_span = enter_span,
+            .leave_span = leave_span,
+            .text = text,
+            .debug_log = null,
+            .syntax = null,
+        },
+
+        fn debug_log(buf: [*c]const u8, userdata: ?*anyopaque) c_int {
+            const msg = mem.sliceTo(buf, 0);
+            _ = msg;
+            _ = userdata;
+            return 0;
+        }
+
+        fn text(@"type": c.MD_TEXTTYPE, buf: [*c]const c.MD_CHAR, len: c.MD_SIZE, userdata: ?*anyopaque) callconv(.C) c_int {
+            const writer: *Writer = @ptrCast(@alignCast(userdata));
+
+            _ = @"type";
+            const value = buf[0..len];
+            log.info("text({s})", .{value});
+            writer.writeAll(value) catch return -1;
+
+            return 0;
+        }
+
+        fn enter_block(@"type": c.MD_BLOCKTYPE, detail_ptr: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
+            log.info("enter_block({any}, {any})", .{ @"type", detail_ptr });
+            const writer: *Writer = @ptrCast(@alignCast(userdata));
+
+            switch (@"type") {
+                c.MD_BLOCK_DOC => {},
+                c.MD_BLOCK_QUOTE => writer.writeAll("<blockquote>\n") catch return -1,
+                c.MD_BLOCK_UL => writer.writeAll("<ul>\n") catch return -1,
+                c.MD_BLOCK_OL => {
+                    const detail: *c.MD_BLOCK_OL_DETAIL = @ptrCast(@alignCast(detail_ptr));
+                    _ = detail;
+                    writer.writeAll("<ol>\n") catch return -1;
+                },
+                c.MD_BLOCK_LI => {
+                    const detail: *c.MD_BLOCK_LI_DETAIL = @ptrCast(@alignCast(detail_ptr));
+                    _ = detail;
+                    writer.writeAll("<li>\n") catch return -1;
+                },
+                c.MD_BLOCK_HR => {
+                    writer.writeAll("<hr>\n") catch return -1;
+                },
+                c.MD_BLOCK_H => {
+                    const detail: *c.MD_BLOCK_H_DETAIL = @ptrCast(@alignCast(detail_ptr));
+                    writer.print("<h{d}>\n", .{detail.level}) catch return -1;
+                },
+                c.MD_BLOCK_CODE => {
+                    const detail: *c.MD_BLOCK_CODE_DETAIL = @ptrCast(@alignCast(detail_ptr));
+                    _ = detail;
+                    writer.print("<code>", .{}) catch return -1;
+                },
+                c.MD_BLOCK_HTML => {},
+                c.MD_BLOCK_P => writer.writeAll("<p>\n") catch return -1,
+                c.MD_BLOCK_TABLE => writer.writeAll("<table>\n") catch return -1,
+                c.MD_BLOCK_THEAD => writer.writeAll("<thead>\n") catch return -1,
+                c.MD_BLOCK_TBODY => writer.writeAll("<tbody>\n") catch return -1,
+                c.MD_BLOCK_TR => writer.writeAll("<tr>\n") catch return -1,
+                c.MD_BLOCK_TH => {
+                    const detail: *c.MD_BLOCK_TD_DETAIL = @ptrCast(@alignCast(detail_ptr));
+                    _ = detail;
+                    writer.print("<th>\n", .{}) catch return -1;
+                },
+                c.MD_BLOCK_TD => {
+                    const detail: *c.MD_BLOCK_TD_DETAIL = @ptrCast(@alignCast(detail_ptr));
+                    _ = detail;
+                    writer.print("<td>\n", .{}) catch return -1;
+                },
+                else => unreachable,
+            }
+
+            return 0;
+        }
+
+        fn leave_block(@"type": c.MD_BLOCKTYPE, detail_ptr: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
+            log.info("leave_block({any}, {any})", .{ @"type", detail_ptr });
+            const writer: *Writer = @ptrCast(@alignCast(userdata));
+
+            switch (@"type") {
+                c.MD_BLOCK_DOC => {},
+                c.MD_BLOCK_QUOTE => writer.writeAll("</blockquote>\n") catch return -1,
+                c.MD_BLOCK_UL => writer.writeAll("</ul>\n") catch return -1,
+                c.MD_BLOCK_OL => {
+                    const detail: *c.MD_BLOCK_OL_DETAIL = @ptrCast(@alignCast(detail_ptr));
+                    _ = detail;
+                    writer.writeAll("</ol>") catch return -1;
+                },
+                c.MD_BLOCK_LI => {
+                    const detail: *c.MD_BLOCK_LI_DETAIL = @ptrCast(@alignCast(detail_ptr));
+                    _ = detail;
+                    writer.writeAll("</li>") catch return -1;
+                },
+                c.MD_BLOCK_H => {
+                    const detail: *c.MD_BLOCK_H_DETAIL = @ptrCast(@alignCast(detail_ptr));
+                    writer.print("</h{d}>\n", .{detail.level}) catch return -1;
+                },
+                c.MD_BLOCK_CODE => {
+                    const detail: *c.MD_BLOCK_CODE_DETAIL = @ptrCast(@alignCast(detail_ptr));
+                    _ = detail;
+                    writer.print("</code>", .{}) catch return -1;
+                },
+                c.MD_BLOCK_HTML => {},
+                c.MD_BLOCK_P => writer.writeAll("</p>") catch return -1,
+                c.MD_BLOCK_TABLE => writer.writeAll("</table>") catch return -1,
+                c.MD_BLOCK_THEAD => writer.writeAll("</thead>") catch return -1,
+                c.MD_BLOCK_TBODY => writer.writeAll("</tbody>") catch return -1,
+                c.MD_BLOCK_TR => writer.writeAll("</tr>") catch return -1,
+                c.MD_BLOCK_TH => {
+                    const detail: *c.MD_BLOCK_TD_DETAIL = @ptrCast(@alignCast(detail_ptr));
+                    _ = detail;
+                    writer.print("</th>", .{}) catch return -1;
+                },
+                c.MD_BLOCK_TD => {
+                    const detail: *c.MD_BLOCK_TD_DETAIL = @ptrCast(@alignCast(detail_ptr));
+                    _ = detail;
+                    writer.print("</td>", .{}) catch return -1;
+                },
+                else => unreachable,
+            }
+            return 0;
+        }
+        fn enter_span(@"type": c.MD_SPANTYPE, detail: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
+            log.info("enter_span", .{});
+            _ = @"type";
+            _ = detail;
+            _ = userdata;
+            return 0;
+        }
+        fn leave_span(@"type": c.MD_SPANTYPE, detail: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
+            log.info("leave_span", .{});
+            _ = @"type";
+            _ = detail;
+            _ = userdata;
+            return 0;
+        }
+    };
 }
