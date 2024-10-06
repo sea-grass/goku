@@ -5,8 +5,8 @@ const math = std.math;
 const mem = std.mem;
 const std = @import("std");
 
-pub fn renderStream(markdown: []const u8, writer: anytype) !void {
-    const parser: ParserType(@TypeOf(writer)) = .{ .writer = writer };
+pub fn renderStream(markdown: []const u8, url_prefix: ?[]const u8, writer: anytype) !void {
+    const parser: ParserType(@TypeOf(writer)) = .{ .writer = writer, .url_prefix = url_prefix };
     const result = c.md_parse(
         @ptrCast(markdown),
         @as(c_uint, @intCast(markdown.len)),
@@ -25,6 +25,7 @@ fn ParserType(comptime Writer: type) type {
 
         writer: Writer,
         image_nesting_level: u8 = 0,
+        url_prefix: ?[]const u8,
 
         parser: c.MD_PARSER = .{
             // Reserved. Set to zero.
@@ -74,7 +75,6 @@ fn ParserType(comptime Writer: type) type {
                 c.MD_TEXT_NORMAL,
                 c.MD_TEXT_CODE,
                 => {
-                    log.info("{d} ({s})", .{ parser.image_nesting_level, buf[0..len] });
                     renderEscaped(buf[0..len], writer) catch return -1;
                 },
                 else => unreachable,
@@ -204,11 +204,27 @@ fn ParserType(comptime Writer: type) type {
                 c.MD_SPAN_A => {
                     const detail: *c.MD_SPAN_A_DETAIL = @ptrCast(@alignCast(detail_ptr));
                     const href = detail.href.text[0..detail.href.size];
-                    writer.print(
-                        \\<a href="{s}">
-                    ,
-                        .{href},
-                    ) catch return -1;
+                    if (mem.startsWith(u8, href, "/")) {
+                        if (parser.url_prefix) |prefix| {
+                            writer.print(
+                                \\<a href="{s}{s}">
+                            ,
+                                .{ prefix, href },
+                            ) catch return -1;
+                        } else {
+                            writer.print(
+                                \\<a href="{s}">
+                            ,
+                                .{href},
+                            ) catch return -1;
+                        }
+                    } else {
+                        writer.print(
+                            \\<a href="{s}">
+                        ,
+                            .{href},
+                        ) catch return -1;
+                    }
                 },
                 c.MD_SPAN_CODE => {},
                 c.MD_SPAN_DEL => {},

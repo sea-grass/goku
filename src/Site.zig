@@ -264,7 +264,7 @@ fn renderPage(allocator: mem.Allocator, p: page.Page, tmpl: TemplateOption, db: 
     var content_buf = std.ArrayList(u8).init(allocator);
     defer content_buf.deinit();
 
-    try markdown.renderStream(content, content_buf.writer());
+    try markdown.renderStream(content, url_prefix, content_buf.writer());
 
     try mustache.renderStream(
         allocator,

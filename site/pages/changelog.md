@@ -10,7 +10,9 @@ template: page.html
 
 #### build.zig
 
-Goku now exposes a build-time API. You can use it in your build.zig like this:
+Goku now exposes a build-time API. To learn how to use it, check out [Getting Started](/getting-started) in the docs.
+
+Briefly, you can use it in your build.zig like this:
 
 ```
 const std = @import("std");
@@ -31,6 +33,29 @@ pub fn build(b: *std.Build) !void {
   serve_site_step.dependOn(&serve_site.step);
 }
 ```
+
+### Themes
+
+Goku does not yet support user-defined themes, but some shortcodes (`{{& theme.head}}` and `{{& theme.body}}`) have been added to make the transition to themes smoother once they are supported.
+
+Previously, users had to include `bulma.css` and `htmx.js` to their templates manually. The suggested migration path is to replace these instances with the shortcodes.
+
+### Shortcodes
+
+Some shortcodes were added in this release.
+
+- `{{& theme.head}}` - Render the theme's assets and metadata (typically inside `<head>` in your template)
+- `{{& theme.body}}` - Render the theme's scripts (typically right before the end of `<body>` in your template)
+
+### Site root
+
+This release simplifies the usage of site_root. When rendering markdown pages, Goku now automatically prefixes sitewide urls with the url prefix supplied at build-time.
+
+If your site is hosted at some url path that is not the root (e.g. if your Goku site root is at `http://example.com/blog`) then you needed to do two things: set the url prefix when building your site, and prefix all links in your content with `{{site_root}}`. Now, you don't need to prefix your links in your content at all.
+
+Suggested migration path is to remove `{{site_root}}` from your pages. If your pages only had the `allow_html: true` parameter because of `site_root` usage, you can remove it.
+
+Note that templates still require the usage of `{{site_root}}`.
 
 ## 0.0.3
 
