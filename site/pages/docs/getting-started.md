@@ -5,7 +5,9 @@ template: page.html
 collection: docs
 ---
 
-## Getting started with Zig
+To get started with Goku, you need to be able to run it. This page describes possible project structures and their ideal use cases. Skim this page for your ideal set-up.
+
+## Run Goku with the Zig build system
 
 Prerequisites: A working Zig compiler (minimum version 0.13.0)
 
@@ -83,3 +85,15 @@ pub fn build(b: *std.Build) !void {
     site_step.dependOn(&run_goku.step);
 }
 ```
+
+## Run Goku as a standalone binary
+
+Binary releases are not currently available. The recommended way of using Goku at this time is by compiling a standalone binary for your machine with Zig.
+
+## Other ways of running Goku
+
+Thinking of running Goku in some other way not listed here? Share your thoughts in the GitHub Issues in the Goku repo.
+
+
+## Getting started with Zig
+

@@ -60,7 +60,20 @@ pub fn deinit(self: Site) void {
     _ = self;
 }
 
-pub fn writeSitemap(self: Site, out_dir: fs.Dir) !void {
+const Part = enum {
+    sitemap,
+    assets,
+    pages,
+};
+pub fn write(self: Site, part: Part, out_dir: fs.Dir) !void {
+    switch (part) {
+        .sitemap => try writeSitemap(self, out_dir),
+        .assets => try writeAssets(self, out_dir),
+        .pages => try writePages(self, out_dir),
+    }
+}
+
+fn writeSitemap(self: Site, out_dir: fs.Dir) !void {
     const zone = tracy.initZone(@src(), .{ .name = "Write sitemap" });
     defer zone.deinit();
 
@@ -107,7 +120,7 @@ pub fn writeSitemap(self: Site, out_dir: fs.Dir) !void {
     try file_buf.flush();
 }
 
-pub fn writeAssets(self: Site, out_dir: fs.Dir) !void {
+fn writeAssets(self: Site, out_dir: fs.Dir) !void {
     _ = self;
 
     {
@@ -123,7 +136,114 @@ pub fn writeAssets(self: Site, out_dir: fs.Dir) !void {
     }
 }
 
-pub fn writePages(self: Site, out_dir: fs.Dir) !void {
+fn WritePagesIterator(comptime query: []const u8, comptime T: type) type {
+    return struct {
+        arena: heap.ArenaAllocator,
+        stmt: Database.StatementType(.{}, query),
+        it: Database.Iterator(T),
+
+        const Self = @This();
+
+        pub fn init(ally: mem.Allocator, db: *Database) !Self {
+            var stmt = try db.db.prepare(query);
+            errdefer stmt.deinit();
+
+            const it = try stmt.iterator(T, .{});
+
+            var arena = heap.ArenaAllocator.init(ally);
+            errdefer arena.deinit();
+
+            return .{
+                .arena = arena,
+                .stmt = stmt,
+                .it = it,
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.arena.deinit();
+            self.stmt.deinit();
+        }
+
+        pub fn next(self: *Self) !?T {
+            return try self.it.nextAlloc(self.arena.allocator(), .{});
+        }
+    };
+}
+
+fn _render(arena: *heap.ArenaAllocator, db: *Database, url_prefix: ?[]const u8, site_root: []const u8, filepath: []const u8, slug: []const u8, out_dir: fs.Dir) !void {
+    const zone = tracy.initZone(@src(), .{ .name = "Render Page Loop" });
+    defer zone.deinit();
+
+    const in_file = try fs.openFileAbsolute(filepath, .{});
+    defer in_file.close();
+
+    const contents = try in_file.readToEndAlloc(arena.allocator(), math.maxInt(u32));
+
+    const result = page.CodeFence.parse(contents) orelse return error.MalformedPageFile;
+
+    var file_name_buffer: [fs.MAX_NAME_BYTES]u8 = undefined;
+    var file_name_fba = heap.FixedBufferAllocator.init(&file_name_buffer);
+    var file_name_buf = std.ArrayList(u8).init(file_name_fba.allocator());
+
+    debug.assert(slug.len > 0);
+    debug.assert(slug[0] == '/');
+    if (slug.len > 1) {
+        debug.assert(!mem.endsWith(u8, slug, "/"));
+        try file_name_buf.appendSlice(slug);
+    }
+    try file_name_buf.appendSlice("/index.html");
+
+    const file = file: {
+        make_parent: {
+            if (fs.path.dirname(file_name_buf.items)) |parent| {
+                debug.assert(parent[0] == '/');
+                if (parent.len == 1) break :make_parent;
+
+                var dir = try out_dir.makeOpenPath(parent[1..], .{});
+                defer dir.close();
+                break :file try dir.createFile(fs.path.basename(file_name_buf.items), .{});
+            }
+        }
+
+        break :file try out_dir.createFile(fs.path.basename(file_name_buf.items), .{});
+    };
+    defer file.close();
+
+    var html_buffer = io.bufferedWriter(file.writer());
+
+    const p: page.Page = .{
+        .markdown = .{
+            .frontmatter = result.within,
+            .content = result.after,
+        },
+    };
+
+    const data = try p.data(arena.allocator());
+
+    const template = template: {
+        if (data.template) |t| {
+            const template_path = try fs.path.join(arena.allocator(), &.{ site_root, "templates", t });
+
+            var template_file = try fs.openFileAbsolute(template_path, .{});
+            defer template_file.close();
+
+            const template = try template_file.readToEndAlloc(arena.allocator(), math.maxInt(u32));
+            break :template template;
+        }
+
+        // no template, so use some sort of fallback
+        break :template "<!-- Missing template in page frontmatter -->{{& content }}";
+    };
+
+    try renderPage(arena.allocator(), p, .{
+        .bytes = template,
+    }, db, url_prefix, html_buffer.writer());
+
+    try html_buffer.flush();
+}
+
+fn writePages(self: Site, out_dir: fs.Dir) !void {
     // We create an arena allocator for processing the pages. To avoid
     // allocating/freeing memory at the start/end of each page render,
     // we let the memory grow according to the maximum needs of a page
@@ -134,101 +254,27 @@ pub fn writePages(self: Site, out_dir: fs.Dir) !void {
     const get_pages =
         \\SELECT slug, filepath FROM pages;
     ;
-
-    var get_stmt = try self.db.db.prepare(get_pages);
-    defer get_stmt.deinit();
-
-    var it = try get_stmt.iterator(
-        struct { slug: []const u8, filepath: []const u8 },
-        .{},
+    var it = try WritePagesIterator(get_pages, struct {
+        slug: []const u8,
+        filepath: []const u8,
+    }).init(
+        self.allocator,
+        self.db,
     );
+    defer it.deinit();
 
-    var arena = heap.ArenaAllocator.init(self.allocator);
-    defer arena.deinit();
-
-    while (try it.nextAlloc(arena.allocator(), .{})) |entry| {
-        const zone = tracy.initZone(@src(), .{ .name = "Render Page Loop" });
-        defer zone.deinit();
-
-        var this_page_allocator = heap.ArenaAllocator.init(page_buf_allocator.allocator());
-        defer this_page_allocator.deinit();
-
-        const allocator = this_page_allocator.allocator();
-
-        const in_file = try fs.openFileAbsolute(entry.filepath, .{});
-        defer in_file.close();
-
-        const contents = try in_file.readToEndAlloc(allocator, math.maxInt(u32));
-        defer allocator.free(contents);
-
-        const result = page.CodeFence.parse(contents) orelse return error.MalformedPageFile;
-
-        const slug = entry.slug;
-
-        var file_name_buffer: [fs.MAX_NAME_BYTES]u8 = undefined;
-        var file_name_fba = heap.FixedBufferAllocator.init(&file_name_buffer);
-        var file_name_buf = std.ArrayList(u8).init(file_name_fba.allocator());
-
-        debug.assert(slug.len > 0);
-        debug.assert(slug[0] == '/');
-        if (slug.len > 1) {
-            debug.assert(!mem.endsWith(u8, slug, "/"));
-            try file_name_buf.appendSlice(slug);
-        }
-        try file_name_buf.appendSlice("/index.html");
-
-        const file = file: {
-            make_parent: {
-                if (fs.path.dirname(file_name_buf.items)) |parent| {
-                    debug.assert(parent[0] == '/');
-                    if (parent.len == 1) break :make_parent;
-
-                    var dir = try out_dir.makeOpenPath(parent[1..], .{});
-                    defer dir.close();
-                    break :file try dir.createFile(fs.path.basename(file_name_buf.items), .{});
-                }
-            }
-
-            break :file try out_dir.createFile(fs.path.basename(file_name_buf.items), .{});
-        };
-        defer file.close();
-
-        var html_buffer = io.bufferedWriter(file.writer());
-
-        const p: page.Page = .{
-            .markdown = .{
-                .frontmatter = result.within,
-                .content = result.after,
-            },
-        };
-
-        const data = try p.data(allocator);
-        defer data.deinit(allocator);
-
-        var tmpl_arena = heap.ArenaAllocator.init(allocator);
-        defer tmpl_arena.deinit();
-
-        const template = template: {
-            if (data.template) |t| {
-                const template_path = try fs.path.join(tmpl_arena.allocator(), &.{ self.site_root, "templates", t });
-                defer allocator.free(template_path);
-
-                var template_file = try fs.openFileAbsolute(template_path, .{});
-                defer template_file.close();
-
-                const template = try template_file.readToEndAlloc(tmpl_arena.allocator(), math.maxInt(u32));
-                break :template template;
-            }
-
-            // no template, so use some sort of fallback
-            break :template "<!-- Missing template in page frontmatter -->{{& content }}";
-        };
-
-        try renderPage(allocator, p, .{
-            .bytes = template,
-        }, self.db, self.url_prefix, html_buffer.writer());
-
-        try html_buffer.flush();
+    while (try it.next()) |entry| {
+        var arena = heap.ArenaAllocator.init(page_buf_allocator.allocator());
+        defer arena.deinit();
+        try _render(
+            &arena,
+            self.db,
+            self.url_prefix,
+            self.site_root,
+            entry.filepath,
+            entry.slug,
+            out_dir,
+        );
     }
 }
 
