@@ -3,7 +3,12 @@ const std = @import("std");
 
 // The public, build-time API for goku.
 pub const Goku = struct {
-    pub fn build(b: *std.Build, goku_dep: *std.Build.Dependency, site_path: std.Build.LazyPath, out_path: std.Build.LazyPath) *std.Build.Step.Run {
+    pub fn build(
+        b: *std.Build,
+        goku_dep: *std.Build.Dependency,
+        site_path: std.Build.LazyPath,
+        out_path: std.Build.LazyPath,
+    ) *std.Build.Step.Run {
         const run_goku = b.addRunArtifact(goku_dep.artifact("goku"));
         run_goku.has_side_effects = true;
 
@@ -14,7 +19,11 @@ pub const Goku = struct {
         return run_goku;
     }
 
-    pub fn serve(b: *std.Build, goku_dep: *std.Build.Dependency, public_path: std.Build.LazyPath) *std.Build.Step.Run {
+    pub fn serve(
+        b: *std.Build,
+        goku_dep: *std.Build.Dependency,
+        public_path: std.Build.LazyPath,
+    ) *std.Build.Step.Run {
         const serve_site = b.addRunArtifact(goku_dep.artifact("serve"));
         serve_site.addDirectoryArg(public_path);
         return serve_site;
@@ -70,7 +79,7 @@ const BuildSteps = struct {
         };
     }
     pub fn deinit(self: @This()) void {
-        inline for (@typeInfo(@This()).Struct.fields) |f| {
+        inline for (@typeInfo(@This()).@"struct".fields) |f| {
             const step = @field(self, f.name);
             debug.assert(step.dependencies.items.len > 0);
         }
@@ -105,8 +114,14 @@ pub fn build(b: *std.Build) void {
         .tracy_no_exit = true,
         .tracy_manual_lifetime = true,
     });
-    const clap = b.dependency("clap", .{ .target = target, .optimize = optimize });
-    const sqlite = b.dependency("sqlite", .{ .target = target, .optimize = optimize });
+    const clap = b.dependency("clap", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const sqlite = b.dependency("sqlite", .{
+        .target = target,
+        .optimize = optimize,
+    });
     const lucide = b.dependency("lucide", .{
         .icons = bundled_lucide_icons,
     });
@@ -292,10 +307,7 @@ pub fn buildCModule(b: *std.Build, opts: anytype) *std.Build.Module {
         // the translate_c step) and addIncludePath (for the C
         // source files) -- is there a way to get them both to
         // look in the same place?
-        // TODO `getPath` is intended to be used during the make
-        // phase only - is there a better way to `addIncludeDir`
-        // when pointing to a dependency path?
-        c.addIncludeDir(yaml_src.path("include").getPath(b));
+        c.addIncludePath(yaml_src.path("include"));
         mod.addIncludePath(wf.getDirectory());
 
         const c_source_files = &.{
@@ -340,10 +352,7 @@ pub fn buildCModule(b: *std.Build, opts: anytype) *std.Build.Module {
         // the translate_c step) and addIncludePath (for the C
         // source files) -- is there a way to get them both to
         // look in the same place?
-        // TODO `getPath` is intended to be used during the make
-        // phase only - is there a better way to `addIncludeDir`
-        // when pointing to a dependency path?
-        c.addIncludeDir(md4c_src.path("src").getPath(b));
+        c.addIncludePath(md4c_src.path("src"));
         mod.addIncludePath(wf.getDirectory());
 
         const c_source_files = &.{
@@ -393,7 +402,7 @@ pub fn buildCModule(b: *std.Build, opts: anytype) *std.Build.Module {
         // TODO `getPath` is intended to be used during the make
         // phase only - is there a better way to `addIncludeDir`
         // when pointing to a dependency path?
-        c.addIncludeDir(mustach_src.path(".").getPath(b));
+        c.addIncludePath(mustach_src.path("."));
         mod.addIncludePath(wf.getDirectory());
 
         const c_source_files = &.{

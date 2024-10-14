@@ -110,10 +110,10 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
         }
 
         fn getFromContextData(self: *Self, key: []const u8) !?[]const u8 {
-            inline for (@typeInfo(@TypeOf(self.context.data)).Struct.fields) |f| {
+            inline for (@typeInfo(@TypeOf(self.context.data)).@"struct".fields) |f| {
                 if (mem.eql(u8, key, f.name)) {
                     switch (@typeInfo(f.type)) {
-                        .Optional => {
+                        .optional => {
                             const value = @field(self.context.data, f.name);
 
                             if (value) |v| {
@@ -122,7 +122,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
 
                             return "";
                         },
-                        .Bool => {
+                        .bool => {
                             return if (@field(self.context.data, f.name)) "true" else "false";
                         },
                         else => {
