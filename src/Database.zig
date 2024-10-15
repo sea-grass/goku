@@ -71,3 +71,6 @@ fn Table(
         }
     };
 }
+
+pub const StatementType = sqlite.StatementType;
+pub const Iterator = sqlite.Iterator;

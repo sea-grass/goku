@@ -13,7 +13,7 @@ A static site generator (SSG) is typically run on some input source to produce a
 
 ## Requirements
 
-- Officially supported Zig: `Zig 0.13.0-dev.351+64ef45eb0` (you can get it from the [Zig Releases page](https://ziglang.org/download/))
+- Officially supported Zig: `0.14.0-dev.1710+8ee52f99c` (you can get it from the [Zig Releases page](https://ziglang.org/download/))
 
 ## Installation
 

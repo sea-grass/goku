@@ -8,7 +8,7 @@ pub fn embedIconZ(comptime name: []const u8) [:0]const u8 {
 }
 
 pub fn icon(name: []const u8) []const u8 {
-    inline for (@typeInfo(icons).Struct.decls) |decl| {
+    inline for (@typeInfo(icons).@"struct".decls) |decl| {
         if (mem.eql(u8, decl.name, name)) {
             return @field(icons, decl.name);
         }

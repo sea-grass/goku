@@ -4,6 +4,68 @@ title: Changelog
 template: page.html
 ---
 
+## 0.0.4
+
+This release updates the officially supported Zig version, adds some features to improve the experience of building and previewing Goku sites, automates some of the work for supporting alternate site roots, and includes some behind-the-scenes changes to support more advanced features and to pave the way for user-defined themes.
+
+### Updated Zig version
+
+The officially supported Zig version is now Zig `0.14.0-dev.1710+8ee52f99c`. You must upgrade to at least this Zig version when you upgrade to Goku 0.0.4.
+
+### Getting started
+
+#### build.zig
+
+Goku now exposes a build-time API. To learn how to use it, check out [Getting Started](/getting-started) in the docs.
+
+Briefly, you can use it in your build.zig like this:
+
+```
+const std = @import("std");
+const Goku = @import("goku").Goku;
+
+pub fn build(b: *std.Build) !void {
+  const target = b.standardTargetOptions(.{});
+  const optimize = b.standardOptimizeOption(.{});
+  const goku_dep = b.dependency("goku", .{ .target = target, .optimize = optimize });
+  
+  const site_source_path = b.path("site");
+  const site_dest_path = b.path("build");
+  
+  const build_site = Goku.build(b, goku_dep, site_source_path, site_dest_path);
+  const build_site_step = b.step("site", "Build the site");
+  build_site_step.dependOn(&build_site.step);
+  
+  const serve_site = Goku.serve(b, goku_dep, site_dest_path);
+  const serve_site_step = b.step("serve", "Serve the site");
+  serve_site_step.dependOn(&build_site.step);
+  serve_site_step.dependOn(&serve_site.step);
+}
+```
+
+### Themes
+
+Goku does not yet support user-defined themes, but some shortcodes (`{{& theme.head}}` and `{{& theme.body}}`) have been added to make the transition to themes smoother once they are supported.
+
+Previously, users had to include `bulma.css` and `htmx.js` to their templates manually. The suggested migration path is to replace these instances with the shortcodes.
+
+### Shortcodes
+
+Some shortcodes were added in this release.
+
+- `{{& theme.head}}` - Render the theme's assets and metadata (typically inside `<head>` in your template)
+- `{{& theme.body}}` - Render the theme's scripts (typically right before the end of `<body>` in your template)
+
+### Site root
+
+This release simplifies the usage of site_root. When rendering markdown pages, Goku now automatically prefixes sitewide urls with the url prefix supplied at build-time.
+
+If your site is hosted at some url path that is not the root (e.g. if your Goku site root is at `http://example.com/blog`) then you needed to do two things: set the url prefix when building your site, and prefix all links in your content with `{{site_root}}`. Now, you don't need to prefix your links in your content at all.
+
+Suggested migration path is to remove `{{site_root}}` from your pages. If your pages only had the `allow_html: true` parameter because of `site_root` usage, you can remove it.
+
+Note that templates still require the usage of `{{site_root}}` (since the automatic insertion of `site_root` only occurs during markdown rendering).
+
 ## 0.0.3
 
 This release includes basic support for collections (a way to group pages in order to link to and search through them), improvements for published sites at subpaths, and some UX improvements at when building a Goku site, in the form of more helpful error messages.

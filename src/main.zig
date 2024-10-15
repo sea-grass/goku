@@ -149,6 +149,7 @@ const BuildCommand = struct {
 
 pub fn main() !void {
     const start = time.milliTimestamp();
+    log.info("mode {s}", .{@tagName(@import("builtin").mode)});
 
     tracy.startupProfiler();
     defer tracy.shutdownProfiler();
@@ -298,9 +299,9 @@ pub fn main() !void {
         var site = Site.init(unlimited_allocator, &db, build.site_root, build.url_prefix);
         defer site.deinit();
 
-        try site.writeSitemap(out_dir);
-        try site.writeAssets(out_dir);
-        try site.writePages(out_dir);
+        try site.write(.sitemap, out_dir);
+        try site.write(.assets, out_dir);
+        try site.write(.pages, out_dir);
     }
 
     log.info("Elapsed: {d}ms", .{time.milliTimestamp() - start});
