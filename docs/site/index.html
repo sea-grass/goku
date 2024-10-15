@@ -63,19 +63,19 @@
 </div>
         <p class="subtitle"></p>
         <section class="content">
-          <p>The source for a Goku website is known as the Site. In short, a Site is a directory that is the common root for Pages and Templates.</p>
-<h2>Quickstart</h2>
-<p>A Goku site may look like this:</p>
-<pre><code>site
+          <p>
+The source for a Goku website is known as the Site. In short, a Site is a directory that is the common root for Pages and Templates.</p><h2>
+Quickstart</h2>
+<p>
+A Goku site may look like this:</p><pre><code>site
 - pages
   - index.md
 - templates
   - basic.html
 
 3 directories, 2 files
-</code></pre>
-<p>Let's create this site by running the following commands:</p>
-<pre><code class="language-shell-session">$ mkdir site
+</code></pre><p>
+Let's create this site by running the following commands:</p><pre><code>$ mkdir site
 
 $ mkdir site/templates
 
@@ -84,14 +84,14 @@ $ cat &gt;site/templates/basic.html &lt;&lt;EOF
 &lt;html&gt;
   &lt;head&gt;
     &lt;title&gt;{{title}}&lt;/title&gt;
-    &lt;link rel=&quot;stylesheet&quot; lang=&quot;text/css&quot; href=&quot;/bulma.css&quot; /&gt;
-    &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+    &lt;link rel="stylesheet" lang="text/css" href="/bulma.css" /&gt;
+    &lt;meta name="viewport" content="width=device-width, initial-scale=1"&gt;
   &lt;/head&gt;
   &lt;body&gt;
-    &lt;div class=&quot;section&quot;&gt;
-      &lt;div class=&quot;container&quot;&gt;
-        &lt;div class=&quot;content&quot;&gt;
-          {{&amp; content}}
+    &lt;div class="section"&gt;
+      &lt;div class="container"&gt;
+        &lt;div class="content"&gt;
+          {{& content}}
         &lt;/div&gt;
       &lt;/div&gt;
     &lt;/div&gt;
@@ -110,18 +110,19 @@ template: basic.html
 
 Hello, world.
 EOF
-</code></pre>
-<p>Let's break down each of these commands.</p>
-<p><code>mkdir site</code> creates the <code>site</code> directory.</p>
-<p><code>mkdir site/templates</code> creates the <code>site/templates</code> directory.</p>
-<p>The line starting with <code>cat &gt;site/templates/basic.html</code> will create the file <code>site/templates/basic.html</code> with the contents between each of the <code>EOF</code> tokens.</p>
-<p><code>mkdir site/pages</code> creates the <code>site/pages</code> directory.</p>
-<p>The line starting with <code>cat &gt;site/pages/index.md</code> will create the file <code>site/pages/index.md</code> with the contents between the EOF tokens.</p>
-<h2>Adding more pages</h2>
-<p>To add more pages to your site, all you need to do is create a <code>.md</code> file somewhere in <code>site/pages</code> with at least the <code>slug</code>, <code>title</code>, and <code>template</code> parameters.</p>
-<h2>Adding more templates</h2>
-<p>Similar to the method to add new pages to your site, you create new templates by placing a <code>.html</code> file in your <code>site/templates</code> folder.</p>
-
+</code></pre><p>
+Let's break down each of these commands.</p><p>
+mkdir site creates the site directory.</p><p>
+mkdir site/templates creates the site/templates directory.</p><p>
+The line starting with cat &gt;site/templates/basic.html will create the file site/templates/basic.html with the contents between each of the EOF tokens.</p><p>
+mkdir site/pages creates the site/pages directory.</p><p>
+The line starting with cat &gt;site/pages/index.md will create the file site/pages/index.md with the contents between the EOF tokens.</p><h2>
+Adding more pages</h2>
+<p>
+To add more pages to your site, all you need to do is create a .md file somewhere in site/pages with at least the slug, title, and template parameters.</p><h2>
+Adding more templates</h2>
+<p>
+Similar to the method to add new pages to your site, you create new templates by placing a .html file in your site/templates folder.</p>
         </section>
       </div>
     </section>

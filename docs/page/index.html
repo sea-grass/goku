@@ -63,45 +63,44 @@
 </div>
         <p class="subtitle"></p>
         <section class="content">
-          <h2>Overview</h2>
-<p>A Page inside Goku looks like this:</p>
-<pre><code>.{
+          <h2>
+Overview</h2>
+<p>
+A Page inside Goku looks like this:</p><pre><code>.{
   .markdown = .{
     // Required
-    .slug = &quot;/&quot;,
-    .content = &quot;Welcome to the home page.&quot;
+    .slug = "/",
+    .content = "Welcome to the home page."
     // Optional
-    .title = &quot;Home page&quot;,
-    .template = &quot;home.html&quot;,
+    .title = "Home page",
+    .template = "home.html",
   },
 }
-</code></pre>
-<p>Goku is able to parse the yaml frontmatter and render the markdown content.</p>
-<p>You can create the same page in your site by creating a file in your site's <code>pages</code> folder:</p>
-<pre><code>---
+</code></pre><p>
+Goku is able to parse the yaml frontmatter and render the markdown content.</p><p>
+You can create the same page in your site by creating a file in your site's pages folder:</p><pre><code>---
 slug: /
 title: Home page
 template: home.html
 ---
 
 Welcome to the home page.
-</code></pre>
-<h2>Simplifying unique pages</h2>
-<p>Goku performs multiple render passes on your content: first, a template render, using mustache rendering, then a markdown render. This way, you can use all of mustache inside of your pages. When pages are unique, there's no need to create a shared template and split the content between page and template:</p>
-<pre><code>---
+</code></pre><h2>
+Simplifying unique pages</h2>
+<p>
+Goku performs multiple render passes on your content: first, a template render, using mustache rendering, then a markdown render. This way, you can use all of mustache inside of your pages. When pages are unique, there's no need to create a shared template and split the content between page and template:</p><pre><code>---
 slug: /
 title: Home page
 ---
 
-&lt;div class=&quot;hero&quot;&gt;
+&lt;div class="hero"&gt;
   {{ title }}
 &lt;/div&gt;
 
 Welcome to the home page.
-</code></pre>
-<blockquote>
-<p>:warning: Note: Goku only supports markdown with yaml frontmatter at this time. As the needs arise, Goku plans to support other page sources as well.</p>
-</blockquote>
+</code></pre><blockquote>
+<p>
+:warning: Note: Goku only supports markdown with yaml frontmatter at this time. As the needs arise, Goku plans to support other page sources as well.</p></blockquote>
 
         </section>
       </div>

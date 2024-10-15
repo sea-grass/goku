@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Getting started</title>
+    <link rel="stylesheet" lang="text/css" href="/goku/bulma.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>a[href^="https://"]::after {
+        content: " [*]";
+      }
+      .navbar-menu {
+        box-shadow: none;
+      }</style>
+  </head>
+  <body>
+    <section class="section">
+      <div class="container">
+        <nav class="navbar mb-4" role="navigation">
+          <div class="navbar-menu is-active">
+            <div class="navbar-start">
+              <a href="/goku/" class="navbar-item">Back home</a>
+            </div>
+            <div class="navbar-end">
+              <a href="/goku/docs" class="navbar-item">Docs</a>
+              <a href="/goku/changelog" class="navbar-item">Changelog</a>
+              <a href="https://github.com/sea-grass/goku" class="navbar-item">Source code</a>
+            </div>
+          </div>
+        </nav>
+      </div>
+      <div class="container" id="content">
+        <h1 class="title">
+          <span class="icon-text"><svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z" />
+  <path d="M10 2c1 .5 2 2 2 5" />
+</svg>
+
+            <span>Getting started</span></span>
+        </h1>
+        <div class="field is-grouped is-grouped-multiline">
+<div class="control">
+<div class="tags has-addons">
+<span class="tag is-white">slug</span>
+<span class="tag is-light">/getting-started</span>
+</div>
+</div>
+
+<div class="control">
+<div class="tags has-addons">
+<span class="tag is-white">title</span>
+<span class="tag is-light">Getting started</span>
+</div>
+</div>
+</div>
+        <p class="subtitle"></p>
+        <section class="content">
+          <p>
+To get started with Goku, you need to be able to run it. This page describes possible project structures and their ideal use cases. Skim this page for your ideal set-up.</p><h2>
+Run Goku with the Zig build system</h2>
+<p>
+Prerequisites: A working Zig compiler (minimum version 0.13.0)</p><ol>
+<li>
+Create a Zig project</li><li>
+Add Goku to your dependencies in build.zig.zon</li><li>
+Create a minimal goku site (pages/index.md and templates/page.html)</li><li>
+Create a run step in your build.zig to use Goku to build your site</li></ol><h3>
+1. Create a Zig project</h3>
+<p>
+You can use zig init to create a Zig project if you wish, but all you really need to do is create minimal build.zig and build.zig.zon files.</p><h3>
+2. Add Goku to your dependencies</h3>
+<p>
+This will allow the Zig build system to locate Goku.</p><h3>
+3. Create a minimal Goku site</h3>
+<p>
+Create these files.</p><h4>
+pages/index.md</h4>
+<p>
+pages/index.md</p><pre><code>---
+slug: /
+template: page.html
+title: Home page
+---
+
+This is the home page.
+</code></pre><h4>
+templates/page.html</h4>
+<p>
+templates/page.html</p><pre><code>&lt;!doctype html&gt;&lt;html&gt;&lt;head&gt;
+&lt;title&gt;{{title}}&lt;/title&gt;
+{{& theme.head}}
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class="container"&gt;
+&lt;div class="section"&gt;
+&lt;div class="title"&gt;{{title}}&lt;/div&gt;
+&lt;div class="content"&gt;{{& content}}&lt;/div&gt;
+{{& theme.body}}
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre><h3>
+4. Create a run step in your build.zig</h3>
+<p>
+Your build.zig should look like this:</p><pre><code>const std = @import("std");
+const Goku = @import("goku").Goku;
+
+pub fn build(b: *std.Build) !void {
+  const target = b.standardTargetOptions(.{});
+  const optimize = b.standardOptimizeOption(.{});
+  const goku_dep = b.dependency("goku", .{ .target = target, .optimize = optimize });
+  
+  const site_source_path = b.path("site");
+  const site_dest_path = b.path("build");
+  
+  const build_site = Goku.build(b, goku_dep, site_source_path, site_dest_path);
+  const build_site_step = b.step("site", "Build the site");
+  build_site_step.dependOn(&build_site.step);
+  
+  const serve_site = Goku.serve(b, goku_dep, site_dest_path);
+  const serve_site_step = b.step("serve", "Serve the site");
+  serve_site_step.dependOn(&build_site.step);
+  serve_site_step.dependOn(&serve_site.step);
+}
+</code></pre><h2>
+Run Goku as a standalone binary</h2>
+<p>
+Binary releases are not currently available. The recommended way of using Goku at this time is by compiling a standalone binary for your machine with Zig.</p><h2>
+Other ways of running Goku</h2>
+<p>
+Thinking of running Goku in some other way not listed here? Share your thoughts in the GitHub Issues in the Goku repo.</p><h2>
+Getting started with Zig</h2>
+
+        </section>
+      </div>
+    </section>
+  </body>
+</html>

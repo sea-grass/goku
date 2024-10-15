@@ -63,26 +63,24 @@
 </div>
         <p class="subtitle"></p>
         <section class="content">
-          <p>You can add pages to a collection in Goku using the <code>collection</code> parameter. You can then make lists of pages using <code>collections.&lt;name&gt;.list</code> and display a link to the latest page in a collection using <code>collections.&lt;name&gt;.latest</code>.</p>
-<h4>Using <code>collections.&lt;name&gt;.list</code></h4>
-<p>Let's say you have a few pages in a collection named &quot;blog&quot; and you want to render a list of blog articles for a navigation. In a template (or a page with <code>allow_html: true</code>, you can generate a list like this:</p>
-<pre><code>{{&amp; collections.blog.list}}
-</code></pre>
-<p>This will result, roughly, in the corresponding HTML:</p>
-<pre><code>&lt;ul&gt;
-&lt;li&gt;&lt;a href=&quot;/blog/foo&quot;&gt;Foo&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;/blog/bar&quot;&gt;Bar&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;/blog/baz&quot;&gt;Baz&lt;/a&gt;&lt;/li&gt;
+          <p>
+You can add pages to a collection in Goku using the collection parameter. You can then make lists of pages using collections.&lt;name&gt;.list and display a link to the latest page in a collection using collections.&lt;name&gt;.latest.</p><h4>
+Using collections.&lt;name&gt;.list</h4>
+<p>
+Let's say you have a few pages in a collection named "blog" and you want to render a list of blog articles for a navigation. In a template (or a page with allow_html: true, you can generate a list like this:</p><pre><code>{{& collections.blog.list}}
+</code></pre><p>
+This will result, roughly, in the corresponding HTML:</p><pre><code>&lt;ul&gt;
+&lt;li&gt;&lt;a href="/blog/foo"&gt;Foo&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href="/blog/bar"&gt;Bar&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href="/blog/baz"&gt;Baz&lt;/a&gt;&lt;/li&gt;
 &lt;/ul&gt;
+</code></pre><h4>
+Using collections.&lt;name&gt;.latest</h4>
+<p>
+Let's say you want to advertise the latest blog article on your home page. You can generate a chunk for the latest blog page, based on its date parameter, like this:</p><pre><code>{{& collections.blog.latest}}
+</code></pre><p>
+This will result in the corresponding HTML:</p><pre><code>&lt;a href="/blog/baz"&gt;Baz&lt;/a&gt;
 </code></pre>
-<h4>Using <code>collections.&lt;name&gt;.latest</code></h4>
-<p>Let's say you want to advertise the latest blog article on your home page. You can generate a chunk for the latest blog page, based on its <code>date</code> parameter, like this:</p>
-<pre><code>{{&amp; collections.blog.latest}}
-</code></pre>
-<p>This will result in the corresponding HTML:</p>
-<pre><code>&lt;a href=&quot;/blog/baz&quot;&gt;Baz&lt;/a&gt;
-</code></pre>
-
         </section>
       </div>
     </section>
