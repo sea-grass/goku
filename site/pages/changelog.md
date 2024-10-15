@@ -4,7 +4,13 @@ title: Changelog
 template: page.html
 ---
 
-## 0.0.4 (in-progress)
+## 0.0.4
+
+This release updates the officially supported Zig version, adds some features to improve the experience of building and previewing Goku sites, automates some of the work for supporting alternate site roots, and includes some behind-the-scenes changes to support more advanced features and to pave the way for user-defined themes.
+
+### Updated Zig version
+
+The officially supported Zig version is now Zig `0.14.0-dev.1710+8ee52f99c`. You must upgrade to at least this Zig version when you upgrade to Goku 0.0.4.
 
 ### Getting started
 
@@ -19,7 +25,10 @@ const std = @import("std");
 const Goku = @import("goku").Goku;
 
 pub fn build(b: *std.Build) !void {
-  // ...
+  const target = b.standardTargetOptions(.{});
+  const optimize = b.standardOptimizeOption(.{});
+  const goku_dep = b.dependency("goku", .{ .target = target, .optimize = optimize });
+  
   const site_source_path = b.path("site");
   const site_dest_path = b.path("build");
   
@@ -55,7 +64,7 @@ If your site is hosted at some url path that is not the root (e.g. if your Goku 
 
 Suggested migration path is to remove `{{site_root}}` from your pages. If your pages only had the `allow_html: true` parameter because of `site_root` usage, you can remove it.
 
-Note that templates still require the usage of `{{site_root}}`.
+Note that templates still require the usage of `{{site_root}}` (since the automatic insertion of `site_root` only occurs during markdown rendering).
 
 ## 0.0.3
 

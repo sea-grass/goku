@@ -67,22 +67,24 @@ Your build.zig should look like this:
 
 ```
 const std = @import("std");
+const Goku = @import("goku").Goku;
 
 pub fn build(b: *std.Build) !void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
-    const goku = b.dependency("goku", .{ .target = target, .optimize = optimize });
-
-    const run_goku = b.addRunArtifact(goku.artifact("goku"));
-    run_goku.addDirectoryArg(b.path("."));
-    run_goku.addArg("-o");
-    run_goku.addDirectoryArg(b.path("build"));
-
-    const site_step = b.step(
-        "site",
-        "Build the site with Goku",
-    );
-    site_step.dependOn(&run_goku.step);
+  const target = b.standardTargetOptions(.{});
+  const optimize = b.standardOptimizeOption(.{});
+  const goku_dep = b.dependency("goku", .{ .target = target, .optimize = optimize });
+  
+  const site_source_path = b.path("site");
+  const site_dest_path = b.path("build");
+  
+  const build_site = Goku.build(b, goku_dep, site_source_path, site_dest_path);
+  const build_site_step = b.step("site", "Build the site");
+  build_site_step.dependOn(&build_site.step);
+  
+  const serve_site = Goku.serve(b, goku_dep, site_dest_path);
+  const serve_site_step = b.step("serve", "Serve the site");
+  serve_site_step.dependOn(&build_site.step);
+  serve_site_step.dependOn(&serve_site.step);
 }
 ```
 
