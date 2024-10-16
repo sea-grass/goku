@@ -7,7 +7,7 @@ const log = std.log.scoped(.goku);
 const mem = std.mem;
 const page = @import("page.zig");
 const process = std.process;
-const source = @import("source.zig");
+const filesystem = @import("source/filesystem.zig");
 const std = @import("std");
 const time = std.time;
 const tracy = @import("tracy");
@@ -206,7 +206,7 @@ pub fn main() !void {
     var page_count: u32 = 0;
 
     {
-        var page_it = source.filesystem.walker(build.site_root, "pages");
+        var page_it = filesystem.walker(build.site_root, "pages");
         while (try page_it.next()) |entry| {
             const zone = tracy.initZone(@src(), .{ .name = "Load Page from File" });
             defer zone.deinit();
@@ -255,7 +255,7 @@ pub fn main() !void {
     var template_count: u32 = 0;
 
     {
-        var template_it = source.filesystem.walker(build.site_root, "templates");
+        var template_it = filesystem.walker(build.site_root, "templates");
         while (try template_it.next()) |entry| {
             const zone = tracy.initZone(@src(), .{ .name = "Scan for template files" });
             defer zone.deinit();
@@ -309,9 +309,4 @@ pub fn main() !void {
     // const assets_dir = try root_dir.openDir("assets");
     // const partials_dir = try root_dir.openDir("partials");
     // const themes_dir = try root_dir.openDir("themes");
-}
-
-test {
-    _ = @import("page.zig");
-    _ = @import("source.zig");
 }
