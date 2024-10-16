@@ -39,6 +39,7 @@ const bundled_lucide_icons = @as([]const []const u8, &.{
 
 const BuildSteps = struct {
     check: *std.Build.Step,
+    coverage: *std.Build.Step,
     generate_benchmark_site: *std.Build.Step,
     run: *std.Build.Step,
     run_benchmark: *std.Build.Step,
@@ -51,6 +52,10 @@ const BuildSteps = struct {
             .check = b.step(
                 "check",
                 "Check the Zig code",
+            ),
+            .coverage = b.step(
+                "coverage",
+                "Analyze code coverage",
             ),
             .generate_benchmark_site = b.step(
                 "generate-benchmark",
@@ -185,6 +190,17 @@ pub fn build(b: *std.Build) void {
     }
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
     build_steps.@"test".dependOn(&run_exe_unit_tests.step);
+
+    const run_coverage = b.addSystemCommand(&.{
+        "kcov",
+        "--clean",
+        "--include-pattern=src/",
+        "--exclude-pattern=.cache/zig/",
+        // todo use b.path
+        "kcov-output/",
+    });
+    run_coverage.addArtifactArg(exe_unit_tests);
+    build_steps.coverage.dependOn(&run_coverage.step);
 
     const exe_check = b.addExecutable(.{
         .name = "goku",
