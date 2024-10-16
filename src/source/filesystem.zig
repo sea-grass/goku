@@ -170,3 +170,7 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
         }
     };
 }
+
+test {
+    testing.refAllDecls(@This());
+}

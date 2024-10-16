@@ -1,6 +1,8 @@
 const debug = std.debug;
 const std = @import("std");
 
+const compile_graphviz = false;
+
 // The public, build-time API for goku.
 pub const Goku = struct {
     pub fn build(
@@ -138,6 +140,7 @@ pub fn build(b: *std.Build) void {
         .yaml = b.dependency("yaml-src", .{}),
         .md4c = b.dependency("md4c-src", .{}),
         .mustach = b.dependency("mustach-src", .{}),
+        .graphviz = b.dependency("graphviz-src", .{}),
         .target = target,
         .optimize = optimize,
     });
@@ -272,6 +275,7 @@ pub fn buildCModule(b: *std.Build, opts: anytype) *std.Build.Module {
     const yaml_src = opts.yaml;
     const md4c_src = opts.md4c;
     const mustach_src = opts.mustach;
+    const graphviz_src = opts.graphviz;
     const target = opts.target;
     const optimize = opts.optimize;
 
@@ -281,7 +285,10 @@ pub fn buildCModule(b: *std.Build, opts: anytype) *std.Build.Module {
             \\#include <yaml.h>
             \\#include <md4c-html.h>
             \\#include <mustach.h>
-            ,
+            ++ if (compile_graphviz)
+                \\#include <gvc/gvc.h>
+            else
+                "",
         ),
         .target = target,
         .optimize = optimize,
@@ -431,6 +438,140 @@ pub fn buildCModule(b: *std.Build, opts: anytype) *std.Build.Module {
         inline for (c_source_files) |filename| {
             _ = wf.addCopyFile(
                 mustach_src.path(filename),
+                filename,
+            );
+        }
+
+        mod.addCSourceFiles(.{
+            .root = wf.getDirectory(),
+            .files = c_source_files,
+            .flags = &.{},
+        });
+    }
+
+    if (compile_graphviz) {
+        const wf = b.addWriteFiles();
+        c.step.dependOn(&wf.step);
+
+        inline for (&.{
+            "gvc/gvc.h",
+            "common/const.h",
+            "gvc/gvcjob.h",
+            "gvc/gvcint.h",
+            "gvc/gvcproc.h",
+            "gvc/gvconfig.h",
+            "gvc/gvio.h",
+            "cgraph/agxbuf.h",
+            "util/alloc.h",
+            "util/exit.h",
+            "util/prisize_t.h",
+            "cgraph/gv_ctype.h",
+            "cgraph/list.h",
+            "util/gv_fopen.h",
+            "util/startswith.h",
+            "common/types.h",
+            "gvc/gvplugin.h",
+            "cgraph/cghdr.h",
+            "util/streq.h",
+            "util/unreachable.h",
+            "cgraph/node_set.h",
+            "cgraph/cgraph.h",
+        }) |filename| {
+            _ = wf.addCopyFile(
+                graphviz_src.path("lib/" ++ filename),
+                filename,
+            );
+        }
+        inline for (&.{
+            "gvc.h",
+            "gvcext.h",
+            "gvplugin.h",
+            "gvcommon.h",
+        }) |filename| {
+            _ = wf.addCopyFile(
+                graphviz_src.path("lib/gvc/" ++ filename),
+                filename,
+            );
+        }
+
+        inline for (&.{
+            "types.h",
+            "geom.h",
+            "arith.h",
+            "textspan.h",
+            "usershape.h",
+            "color.h",
+        }) |filename| {
+            _ = wf.addCopyFile(
+                graphviz_src.path("lib/common/" ++ filename),
+                filename,
+            );
+        }
+
+        inline for (&.{
+            "pathgeom.h",
+        }) |filename| {
+            _ = wf.addCopyFile(
+                graphviz_src.path("lib/pathplan/" ++ filename),
+                filename,
+            );
+        }
+
+        // TODO cgraph.h is included via both:
+        // #include <cgraph/cgraph.h>
+        // and
+        // #include "cgraph.h"
+        // I guess the header file doesn't have an adequate guard,
+        // because I'm getting redefinition errors with my current
+        // way of including header files (adding them to multiple
+        // lookup locations). Seems like I'll need to revisit my
+        // approach in order to successfully compile graphviz.
+        inline for (&.{
+            //"cgraph.h",
+        }) |filename| {
+            _ = wf.addCopyFile(
+                graphviz_src.path("lib/cgraph/" ++ filename),
+                filename,
+            );
+        }
+
+        inline for (&.{
+            "cdt.h",
+        }) |filename| {
+            _ = wf.addCopyFile(
+                graphviz_src.path("lib/cdt/" ++ filename),
+                filename,
+            );
+        }
+
+        // TODO Not sure why I have to do both addIncludeDir (for
+        // the translate_c step) and addIncludePath (for the C
+        // source files) -- is there a way to get them both to
+        // look in the same place?
+        // TODO `getPath` is intended to be used during the make
+        // phase only - is there a better way to `addIncludeDir`
+        // when pointing to a dependency path?
+        inline for (&.{
+            "lib",
+            "lib/common",
+            "lib/gvc",
+            "lib/pathplan",
+            "lib/cgraph",
+            "lib/cdt",
+        }) |include_path| {
+            c.addIncludePath(graphviz_src.path(include_path));
+        }
+        mod.addIncludePath(wf.getDirectory());
+
+        const c_source_files = &.{
+            "gvc/gvc.c",
+            "gvc/gvconfig.c",
+            "cgraph/attr.c",
+            "cgraph/graph.c",
+        };
+        inline for (c_source_files) |filename| {
+            _ = wf.addCopyFile(
+                graphviz_src.path("lib/" ++ filename),
                 filename,
             );
         }
