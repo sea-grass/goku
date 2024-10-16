@@ -6,7 +6,9 @@ template: page.html
 
 ## 0.0.5 (in progress)
 
-- Live reload support
+- Goku live preview with Zap and Web sockets - Live edit your Goku site on your local machine
+- Generate code coverage for tests
+- Generate a site graph using graphviz
 
 ## 0.0.4
 
