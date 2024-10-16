@@ -49,6 +49,19 @@ const html_sitemap_item_size_max = (sitemap_item_surround.len +
     http_uri_len_max +
     sitemap_url_title_len_max);
 
+const get_pages = .{
+    .stmt =
+    \\SELECT slug, title FROM pages;
+    ,
+    .type = struct { slug: []const u8, title: []const u8 },
+};
+const get_pages2 = .{
+    .stmt =
+    \\SELECT slug, filepath FROM pages;
+    ,
+    .type = struct { slug: []const u8, filepath: []const u8 },
+};
+
 pub fn init(
     allocator: mem.Allocator,
     database: *Database,
@@ -95,15 +108,11 @@ fn writeSitemap(self: Site, out_dir: fs.Dir) !void {
     try file_buf.writer().writeAll(html_sitemap_preamble);
 
     {
-        const get_pages =
-            \\SELECT slug, title FROM pages;
-        ;
-
-        var get_stmt = try self.db.db.prepare(get_pages);
+        var get_stmt = try self.db.db.prepare(get_pages.stmt);
         defer get_stmt.deinit();
 
         var it = try get_stmt.iterator(
-            struct { slug: []const u8, title: []const u8 },
+            get_pages.type,
             .{},
         );
 
@@ -154,43 +163,39 @@ fn writeAssets(out_dir: fs.Dir) !void {
     }
 }
 
-fn WritePagesIterator(comptime query: []const u8, comptime T: type) type {
-    return struct {
-        arena: heap.ArenaAllocator,
-        stmt: Database.StatementType(.{}, query),
-        it: Database.Iterator(T),
+const WritePagesIterator = struct {
+    arena: heap.ArenaAllocator,
+    stmt: Database.StatementType(.{}, get_pages2.stmt),
+    it: Database.Iterator(get_pages2.type),
 
-        const Self = @This();
+    pub fn init(ally: mem.Allocator, db: *Database) !WritePagesIterator {
+        var stmt = try db.db.prepare(get_pages2.stmt);
+        errdefer stmt.deinit();
 
-        pub fn init(ally: mem.Allocator, db: *Database) !Self {
-            var stmt = try db.db.prepare(query);
-            errdefer stmt.deinit();
+        const it = try stmt.iterator(get_pages2.type, .{});
 
-            const it = try stmt.iterator(T, .{});
+        var arena = heap.ArenaAllocator.init(ally);
+        errdefer arena.deinit();
 
-            var arena = heap.ArenaAllocator.init(ally);
-            errdefer arena.deinit();
+        return .{
+            .arena = arena,
+            .stmt = stmt,
+            .it = it,
+        };
+    }
 
-            return .{
-                .arena = arena,
-                .stmt = stmt,
-                .it = it,
-            };
-        }
+    pub fn deinit(self: *WritePagesIterator) void {
+        self.arena.deinit();
+        self.stmt.deinit();
+    }
 
-        pub fn deinit(self: *Self) void {
-            self.arena.deinit();
-            self.stmt.deinit();
-        }
-
-        pub fn next(self: *Self) !?T {
-            return try self.it.nextAlloc(
-                self.arena.allocator(),
-                .{},
-            );
-        }
-    };
-}
+    pub fn next(self: *WritePagesIterator) !?get_pages2.type {
+        return try self.it.nextAlloc(
+            self.arena.allocator(),
+            .{},
+        );
+    }
+};
 
 fn writePages(self: Site, out_dir: fs.Dir) !void {
     // We create an arena allocator for processing the pages. To avoid
@@ -202,13 +207,7 @@ fn writePages(self: Site, out_dir: fs.Dir) !void {
     );
     defer page_buf_allocator.deinit();
 
-    const get_pages =
-        \\SELECT slug, filepath FROM pages;
-    ;
-    var it = try WritePagesIterator(
-        get_pages,
-        struct { slug: []const u8, filepath: []const u8 },
-    ).init(
+    var it = try WritePagesIterator.init(
         self.allocator,
         self.db,
     );
