@@ -4,6 +4,10 @@ title: Changelog
 template: page.html
 ---
 
+## 0.0.5 (in progress)
+
+- Live reload support
+
 ## 0.0.4
 
 This release updates the officially supported Zig version, adds some features to improve the experience of building and previewing Goku sites, automates some of the work for supporting alternate site roots, and includes some behind-the-scenes changes to support more advanced features and to pave the way for user-defined themes.

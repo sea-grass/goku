@@ -7,6 +7,8 @@ const fmt = std.fmt;
 const heap = std.heap;
 const debug = std.debug;
 
+const enable_websocket = false;
+
 // Assumes that the `public_folder_path` points to a Goku site with a generated sitemap.html.
 // Returns memory owned by the caller (that the caller must free)
 fn readSitemap(allocator: mem.Allocator, public_folder_path: []const u8) ![]const u8 {
@@ -42,6 +44,7 @@ pub fn main() !void {
     var listener = zap.HttpListener.init(.{
         .port = 3000,
         .on_request = onRequest,
+        .on_upgrade = if (enable_websocket) onUpgrade else null,
         .log = true,
         .max_clients = 10,
         .max_body_size = 1 * 1024, // careful here  HUH ????
@@ -69,9 +72,34 @@ fn onRequest(r: zap.Request) void {
     };
 }
 
+fn onUpgrade(r: zap.Request, target_protocol: []const u8) void {
+    if (!mem.eql(u8, target_protocol, "websocket")) {
+        log.warn("Received illegal protocol: {s}", .{target_protocol});
+        r.setStatus(.bad_request);
+        r.sendBody("400 Bad Request") catch @panic("Failed to send 400 response");
+        return;
+    }
+
+    // I don't want to use a global variable, but they have it in their example
+    // I think I'll need to make this an endpoint.
+}
+
+fn handle(r: zap.Request) !void {
+    // TODO websocket feature check will be via a runtime arg
+    if (comptime enable_websocket and mem.eql(u8, r.path.?, "/ws")) {
+        try handleWebsocket(r);
+    } else {
+        try handleFallback(r);
+    }
+}
+
+fn handleWebsocket(r: zap.Request) !void {
+    _ = r;
+}
+
 // Zap will fall back to this handler if it does not find a matching file in the public folder
 // This handler will try to redirect requests for directories to their index.html file, if possible.
-fn handle(r: zap.Request) error{ NotFound, Foobie, MalformedRequestPath }!void {
+fn handleFallback(r: zap.Request) error{ NotFound, Foobie, MalformedRequestPath }!void {
     const path = r.path.?;
 
     var it = mem.splitBackwardsScalar(u8, path, '/');
