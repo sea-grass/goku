@@ -231,6 +231,7 @@ fn writePages(self: Site, out_dir: fs.Dir) !void {
     }
 }
 
+// TODO actual needs don't reflect this initial design. Simplify.
 pub const TemplateOption = union(enum) {
     this: void,
     bytes: []const u8,

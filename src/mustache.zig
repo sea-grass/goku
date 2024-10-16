@@ -169,7 +169,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                     defer list_buf.deinit();
 
                     const get_pages =
-                        \\SELECT slug, title FROM pages WHERE collection = ?
+                        \\SELECT slug, date, title FROM pages WHERE collection = ?
                         \\ORDER BY date DESC, title ASC
                     ;
 
@@ -177,7 +177,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                     defer get_stmt.deinit();
 
                     var it = try get_stmt.iterator(
-                        struct { slug: []const u8, title: []const u8 },
+                        struct { slug: []const u8, date: []const u8, title: []const u8 },
                         .{
                             .collection = collection,
                         },
@@ -191,9 +191,14 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                     var num_items: u32 = 0;
                     while (try it.nextAlloc(arena.allocator(), .{})) |entry| {
                         try list_buf.writer().print(
-                            \\<li><a href="{s}{s}">{s}</a></li>
+                            \\<li><a href="{[site_root]s}{[slug]s}">{[date]s} {[title]s}</a></li>
                         ,
-                            .{ ctx.context.site_root, entry.slug, entry.title },
+                            .{
+                                .site_root = ctx.context.site_root,
+                                .slug = entry.slug,
+                                .date = entry.date,
+                                .title = entry.title,
+                            },
                         );
 
                         num_items += 1;
