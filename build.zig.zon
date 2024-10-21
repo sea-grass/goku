@@ -28,9 +28,8 @@
         .md4c = .{
             .path = "./md4c",
         },
-        .@"mustach-src" = .{
-            .url = "git+https://github.com/RekGRpth/mustach#e3f0939421d2aeb0cd5a1990eb2c4cc710c69741",
-            .hash = "1220945b7e8dcfa9859a49a4260e0921f3c55ebbc154e4b823343b351c0bcdafc136",
+        .mustach = .{
+            .path = "./mustach",
         },
         .sqlite = .{
             .url = "git+https://github.com/vrischmann/zig-sqlite#7d50331972777727d0a22f5e4a51e8a06c410bad",

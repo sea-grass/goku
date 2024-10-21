@@ -139,7 +139,7 @@ pub fn build(b: *std.Build) void {
     const c_mod = buildCModule(b, .{
         .yaml = b.dependency("yaml-src", .{}),
         .md4c = b.dependency("md4c", .{}),
-        .mustach = b.dependency("mustach-src", .{}),
+        .mustach = b.dependency("mustach", .{}),
         .graphviz = b.dependency("graphviz-src", .{}),
         .target = target,
         .optimize = optimize,
@@ -282,7 +282,7 @@ const BuildCModuleOptions = struct {
 pub fn buildCModule(b: *std.Build, opts: BuildCModuleOptions) *std.Build.Module {
     const yaml_src = opts.yaml;
     const md4c = opts.md4c;
-    const mustach_src = opts.mustach;
+    const mustach = opts.mustach;
     const graphviz_src = opts.graphviz;
     const target = opts.target;
     const optimize = opts.optimize;
@@ -307,6 +307,9 @@ pub fn buildCModule(b: *std.Build, opts: BuildCModuleOptions) *std.Build.Module 
 
     c.addIncludePath(md4c.artifact("md4c").getEmittedIncludeTree());
     mod.linkLibrary(md4c.artifact("md4c"));
+
+    c.addIncludePath(mustach.artifact("mustach").getEmittedIncludeTree());
+    mod.linkLibrary(mustach.artifact("mustach"));
 
     {
         const wf = b.addWriteFiles();
@@ -364,54 +367,6 @@ pub fn buildCModule(b: *std.Build, opts: BuildCModuleOptions) *std.Build.Module 
                 "-std=gnu99",
                 "-DHAVE_CONFIG_H",
             },
-        });
-    }
-
-    {
-        const wf = b.addWriteFiles();
-        c.step.dependOn(&wf.step);
-
-        inline for (&.{
-            "mustach.h",
-            "mustach2.h",
-            "mini-mustach.h",
-            "mustach-helpers.h",
-            "mustach-wrap.h",
-        }) |filename| {
-            _ = wf.addCopyFile(
-                mustach_src.path(filename),
-                filename,
-            );
-        }
-
-        // TODO Not sure why I have to do both addIncludeDir (for
-        // the translate_c step) and addIncludePath (for the C
-        // source files) -- is there a way to get them both to
-        // look in the same place?
-        // TODO `getPath` is intended to be used during the make
-        // phase only - is there a better way to `addIncludeDir`
-        // when pointing to a dependency path?
-        c.addIncludePath(mustach_src.path("."));
-        mod.addIncludePath(wf.getDirectory());
-
-        const c_source_files = &.{
-            "mustach.c",
-            "mustach2.c",
-            "mini-mustach.c",
-            "mustach-helpers.c",
-            "mustach-wrap.c",
-        };
-        inline for (c_source_files) |filename| {
-            _ = wf.addCopyFile(
-                mustach_src.path(filename),
-                filename,
-            );
-        }
-
-        mod.addCSourceFiles(.{
-            .root = wf.getDirectory(),
-            .files = c_source_files,
-            .flags = &.{},
         });
     }
 
