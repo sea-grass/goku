@@ -1,0 +1,17 @@
+.{
+    .name = "md4c",
+
+    .version = "0.5.2",
+
+    .dependencies = .{
+        .upstream = .{
+            .url = "https://github.com/yaml/libyaml/archive/2c891fc7a770e8ba2fec34fc6b545c672beb37e6.tar.gz",
+            .hash = "12200c4021cb16ecdf8d3707098ff694e140c9f92cbd76bb1f30cba84965eab34db6",
+        },
+    },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+    },
+}

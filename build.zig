@@ -137,7 +137,7 @@ pub fn build(b: *std.Build) void {
     const zap = b.dependency("zap", .{ .target = target, .optimize = optimize });
 
     const c_mod = buildCModule(b, .{
-        .yaml = b.dependency("yaml-src", .{}),
+        .yaml = b.dependency("yaml", .{}),
         .md4c = b.dependency("md4c", .{}),
         .mustach = b.dependency("mustach", .{}),
         .graphviz = b.dependency("graphviz-src", .{}),
@@ -280,7 +280,7 @@ const BuildCModuleOptions = struct {
     optimize: std.builtin.OptimizeMode,
 };
 pub fn buildCModule(b: *std.Build, opts: BuildCModuleOptions) *std.Build.Module {
-    const yaml_src = opts.yaml;
+    const yaml = opts.yaml;
     const md4c = opts.md4c;
     const mustach = opts.mustach;
     const graphviz_src = opts.graphviz;
@@ -311,64 +311,8 @@ pub fn buildCModule(b: *std.Build, opts: BuildCModuleOptions) *std.Build.Module 
     c.addIncludePath(mustach.artifact("mustach").getEmittedIncludeTree());
     mod.linkLibrary(mustach.artifact("mustach"));
 
-    {
-        const wf = b.addWriteFiles();
-        c.step.dependOn(&wf.step);
-
-        _ = wf.add(
-            "config.h",
-            \\#define YAML_VERSION_STRING "0.2.5"
-            \\#define YAML_VERSION_MAJOR 0
-            \\#define YAML_VERSION_MINOR 2
-            \\#define YAML_VERSION_PATCH 5
-            ,
-        );
-        inline for (&.{
-            "yaml.h",
-        }) |filename| {
-            _ = wf.addCopyFile(
-                yaml_src.path("include/" ++ filename),
-                filename,
-            );
-        }
-        inline for (&.{
-            "yaml_private.h",
-        }) |filename| {
-            _ = wf.addCopyFile(
-                yaml_src.path("src/" ++ filename),
-                filename,
-            );
-        }
-
-        // TODO Not sure why I have to do both addIncludeDir (for
-        // the translate_c step) and addIncludePath (for the C
-        // source files) -- is there a way to get them both to
-        // look in the same place?
-        c.addIncludePath(yaml_src.path("include"));
-        mod.addIncludePath(wf.getDirectory());
-
-        const c_source_files = &.{
-            "parser.c",
-            "scanner.c",
-            "reader.c",
-            "api.c",
-        };
-        inline for (c_source_files) |filename| {
-            _ = wf.addCopyFile(
-                yaml_src.path("src/" ++ filename),
-                filename,
-            );
-        }
-
-        mod.addCSourceFiles(.{
-            .root = wf.getDirectory(),
-            .files = c_source_files,
-            .flags = &.{
-                "-std=gnu99",
-                "-DHAVE_CONFIG_H",
-            },
-        });
-    }
+    c.addIncludePath(yaml.artifact("yaml").getEmittedIncludeTree());
+    mod.linkLibrary(yaml.artifact("yaml"));
 
     if (compile_graphviz) {
         const wf = b.addWriteFiles();

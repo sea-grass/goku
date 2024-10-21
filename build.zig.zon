@@ -8,10 +8,6 @@
             .url = "git+https://github.com/Hejsil/zig-clap#e9207ad2b86131fa9f0dfbd5c68cafd67f00fe64",
             .hash = "1220cb2f28680ef73c1020bfd8c7b08de38821b0bc19b5469f60dcf813f1d8455dbd",
         },
-        .@"yaml-src" = .{
-            .url = "https://github.com/yaml/libyaml/archive/2c891fc7a770e8ba2fec34fc6b545c672beb37e6.tar.gz",
-            .hash = "12200c4021cb16ecdf8d3707098ff694e140c9f92cbd76bb1f30cba84965eab34db6",
-        },
         .bulma = .{
             .path = "./bulma",
         },
@@ -40,6 +36,9 @@
             .url = "https://github.com/kcbanner/zig-tracy/archive/40ad7b4c7976dcd94b2f3a89470b2e84d42b7b8c.tar.gz",
             .hash = "1220847a8e1395c15ac39e200227a1f102c5a93be2ef12528d4ff97dd79ce164906a",
             //.path = "../zig-tracy",
+        },
+        .yaml = .{
+            .path = "./yaml",
         },
         .zap = .{
             .url = "git+https://github.com/zigzap/zap#29b923f96ee09d855b603866d2e149d506f72679",
