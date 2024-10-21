@@ -62,6 +62,9 @@ const get_pages2 = .{
     .type = struct { slug: []const u8, filepath: []const u8 },
 };
 
+const fallback_template =
+    "<!-- Missing template in page frontmatter -->{{& content }}";
+
 pub fn init(
     allocator: mem.Allocator,
     database: *Database,
@@ -197,29 +200,39 @@ const WritePagesIterator = struct {
     }
 };
 
+// I need to come up for a name for the following allocation strategy.
+// allocator (provided out-of-scope) ->
+//  arena allocator (lifetime only for current scope) ->
+//      arena allocator (lifetime per iteration)
+// The idea is that each iteration will take about the same amount of memory.
+// Maybe something like:
+// allocator (lifetime beyond this scope) ->
+//  buf (lifetime for current scope) ->
+//      chunk (lifetime per iteration)
+// Using the language that we retain a buffer via the allocator and then
+// rent out a chunk to each iteration?
 fn writePages(self: Site, out_dir: fs.Dir) !void {
-    // We create an arena allocator for processing the pages. To avoid
-    // allocating/freeing memory at the start/end of each page render,
-    // we let the memory grow according to the maximum needs of a page
-    // and keep it around until we're done rendering.
-    var page_buf_allocator = heap.ArenaAllocator.init(
-        self.allocator,
-    );
-    defer page_buf_allocator.deinit();
-
     var it = try WritePagesIterator.init(
         self.allocator,
         self.db,
     );
     defer it.deinit();
 
+    var buf = heap.ArenaAllocator.init(self.allocator);
+    defer buf.deinit();
+
     while (try it.next()) |entry| {
-        var arena = heap.ArenaAllocator.init(
-            page_buf_allocator.allocator(),
+        const zone = tracy.initZone(
+            @src(),
+            .{ .name = "Render Page Loop" },
         );
-        defer arena.deinit();
+        defer zone.deinit();
+
+        var chunk = heap.ArenaAllocator.init(buf.allocator());
+        defer chunk.deinit();
+
         try _render(
-            &arena,
+            chunk.allocator(),
             self.db,
             self.url_prefix,
             self.site_root,
@@ -230,11 +243,129 @@ fn writePages(self: Site, out_dir: fs.Dir) !void {
     }
 }
 
+// Assumes that the provided allocator is an arena.
+// Reads the page and its associated template from the filesystem
+// and writes the rendered page to a file in the out_dir.
+fn _render(
+    ally: mem.Allocator,
+    db: *Database,
+    url_prefix: ?[]const u8,
+    site_root: []const u8,
+    filepath: []const u8,
+    slug: []const u8,
+    out_dir: fs.Dir,
+) !void {
+    // Read the file contents
+    const contents = contents: {
+        const in_file = try fs.openFileAbsolute(
+            filepath,
+            .{},
+        );
+        defer in_file.close();
+
+        break :contents try in_file.readToEndAlloc(
+            ally,
+            math.maxInt(u32),
+        );
+    };
+
+    // Parse the Page metadata
+    const result = page.CodeFence.parse(contents) orelse
+        return error.MalformedPageFile;
+
+    const p: page.Page = .{
+        .markdown = .{
+            .frontmatter = result.within,
+            .content = result.after,
+        },
+    };
+
+    const data = try p.data(ally);
+
+    // Create the out file
+    const file = file: {
+        var filename_buf = std.ArrayList(u8).init(ally);
+        defer filename_buf.deinit();
+
+        // TODO the function accepts slug as an argument but we'll also have
+        // the slug after parsing the page metadata out. Is it redundant to
+        // accept the slug as a function argument?
+        debug.assert(slug.len > 0);
+        debug.assert(slug[0] == '/');
+        if (slug.len > 1) {
+            debug.assert(!mem.endsWith(u8, slug, "/"));
+            try filename_buf.appendSlice(slug);
+        }
+        try filename_buf.appendSlice("/index.html");
+
+        make_parent: {
+            if (fs.path.dirname(filename_buf.items)) |parent| {
+                debug.assert(parent[0] == '/');
+                if (parent.len == 1) break :make_parent;
+
+                var dir = try out_dir.makeOpenPath(
+                    parent[1..],
+                    .{},
+                );
+                defer dir.close();
+                break :file try dir.createFile(
+                    fs.path.basename(filename_buf.items),
+                    .{},
+                );
+            }
+        }
+
+        break :file try out_dir.createFile(
+            fs.path.basename(filename_buf.items),
+            .{},
+        );
+    };
+    defer file.close();
+
+    var html_buffer = io.bufferedWriter(file.writer());
+
+    // Load the template from the filesystem
+    const template = template: {
+        if (data.template) |t| {
+            const template_path = try fs.path.join(
+                ally,
+                &.{ site_root, "templates", t },
+            );
+
+            var template_file = try fs.openFileAbsolute(
+                template_path,
+                .{},
+            );
+            defer template_file.close();
+
+            const template = try template_file.readToEndAlloc(
+                ally,
+                math.maxInt(u32),
+            );
+            break :template template;
+        }
+
+        break :template fallback_template;
+    };
+
+    try renderPage(
+        ally,
+        p,
+        .{ .bytes = template },
+        db,
+        url_prefix,
+        html_buffer.writer(),
+    );
+
+    try html_buffer.flush();
+}
+
 // TODO actual needs don't reflect this initial design. Simplify.
 pub const TemplateOption = union(enum) {
     this: void,
     bytes: []const u8,
 };
+
 // Write `page` as an html document to the `writer`.
 fn renderPage(
     allocator: mem.Allocator,
@@ -290,116 +421,4 @@ fn renderPage(
         },
         writer,
     );
-}
-
-fn _render(
-    arena: *heap.ArenaAllocator,
-    db: *Database,
-    url_prefix: ?[]const u8,
-    site_root: []const u8,
-    filepath: []const u8,
-    slug: []const u8,
-    out_dir: fs.Dir,
-) !void {
-    const zone = tracy.initZone(
-        @src(),
-        .{ .name = "Render Page Loop" },
-    );
-    defer zone.deinit();
-
-    const in_file = try fs.openFileAbsolute(
-        filepath,
-        .{},
-    );
-    defer in_file.close();
-
-    const contents = try in_file.readToEndAlloc(
-        arena.allocator(),
-        math.maxInt(u32),
-    );
-
-    const result = page.CodeFence.parse(contents) orelse
-        return error.MalformedPageFile;
-
-    var file_name_buffer: [fs.MAX_NAME_BYTES]u8 = undefined;
-    var file_name_fba = heap.FixedBufferAllocator.init(
-        &file_name_buffer,
-    );
-    var file_name_buf = std.ArrayList(u8).init(
-        file_name_fba.allocator(),
-    );
-
-    debug.assert(slug.len > 0);
-    debug.assert(slug[0] == '/');
-    if (slug.len > 1) {
-        debug.assert(!mem.endsWith(u8, slug, "/"));
-        try file_name_buf.appendSlice(slug);
-    }
-    try file_name_buf.appendSlice("/index.html");
-
-    const file = file: {
-        make_parent: {
-            if (fs.path.dirname(file_name_buf.items)) |parent| {
-                debug.assert(parent[0] == '/');
-                if (parent.len == 1) break :make_parent;
-
-                var dir = try out_dir.makeOpenPath(
-                    parent[1..],
-                    .{},
-                );
-                defer dir.close();
-                break :file try dir.createFile(
-                    fs.path.basename(file_name_buf.items),
-                    .{},
-                );
-            }
-        }
-
-        break :file try out_dir.createFile(
-            fs.path.basename(file_name_buf.items),
-            .{},
-        );
-    };
-    defer file.close();
-
-    var html_buffer = io.bufferedWriter(file.writer());
-
-    const p: page.Page = .{
-        .markdown = .{
-            .frontmatter = result.within,
-            .content = result.after,
-        },
-    };
-
-    const data = try p.data(arena.allocator());
-
-    const template = template: {
-        if (data.template) |t| {
-            const template_path = try fs.path.join(
-                arena.allocator(),
-                &.{ site_root, "templates", t },
-            );
-
-            var template_file = try fs.openFileAbsolute(
-                template_path,
-                .{},
-            );
-            defer template_file.close();
-
-            const template = try template_file.readToEndAlloc(
-                arena.allocator(),
-                math.maxInt(u32),
-            );
-            break :template template;
-        }
-
-        // no template, so use some sort of fallback
-        break :template "<!-- Missing template in page frontmatter -->{{& content }}";
-    };
-
-    try renderPage(arena.allocator(), p, .{
-        .bytes = template,
-    }, db, url_prefix, html_buffer.writer());
-
-    try html_buffer.flush();
 }
