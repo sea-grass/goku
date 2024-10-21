@@ -11,10 +11,6 @@
         .bulma = .{
             .path = "./bulma",
         },
-        .@"graphviz-src" = .{
-            .url = "git+https://github.com/sea-grass/graphviz?ref=12.1.2#c6204377af1dbaf4ce80e3f461ce853e23e6f3a7",
-            .hash = "12205c70afddfc177f97c42c94fecd040223e441fa4b30e7f429c32b0e7451ed1016",
-        },
         .htmx = .{
             .path = "./htmx",
         },
