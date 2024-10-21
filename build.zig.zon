@@ -4,12 +4,6 @@
     .version = "0.0.3",
 
     .dependencies = .{
-        .tracy = .{
-            // Point back to cipharius/zig-tracy once it's been updated to support Zig 0.13
-            .url = "https://github.com/kcbanner/zig-tracy/archive/40ad7b4c7976dcd94b2f3a89470b2e84d42b7b8c.tar.gz",
-            .hash = "1220847a8e1395c15ac39e200227a1f102c5a93be2ef12528d4ff97dd79ce164906a",
-            //.path = "../zig-tracy",
-        },
         .clap = .{
             .url = "git+https://github.com/Hejsil/zig-clap#e9207ad2b86131fa9f0dfbd5c68cafd67f00fe64",
             .hash = "1220cb2f28680ef73c1020bfd8c7b08de38821b0bc19b5469f60dcf813f1d8455dbd",
@@ -18,34 +12,39 @@
             .url = "https://github.com/yaml/libyaml/archive/2c891fc7a770e8ba2fec34fc6b545c672beb37e6.tar.gz",
             .hash = "12200c4021cb16ecdf8d3707098ff694e140c9f92cbd76bb1f30cba84965eab34db6",
         },
-        .@"md4c-src" = .{
-            .url = "https://github.com/mity/md4c/archive/refs/tags/release-0.5.2.tar.gz",
-            .hash = "1220251028e2f8c9b08684c3a3fe1aa320751e48154ad57ebdf86857dbceeb25cbb5",
+        .bulma = .{
+            .path = "./bulma",
         },
-        .sqlite = .{
-            .url = "git+https://github.com/vrischmann/zig-sqlite#7d50331972777727d0a22f5e4a51e8a06c410bad",
-            .hash = "1220f01a534f84839a66b127b88183bd81f6ab3778289150aa79f83ae126e4a8e0df",
+        .@"graphviz-src" = .{
+            .url = "git+https://github.com/sea-grass/graphviz?ref=12.1.2#c6204377af1dbaf4ce80e3f461ce853e23e6f3a7",
+            .hash = "12205c70afddfc177f97c42c94fecd040223e441fa4b30e7f429c32b0e7451ed1016",
+        },
+        .htmx = .{
+            .path = "./htmx",
+        },
+        .lucide = .{
+            .path = "./lucide",
+        },
+        .md4c = .{
+            .path = "./md4c",
         },
         .@"mustach-src" = .{
             .url = "git+https://github.com/RekGRpth/mustach#e3f0939421d2aeb0cd5a1990eb2c4cc710c69741",
             .hash = "1220945b7e8dcfa9859a49a4260e0921f3c55ebbc154e4b823343b351c0bcdafc136",
         },
-        .lucide = .{
-            .path = "./lucide",
+        .sqlite = .{
+            .url = "git+https://github.com/vrischmann/zig-sqlite#7d50331972777727d0a22f5e4a51e8a06c410bad",
+            .hash = "1220f01a534f84839a66b127b88183bd81f6ab3778289150aa79f83ae126e4a8e0df",
         },
-        .bulma = .{
-            .path = "./bulma",
-        },
-        .htmx = .{
-            .path = "./htmx",
+        .tracy = .{
+            // Point back to cipharius/zig-tracy once it's been updated to support Zig 0.13
+            .url = "https://github.com/kcbanner/zig-tracy/archive/40ad7b4c7976dcd94b2f3a89470b2e84d42b7b8c.tar.gz",
+            .hash = "1220847a8e1395c15ac39e200227a1f102c5a93be2ef12528d4ff97dd79ce164906a",
+            //.path = "../zig-tracy",
         },
         .zap = .{
             .url = "git+https://github.com/zigzap/zap#29b923f96ee09d855b603866d2e149d506f72679",
             .hash = "1220399fcdfff1fd73f8cbced2530ab805391f31d8c188db99ae7ba978dd77fd2814",
-        },
-        .@"graphviz-src" = .{
-            .url = "git+https://github.com/sea-grass/graphviz?ref=12.1.2#c6204377af1dbaf4ce80e3f461ce853e23e6f3a7",
-            .hash = "12205c70afddfc177f97c42c94fecd040223e441fa4b30e7f429c32b0e7451ed1016",
         },
     },
 

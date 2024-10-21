@@ -138,7 +138,7 @@ pub fn build(b: *std.Build) void {
 
     const c_mod = buildCModule(b, .{
         .yaml = b.dependency("yaml-src", .{}),
-        .md4c = b.dependency("md4c-src", .{}),
+        .md4c = b.dependency("md4c", .{}),
         .mustach = b.dependency("mustach-src", .{}),
         .graphviz = b.dependency("graphviz-src", .{}),
         .target = target,
@@ -271,9 +271,17 @@ pub fn build(b: *std.Build) void {
     build_steps.serve.dependOn(&run_serve_cmd.step);
 }
 
-pub fn buildCModule(b: *std.Build, opts: anytype) *std.Build.Module {
+const BuildCModuleOptions = struct {
+    yaml: *std.Build.Dependency,
+    md4c: *std.Build.Dependency,
+    mustach: *std.Build.Dependency,
+    graphviz: *std.Build.Dependency,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+};
+pub fn buildCModule(b: *std.Build, opts: BuildCModuleOptions) *std.Build.Module {
     const yaml_src = opts.yaml;
-    const md4c_src = opts.md4c;
+    const md4c = opts.md4c;
     const mustach_src = opts.mustach;
     const graphviz_src = opts.graphviz;
     const target = opts.target;
@@ -296,6 +304,9 @@ pub fn buildCModule(b: *std.Build, opts: anytype) *std.Build.Module {
     });
 
     const mod = c.createModule();
+
+    c.addIncludePath(md4c.artifact("md4c").getEmittedIncludeTree());
+    mod.linkLibrary(md4c.artifact("md4c"));
 
     {
         const wf = b.addWriteFiles();
@@ -352,51 +363,6 @@ pub fn buildCModule(b: *std.Build, opts: anytype) *std.Build.Module {
             .flags = &.{
                 "-std=gnu99",
                 "-DHAVE_CONFIG_H",
-            },
-        });
-    }
-
-    {
-        const wf = b.addWriteFiles();
-        c.step.dependOn(&wf.step);
-
-        inline for (&.{
-            "entity.h",
-            "md4c.h",
-            "md4c-html.h",
-        }) |filename| {
-            _ = wf.addCopyFile(
-                md4c_src.path("src/" ++ filename),
-                filename,
-            );
-        }
-
-        // TODO Not sure why I have to do both addIncludeDir (for
-        // the translate_c step) and addIncludePath (for the C
-        // source files) -- is there a way to get them both to
-        // look in the same place?
-        c.addIncludePath(md4c_src.path("src"));
-        mod.addIncludePath(wf.getDirectory());
-
-        const c_source_files = &.{
-            "entity.c",
-            "md4c.c",
-            "md4c-html.c",
-        };
-        inline for (c_source_files) |filename| {
-            _ = wf.addCopyFile(
-                md4c_src.path("src/" ++ filename),
-                filename,
-            );
-        }
-
-        mod.addCSourceFiles(.{
-            .root = wf.getDirectory(),
-            .files = c_source_files,
-            .flags = &.{
-                "-Wall",
-                "-Wextra",
-                "-Wshadow",
             },
         });
     }
