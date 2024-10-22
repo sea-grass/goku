@@ -1,28 +1,16 @@
 .{
     .name = "goku",
-
     .version = "0.0.3",
-
     .dependencies = .{
         .clap = .{
             .url = "git+https://github.com/Hejsil/zig-clap#e9207ad2b86131fa9f0dfbd5c68cafd67f00fe64",
             .hash = "1220cb2f28680ef73c1020bfd8c7b08de38821b0bc19b5469f60dcf813f1d8455dbd",
         },
-        .bulma = .{
-            .path = "./bulma",
-        },
-        .htmx = .{
-            .path = "./htmx",
-        },
-        .lucide = .{
-            .path = "./lucide",
-        },
-        .md4c = .{
-            .path = "./md4c",
-        },
-        .mustach = .{
-            .path = "./mustach",
-        },
+        .bulma = .{ .path = "./bulma" },
+        .htmx = .{ .path = "./htmx" },
+        .lucide = .{ .path = "./lucide" },
+        .md4c = .{ .path = "./md4c" },
+        .mustach = .{ .path = "./mustach" },
         .sqlite = .{
             .url = "git+https://github.com/vrischmann/zig-sqlite#7d50331972777727d0a22f5e4a51e8a06c410bad",
             .hash = "1220f01a534f84839a66b127b88183bd81f6ab3778289150aa79f83ae126e4a8e0df",
@@ -33,15 +21,12 @@
             .hash = "1220847a8e1395c15ac39e200227a1f102c5a93be2ef12528d4ff97dd79ce164906a",
             //.path = "../zig-tracy",
         },
-        .yaml = .{
-            .path = "./yaml",
-        },
+        .yaml = .{ .path = "./yaml" },
         .zap = .{
             .url = "git+https://github.com/zigzap/zap#29b923f96ee09d855b603866d2e149d506f72679",
             .hash = "1220399fcdfff1fd73f8cbced2530ab805391f31d8c188db99ae7ba978dd77fd2814",
         },
     },
-
     .paths = .{
         "build.zig",
         "build.zig.zon",

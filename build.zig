@@ -148,7 +148,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    exe.linkLibC();
     exe.root_module.addImport("c", c_mod);
     exe.root_module.addImport("tracy", tracy.module("tracy"));
     exe.root_module.addImport("clap", clap.module("clap"));
@@ -175,7 +174,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    exe_unit_tests.linkLibC();
     exe_unit_tests.root_module.addImport("c", c_mod);
     exe_unit_tests.root_module.addImport("tracy", tracy.module("tracy"));
     exe_unit_tests.root_module.addImport("clap", clap.module("clap"));
@@ -208,7 +206,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    exe_check.linkLibC();
     exe_check.root_module.addImport("c", c_mod);
     exe_check.root_module.addImport("tracy", tracy.module("tracy"));
     exe_check.root_module.addImport("clap", clap.module("clap"));
