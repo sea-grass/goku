@@ -54,11 +54,14 @@ Some Parameters are required, like `slug` and `title`.
 
 Following is a table of all supported Parameters and their uses.
 
-| Name         | Required | Type    | Description                                                                                                          |
-| ---          | ---      | ---     | ---                                                                                                                  |
-| `slug`       | yes      | string  | Specify the url where this Page should be located.                                                                   |
-| `title`      | yes      | string  | The title of the Page.                                                                                               |
-| `template`   | yes      | string  | The location of the Template (relative to the `site/templates/` directory) which should be used to render this Page. |
-| `collection` | no       | string  | The name of the Collection to which this Page belongs.                                                               |
-| `date`       | yes      | string  | A date which can be used to order Page entries when rendering a Collection.                                          |
-| `allow_html` | no       | boolean | A flag to determine whether the contents of this Page should be rendered using mustache templating.                  |
+#### Required Parameters
+
+- **`slug`** - The url where this page should be located.
+- **`title`** - The title of the page.
+
+#### Optional Parameters
+
+- **`template`** - The location of the template (relative to the `site/templates/` directory) used to render this page.
+- **`collection`** - The name of the collection to which this page belongs.
+- **`date`** - A date which can be used to order page entries when rendering a collection.
+- **`allow_html`** - A flag to determine whether the contents of this page should be rendered using mustache templating.

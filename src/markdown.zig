@@ -226,11 +226,11 @@ fn ParserType(comptime Writer: type) type {
                         ) catch return -1;
                     }
                 },
-                c.MD_SPAN_CODE => {},
+                c.MD_SPAN_CODE => writer.writeAll("<code>") catch return -1,
                 c.MD_SPAN_DEL => {},
                 c.MD_SPAN_EM => {},
                 c.MD_SPAN_IMG => {},
-                c.MD_SPAN_STRONG => {},
+                c.MD_SPAN_STRONG => writer.writeAll("<strong>") catch return -1,
                 c.MD_SPAN_U => {},
 
                 c.MD_SPAN_LATEXMATH,
@@ -252,11 +252,11 @@ fn ParserType(comptime Writer: type) type {
 
             switch (@"type") {
                 c.MD_SPAN_A => writer.writeAll("</a>") catch return -1,
-                c.MD_SPAN_CODE => {},
+                c.MD_SPAN_CODE => writer.writeAll("</code>") catch return -1,
                 c.MD_SPAN_DEL => {},
                 c.MD_SPAN_EM => {},
                 c.MD_SPAN_IMG => {},
-                c.MD_SPAN_STRONG => {},
+                c.MD_SPAN_STRONG => writer.writeAll("</strong>") catch return -1,
                 c.MD_SPAN_U => {},
 
                 c.MD_SPAN_LATEXMATH,

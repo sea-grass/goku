@@ -9,9 +9,25 @@
       }
       .navbar-menu {
         box-shadow: none;
-      }</style>
+      }
+      strong code {
+        font-weight: 700;
+        letter-spacing: 0;
+        animation: widen 2s infinite alternate ease-in-out;
+      }
+      @keyframes widen {
+        from {
+          letter-spacing: 0;
+        }
+        to {
+          letter-spacing: 0.3em;
+        }
+      }
+
+      .room-to-breathe::after { content: ""; display: block; height: 30vh; }
+    </style>
   </head>
-  <body>
+  <body class="room-to-breathe">
     <section class="section">
       <div class="container">
         <nav class="navbar mb-4" role="navigation">
