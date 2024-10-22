@@ -2,12 +2,115 @@ const std = @import("std");
 const zap = @import("zap");
 const log = std.log.scoped(.serve);
 const mem = std.mem;
+const process = std.process;
 const fs = std.fs;
 const fmt = std.fmt;
 const heap = std.heap;
 const debug = std.debug;
 
+const log_sitemap = false;
+
+// This is the shape of the program architecture that I envision.
+const shape = .{
+    .serve_bin = .{
+        .zap_server = .{
+            .serve_static_files = {},
+            .livereload_websocket_handler = {},
+            .socket_for_rebuild_notification = {},
+        },
+        .inotifywait = .{
+            .folder_watcher = {},
+            .socket_for_build_complete_notification = {},
+        },
+        .goku_lib = .{
+            .socket_to_trigger_rebuild = {},
+        },
+    },
+};
+
 const enable_websocket = false;
+
+pub fn main() !void {
+    var gpa = heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
+    var buf: [fs.max_path_bytes]u8 = undefined;
+    const public_folder = try parsePublicFolder(&buf);
+
+    debug.assert((try fs.cwd().statFile(public_folder)).kind == .directory);
+
+    if (log_sitemap) {
+        const sitemap = try readSitemap(gpa.allocator(), public_folder);
+        defer gpa.allocator().free(sitemap);
+
+        log.info("Sitemap\n{s}\n", .{sitemap});
+    }
+
+    var server: Server = undefined;
+    server.init(.{
+        .port = 3000,
+        .allocator = gpa.allocator(),
+        .public_folder = public_folder,
+    });
+    defer server.deinit();
+
+    try server.start();
+}
+
+fn parsePublicFolder(buf: []u8) ![]const u8 {
+    var args = process.args();
+
+    // Skip the executable name
+    _ = args.next();
+
+    const public_folder = args.next();
+
+    if (public_folder) |p| {
+        return fmt.bufPrint(buf, "{s}", .{p});
+    }
+
+    return error.MissingArgs;
+}
+
+const Server = struct {
+    allocator: mem.Allocator,
+    listener: zap.HttpListener,
+
+    const Options = struct {
+        port: u16,
+        public_folder: []const u8,
+        allocator: mem.Allocator,
+    };
+    pub fn init(self: *Server, options: Options) void {
+        self.* = .{
+            .allocator = options.allocator,
+            .listener = zap.HttpListener.init(.{
+                .port = options.port,
+                .on_request = onRequest,
+                .on_upgrade = if (enable_websocket) onUpgrade else null,
+                .log = true,
+                .max_clients = 10,
+                .max_body_size = 1 * 1024, // careful here  HUH ????
+                .public_folder = options.public_folder,
+            }),
+        };
+        zap.enableDebugLog();
+    }
+    pub fn deinit(self: Server) void {
+        _ = self;
+    }
+
+    pub fn start(self: *Server) !void {
+        try self.listener.listen();
+
+        log.info("Running at http://localhost:3000", .{});
+
+        zap.start(.{
+            .threads = 1,
+            .workers = 1,
+        });
+    }
+};
 
 // Assumes that the `public_folder_path` points to a Goku site with a generated sitemap.html.
 // Returns memory owned by the caller (that the caller must free)
@@ -19,47 +122,6 @@ fn readSitemap(allocator: mem.Allocator, public_folder_path: []const u8) ![]cons
     defer file.close();
 
     return try file.readToEndAlloc(allocator, 1 * 1024 * 1024);
-}
-
-pub fn main() !void {
-    var gpa = heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-
-    const args = try std.process.argsAlloc(gpa.allocator());
-    defer std.process.argsFree(gpa.allocator(), args);
-
-    if (args.len != 2) {
-        return error.MissingArgs;
-    }
-
-    const public_folder = args[1];
-    const result = try fs.cwd().statFile(public_folder);
-    debug.assert(result.kind == .directory);
-
-    const sitemap = try readSitemap(gpa.allocator(), public_folder);
-    defer gpa.allocator().free(sitemap);
-
-    log.info("Sitemap\n{s}\n", .{sitemap});
-
-    var listener = zap.HttpListener.init(.{
-        .port = 3000,
-        .on_request = onRequest,
-        .on_upgrade = if (enable_websocket) onUpgrade else null,
-        .log = true,
-        .max_clients = 10,
-        .max_body_size = 1 * 1024, // careful here  HUH ????
-        .public_folder = public_folder,
-    });
-
-    zap.enableDebugLog();
-    try listener.listen();
-
-    log.info("Running at http://localhost:3000", .{});
-
-    zap.start(.{
-        .threads = 1,
-        .workers = 1,
-    });
 }
 
 fn onRequest(r: zap.Request) void {
