@@ -1,10 +1,16 @@
-const fmt = @import("fmt");
+const debug = std.debug;
+const fmt = std.fmt;
+const heap = std.heap;
 const mem = std.mem;
 const sqlite = @import("sqlite");
 const std = @import("std");
+const testing = std.testing;
 
 allocator: mem.Allocator,
 db: sqlite.Db,
+
+pub const StatementType = sqlite.StatementType;
+pub const Iterator = sqlite.Iterator;
 
 pub const Page = Table("pages", .{
     .create =
@@ -34,12 +40,10 @@ pub fn init(allocator: mem.Allocator) !Database {
     });
     errdefer db.deinit();
 
-    var self: Database = .{ .allocator = allocator, .db = db };
-
-    try Page.init(&self);
-    try Template.init(&self);
-
-    return self;
+    return .{
+        .allocator = allocator,
+        .db = db,
+    };
 }
 
 pub fn deinit(self: *Database) void {
@@ -72,5 +76,60 @@ fn Table(
     };
 }
 
-pub const StatementType = sqlite.StatementType;
-pub const Iterator = sqlite.Iterator;
+test "Page" {
+    var db = try Database.init(testing.allocator);
+    defer db.deinit();
+
+    try Page.init(&db);
+    try Page.insert(&db, .{
+        .slug = "/",
+        .title = "Home page",
+        .filepath = null,
+        .collection = null,
+        .date = null,
+    });
+
+    const query = "SELECT slug, date, title FROM pages";
+    var get_stmt = try db.db.prepare(query);
+    defer get_stmt.deinit();
+
+    var it = try get_stmt.iterator(
+        struct { slug: []const u8, date: []const u8, title: []const u8 },
+        .{},
+    );
+
+    var arena = heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const entry = try it.nextAlloc(arena.allocator(), .{});
+    try testing.expect(entry != null);
+
+    try testing.expectEqualStrings(entry.?.slug, "/");
+    try testing.expectEqualStrings(entry.?.title, "Home page");
+
+    try testing.expectEqual(null, try it.nextAlloc(arena.allocator(), .{}));
+}
+
+test "Template" {
+    var db = try Database.init(testing.allocator);
+    defer db.deinit();
+
+    try Template.init(&db);
+    try Template.insert(&db, .{ .filepath = "/path/to/template.html" });
+
+    const query = "SELECT filepath FROM templates";
+    var get_stmt = try db.db.prepare(query);
+    defer get_stmt.deinit();
+
+    var it = try get_stmt.iterator(struct { filepath: []const u8 }, .{});
+
+    var arena = heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const entry = try it.nextAlloc(arena.allocator(), .{});
+    try testing.expect(entry != null);
+
+    try testing.expectEqualStrings(entry.?.filepath, "/path/to/template.html");
+
+    try testing.expectEqual(null, try it.nextAlloc(arena.allocator(), .{}));
+}

@@ -199,6 +199,9 @@ pub fn main() !void {
     var db = try Database.init(unlimited_allocator);
     defer db.deinit();
 
+    try Database.Page.init(&db);
+    try Database.Template.init(&db);
+
     //
     // INDEX SITE
     //
