@@ -30,6 +30,8 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
         fba: heap.FixedBufferAllocator = undefined,
         dir_queue: ?std.ArrayList(fs.Dir) = null,
 
+        const Self = @This();
+
         pub const Entry = struct {
             dir: fs.Dir,
             subpath: []const u8,
@@ -43,7 +45,7 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
             }
         };
 
-        pub fn next(self: *@This()) !?Entry {
+        pub fn next(self: *Self) !?Entry {
             if (self.done) return null;
 
             try self.ensureBuffer();
@@ -80,7 +82,7 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
             return null;
         }
 
-        fn ensureBuffer(self: *@This()) !void {
+        fn ensureBuffer(self: *Self) !void {
             debug.assert(!self.done);
 
             if (self.dir_queue == null) {
@@ -91,26 +93,33 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
             debug.assert(self.dir_queue != null);
         }
 
-        fn ensureHandle(self: *@This()) !void {
+        pub const HandleError = error{CannotOpenDirectory};
+        fn ensureHandle(self: *Self) HandleError!void {
             debug.assert(!self.done);
 
             if (self.dir_handle == null) {
-                var root = root: {
-                    if (fs.path.isAbsolute(self.root)) {
-                        break :root try fs.openDirAbsolute(self.root, .{});
-                    } else {
-                        break :root try fs.cwd().openDir(self.root, .{});
-                    }
-                };
+                var root = if (fs.path.isAbsolute(self.root))
+                    fs.openDirAbsolute(
+                        self.root,
+                        .{},
+                    ) catch return HandleError.CannotOpenDirectory
+                else
+                    fs.cwd().openDir(
+                        self.root,
+                        .{},
+                    ) catch return HandleError.CannotOpenDirectory;
                 defer root.close();
 
-                self.dir_handle = try root.openDir(self.subpath, .{ .iterate = true });
+                self.dir_handle = root.openDir(
+                    self.subpath,
+                    .{ .iterate = true },
+                ) catch return HandleError.CannotOpenDirectory;
             }
 
             debug.assert(self.dir_handle != null);
         }
 
-        fn ensureIterator(self: *@This()) !void {
+        fn ensureIterator(self: *Self) !void {
             debug.assert(!self.done);
             debug.assert(self.dir_handle != null);
 

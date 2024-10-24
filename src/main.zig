@@ -210,7 +210,13 @@ pub fn main() !void {
 
     {
         var page_it = filesystem.walker(build.site_root, "pages");
-        while (try page_it.next()) |entry| {
+        while (page_it.next() catch |err| switch (err) {
+            error.CannotOpenDirectory => {
+                log.err("Cannot open pages dir at {s}/{s}.", .{ page_it.root, page_it.subpath });
+                return error.SiteBuildFailed;
+            },
+            else => return err,
+        }) |entry| {
             const zone = tracy.initZone(@src(), .{ .name = "Load Page from File" });
             defer zone.deinit();
 

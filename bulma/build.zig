@@ -1,17 +1,25 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) !void {
-    const bulma_src = b.dependency("bulma_src", .{});
+    const upstream = b.dependency("upstream", .{});
 
     const wf = b.addWriteFiles();
 
     _ = wf.addCopyDirectory(
-        bulma_src.path("css"),
+        upstream.path("css"),
         "css",
         .{},
     );
 
     _ = b.addModule("bulma", .{
-        .root_source_file = wf.addCopyFile(b.path("root.zig"), "root.zig"),
+        .root_source_file = wf.add(
+            "root.zig",
+            \\pub const css = @embedFile("css/bulma.css");
+            \\pub const min = .{
+            \\    .css = @embedFile("css/bulma.min.css"),
+            \\    .map = @embedFile("css/bulma.css.map"),
+            \\};
+            ,
+        ),
     });
 }
