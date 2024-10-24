@@ -4,11 +4,15 @@ const std = @import("std");
 // The public, build-time API for goku.
 pub const Goku = struct {
     pub fn build(
-        b: *std.Build,
         goku_dep: *std.Build.Dependency,
         site_path: std.Build.LazyPath,
+        // TODO should I get Goku to generate and return an out_path
+        // using WriteFiles? I think for the base case this may result
+        // in simpler usage, but would make more involved use cases
+        // a bit more complex.
         out_path: std.Build.LazyPath,
     ) *std.Build.Step.Run {
+        const b = goku_dep.builder;
         const run_goku = b.addRunArtifact(goku_dep.artifact("goku"));
         run_goku.has_side_effects = true;
 
@@ -20,10 +24,10 @@ pub const Goku = struct {
     }
 
     pub fn serve(
-        b: *std.Build,
         goku_dep: *std.Build.Dependency,
         public_path: std.Build.LazyPath,
     ) *std.Build.Step.Run {
+        const b = goku_dep.builder;
         const serve_site = b.addRunArtifact(goku_dep.artifact("serve"));
         serve_site.addDirectoryArg(public_path);
         return serve_site;
@@ -253,14 +257,14 @@ pub fn build(b: *std.Build) void {
 
     var this_dep_hack: std.Build.Dependency = .{ .builder = b };
 
-    const build_site_cmd = Goku.build(b, &this_dep_hack, b.path("site"), b.path("build"));
+    const build_site_cmd = Goku.build(&this_dep_hack, b.path("site"), b.path("build"));
     if (b.args) |args| {
         build_site_cmd.addArgs(args);
     }
     build_steps.site.dependOn(&build_site_cmd.step);
     build_steps.site.dependOn(b.getInstallStep());
 
-    const run_serve_cmd = Goku.serve(b, &this_dep_hack, b.path("build"));
+    const run_serve_cmd = Goku.serve(&this_dep_hack, b.path("build"));
     build_steps.serve.dependOn(build_steps.site);
     build_steps.serve.dependOn(&run_serve_cmd.step);
 }
