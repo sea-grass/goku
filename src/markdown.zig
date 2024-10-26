@@ -167,6 +167,7 @@ fn ParserType(comptime Writer: type) type {
                     _ = detail;
                     writer.writeAll("</li>") catch return -1;
                 },
+                c.MD_BLOCK_HR => {},
                 c.MD_BLOCK_H => {
                     const detail: *c.MD_BLOCK_H_DETAIL = @ptrCast(@alignCast(detail_ptr));
                     writer.print("</h{d}>\n", .{detail.level}) catch return -1;

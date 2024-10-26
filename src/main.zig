@@ -213,7 +213,7 @@ pub fn main() !void {
         while (page_it.next() catch |err| switch (err) {
             error.CannotOpenDirectory => {
                 log.err("Cannot open pages dir at {s}/{s}.", .{ page_it.root, page_it.subpath });
-                return error.SiteBuildFailed;
+                return error.CannotOpenPagesDirectory;
             },
             else => return err,
         }) |entry| {
@@ -265,7 +265,13 @@ pub fn main() !void {
 
     {
         var template_it = filesystem.walker(build.site_root, "templates");
-        while (try template_it.next()) |entry| {
+        while (template_it.next() catch |err| switch (err) {
+            error.CannotOpenDirectory => {
+                log.err("Cannot open templates directory. Does it exist?", .{});
+                return error.CannotOpenTemplatesDirectory;
+            },
+            else => return err,
+        }) |entry| {
             const zone = tracy.initZone(@src(), .{ .name = "Scan for template files" });
             defer zone.deinit();
 
