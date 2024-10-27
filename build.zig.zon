@@ -11,6 +11,7 @@
         .lucide = .{ .path = "./lucide" },
         .md4c = .{ .path = "./md4c" },
         .mustach = .{ .path = "./mustach" },
+        .quickjs = .{ .path = "./quickjs" },
         .sqlite = .{
             .url = "git+https://github.com/vrischmann/zig-sqlite#7d50331972777727d0a22f5e4a51e8a06c410bad",
             .hash = "1220f01a534f84839a66b127b88183bd81f6ab3778289150aa79f83ae126e4a8e0df",

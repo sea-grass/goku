@@ -139,9 +139,10 @@ pub fn build(b: *std.Build) void {
     const zap = b.dependency("zap", .{ .target = target, .optimize = optimize });
 
     const c_mod = buildCModule(b, .{
-        .yaml = b.dependency("yaml", .{}),
         .md4c = b.dependency("md4c", .{}),
         .mustach = b.dependency("mustach", .{}),
+        .quickjs = b.dependency("quickjs", .{}),
+        .yaml = b.dependency("yaml", .{}),
         .target = target,
         .optimize = optimize,
     });
@@ -270,16 +271,18 @@ pub fn build(b: *std.Build) void {
 }
 
 const BuildCModuleOptions = struct {
-    yaml: *std.Build.Dependency,
     md4c: *std.Build.Dependency,
     mustach: *std.Build.Dependency,
+    quickjs: *std.Build.Dependency,
+    yaml: *std.Build.Dependency,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 };
 pub fn buildCModule(b: *std.Build, opts: BuildCModuleOptions) *std.Build.Module {
-    const yaml = opts.yaml;
     const md4c = opts.md4c;
     const mustach = opts.mustach;
+    const quickjs = opts.quickjs;
+    const yaml = opts.yaml;
     const target = opts.target;
     const optimize = opts.optimize;
 
@@ -288,6 +291,7 @@ pub fn buildCModule(b: *std.Build, opts: BuildCModuleOptions) *std.Build.Module 
             \\#include <yaml.h>
             \\#include <md4c-html.h>
             \\#include <mustach.h>
+            \\#include <quickjs.h>
         ),
         .target = target,
         .optimize = optimize,
@@ -301,6 +305,9 @@ pub fn buildCModule(b: *std.Build, opts: BuildCModuleOptions) *std.Build.Module 
 
     c.addIncludePath(mustach.artifact("mustach").getEmittedIncludeTree());
     mod.linkLibrary(mustach.artifact("mustach"));
+
+    c.addIncludePath(quickjs.artifact("quickjs").getEmittedIncludeTree());
+    mod.linkLibrary(quickjs.artifact("quickjs"));
 
     c.addIncludePath(yaml.artifact("yaml").getEmittedIncludeTree());
     mod.linkLibrary(yaml.artifact("yaml"));
