@@ -5,26 +5,6 @@ const mem = std.mem;
 const std = @import("std");
 const testing = std.testing;
 
-pub fn js_cfunc_def(comptime name: []const u8, comptime len: u32, comptime func: anytype) c.JSCFunctionListEntry {
-    // TODO comptime assert func type
-    // TODO comptime assert func len
-    return .{
-        .name = fmt.comptimePrint("{s}", .{name}),
-        .prop_flags = c.JS_PROP_WRITABLE | c.JS_PROP_CONFIGURABLE,
-        .def_type = c.JS_DEF_CFUNC,
-        .magic = 0,
-        .u = .{
-            .func = .{
-                .length = len,
-                .cproto = c.JS_CFUNC_generic,
-                .cfunc = .{
-                    .generic = func,
-                },
-            },
-        },
-    };
-}
-
 fn js_goku_init(_ctx: ?*c.JSContext, m: ?*c.JSModuleDef) callconv(.C) c_int {
     _ = c.JS_SetModuleExport(
         _ctx,
@@ -35,11 +15,6 @@ fn js_goku_init(_ctx: ?*c.JSContext, m: ?*c.JSModuleDef) callconv(.C) c_int {
 
     return 0;
 }
-
-const js_funcs: [*c]const c.JSCFunctionListEntry = @ptrCast(@alignCast(&.{
-    js_cfunc_def("exit", 1, js_exit),
-}));
-const js_funcs_len = 1;
 
 test "exception" {
     const rt = c.JS_NewRuntime();
@@ -53,11 +28,19 @@ test "exception" {
 
     const prog =
         \\import * as goku from 'goku';
+        \\export function foo(x, y) { return x + y; }
         \\goku.exit(2);
     ;
 
     const val = c.JS_Eval(ctx, prog, prog.len, "<main>", c.JS_EVAL_TYPE_MODULE);
     defer c.JS_FreeValue(ctx, val);
+
+    // When we evaluate the source as a module, we expect an object in return.
+    try testing.expectEqual(c.JS_TAG_OBJECT, val.tag);
+
+    const obj: *c.JSObject = @as(?*c.JSObject, @ptrCast(val.u.ptr)) orelse return error.CouldNotGetPtr;
+
+    try io.getStdErr().writer().print("obj {any}\n", .{obj});
 
     // TODO perform some assertion.
     // Apparently it's an object. But with what? Because it's evaluated as a module?
