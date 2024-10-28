@@ -406,7 +406,7 @@ fn renderPage(
 
     try markdown.renderStream(
         content,
-        url_prefix,
+        .{ .url_prefix = url_prefix },
         content_buf.writer(),
     );
 

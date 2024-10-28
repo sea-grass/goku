@@ -1,38 +1,7 @@
 const debug = std.debug;
 const std = @import("std");
 
-// The public, build-time API for goku.
-pub const Goku = struct {
-    pub fn build(
-        goku_dep: *std.Build.Dependency,
-        site_path: std.Build.LazyPath,
-        // TODO should I get Goku to generate and return an out_path
-        // using WriteFiles? I think for the base case this may result
-        // in simpler usage, but would make more involved use cases
-        // a bit more complex.
-        out_path: std.Build.LazyPath,
-    ) *std.Build.Step.Run {
-        const b = goku_dep.builder;
-        const run_goku = b.addRunArtifact(goku_dep.artifact("goku"));
-        run_goku.has_side_effects = true;
-
-        run_goku.addDirectoryArg(site_path);
-        run_goku.addArg("-o");
-        run_goku.addDirectoryArg(out_path);
-
-        return run_goku;
-    }
-
-    pub fn serve(
-        goku_dep: *std.Build.Dependency,
-        public_path: std.Build.LazyPath,
-    ) *std.Build.Step.Run {
-        const b = goku_dep.builder;
-        const serve_site = b.addRunArtifact(goku_dep.artifact("serve"));
-        serve_site.addDirectoryArg(public_path);
-        return serve_site;
-    }
-};
+pub const Goku = @import("goku.zig");
 
 const bundled_lucide_icons = @as([]const []const u8, &.{
     "github",
@@ -44,6 +13,7 @@ const bundled_lucide_icons = @as([]const []const u8, &.{
 const BuildSteps = struct {
     check: *std.Build.Step,
     coverage: *std.Build.Step,
+    docs: *std.Build.Step,
     generate_benchmark_site: *std.Build.Step,
     run: *std.Build.Step,
     run_benchmark: *std.Build.Step,
@@ -60,6 +30,10 @@ const BuildSteps = struct {
             .coverage = b.step(
                 "coverage",
                 "Analyze code coverage",
+            ),
+            .docs = b.step(
+                "docs",
+                "Generate source code docs",
             ),
             .generate_benchmark_site = b.step(
                 "generate-benchmark",
@@ -175,17 +149,21 @@ pub fn build(b: *std.Build) void {
     build_steps.run.dependOn(&run_cmd.step);
 
     const exe_unit_tests = b.addTest(.{
+        // We provide a name to the unit tests so the generated
+        // docs will use it for the namespace.
+        .name = "goku",
         .root_source_file = b.path("src/test.zig"),
         .target = target,
         .optimize = optimize,
     });
-    exe_unit_tests.root_module.addImport("c", c_mod);
-    exe_unit_tests.root_module.addImport("tracy", tracy.module("tracy"));
-    exe_unit_tests.root_module.addImport("clap", clap.module("clap"));
-    exe_unit_tests.root_module.addImport("sqlite", sqlite.module("sqlite"));
-    exe_unit_tests.root_module.addImport("lucide", lucide.module("lucide"));
     exe_unit_tests.root_module.addImport("bulma", bulma.module("bulma"));
+    exe_unit_tests.root_module.addImport("c", c_mod);
+    exe_unit_tests.root_module.addImport("clap", clap.module("clap"));
     exe_unit_tests.root_module.addImport("htmx", htmx.module("htmx"));
+    exe_unit_tests.root_module.addImport("lucide", lucide.module("lucide"));
+    exe_unit_tests.root_module.addImport("sqlite", sqlite.module("sqlite"));
+    exe_unit_tests.root_module.addImport("tracy", tracy.module("tracy"));
+    exe_unit_tests.root_module.addImport("zap", zap.module("zap"));
     exe_unit_tests.linkLibrary(sqlite.artifact("sqlite"));
     if (tracy_enable) {
         exe_unit_tests.linkLibrary(tracy.artifact("tracy"));
@@ -268,6 +246,13 @@ pub fn build(b: *std.Build) void {
     const run_serve_cmd = Goku.serve(&this_dep_hack, b.path("build"));
     build_steps.serve.dependOn(build_steps.site);
     build_steps.serve.dependOn(&run_serve_cmd.step);
+
+    const install_docs = b.addInstallDirectory(.{
+        .source_dir = exe_unit_tests.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "docs",
+    });
+    build_steps.docs.dependOn(&install_docs.step);
 }
 
 const BuildCModuleOptions = struct {

@@ -9,3 +9,9 @@ test {
     _ = @import("Site.zig");
     _ = @import("source/filesystem.zig");
 }
+
+test {
+    _ = @import("bulma");
+    _ = @import("c");
+    _ = @import("htmx");
+}
