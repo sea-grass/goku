@@ -54,61 +54,6 @@ const GokuMod = struct {
     }
 };
 
-fn js_goku_init(ctx: ?*c.JSContext, m: ?*c.JSModuleDef) callconv(.C) c_int {
-    _ = c.JS_SetModuleExport(
-        ctx,
-        m,
-        "exit",
-        c.JS_NewCFunction(ctx, js_exit, "exit", 1),
-    );
-
-    return 0;
-}
-
-fn js_exit(ctx: ?*c.JSContext, this: c.JSValueConst, argc: c_int, argv: ?*c.JSValueConst) callconv(.C) c.JSValue {
-    _ = this;
-    _ = argc;
-
-    var status: c_int = undefined;
-    if (c.JS_ToInt32(ctx, &status, argv.?[0..1][0]) == 1) {
-        @panic("Encountered an error trying to parse args.");
-    }
-
-    io.getStdErr().writer().print("Exit code: {d}\n", .{status}) catch @panic("Unexpected error");
-
-    return .{
-        .tag = c.JS_TAG_UNDEFINED,
-        .u = .{
-            .int32 = 0,
-        },
-    };
-}
-
-test "console not defined" {
-    const rt = c.JS_NewRuntime();
-    defer c.JS_FreeRuntime(rt);
-
-    const ctx = c.JS_NewContext(rt) orelse return error.CannotAllocateJSContext;
-    defer c.JS_FreeContext(ctx);
-
-    const prog =
-        \\console.log("Hello, world!");
-    ;
-
-    const val = c.JS_Eval(ctx, prog, prog.len, "<main>", 0);
-    defer c.JS_FreeValue(ctx, val);
-
-    try testing.expectEqual(
-        c.JS_TAG_EXCEPTION,
-        val.tag,
-    );
-
-    try expectException(
-        "ReferenceError: 'console' is not defined",
-        ctx,
-    );
-}
-
 // MallocFunctions should generate a struct with allocation functions
 // usable by a QuickJS runtime, backed by a Zig allocator.
 // c.JSMallocState.opaque holds a pointer that we can use to access the allocator.
@@ -232,6 +177,61 @@ const MallocFunctions = struct {
         return @alignCast(@ptrCast(state.*.@"opaque".?));
     }
 };
+
+fn js_goku_init(ctx: ?*c.JSContext, m: ?*c.JSModuleDef) callconv(.C) c_int {
+    _ = c.JS_SetModuleExport(
+        ctx,
+        m,
+        "exit",
+        c.JS_NewCFunction(ctx, js_exit, "exit", 1),
+    );
+
+    return 0;
+}
+
+fn js_exit(ctx: ?*c.JSContext, this: c.JSValueConst, argc: c_int, argv: ?*c.JSValueConst) callconv(.C) c.JSValue {
+    _ = this;
+    _ = argc;
+
+    var status: c_int = undefined;
+    if (c.JS_ToInt32(ctx, &status, argv.?[0..1][0]) == 1) {
+        @panic("Encountered an error trying to parse args.");
+    }
+
+    io.getStdErr().writer().print("Exit code: {d}\n", .{status}) catch @panic("Unexpected error");
+
+    return .{
+        .tag = c.JS_TAG_UNDEFINED,
+        .u = .{
+            .int32 = 0,
+        },
+    };
+}
+
+test "console not defined" {
+    const rt = c.JS_NewRuntime();
+    defer c.JS_FreeRuntime(rt);
+
+    const ctx = c.JS_NewContext(rt) orelse return error.CannotAllocateJSContext;
+    defer c.JS_FreeContext(ctx);
+
+    const prog =
+        \\console.log("Hello, world!");
+    ;
+
+    const val = c.JS_Eval(ctx, prog, prog.len, "<main>", 0);
+    defer c.JS_FreeValue(ctx, val);
+
+    try testing.expectEqual(
+        c.JS_TAG_EXCEPTION,
+        val.tag,
+    );
+
+    try expectException(
+        "ReferenceError: 'console' is not defined",
+        ctx,
+    );
+}
 
 test "provide print" {
     var custom_malloc = MallocFunctions.init(testing.allocator);
