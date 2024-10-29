@@ -69,16 +69,6 @@ const MallocFunctions = struct {
         .js_malloc_usable_size = malloc_usable_size,
     };
 
-    // TODO AllocUnit MUST have slice as its only field,
-    // as the functionality of malloc_usable_size depends on it,
-    // since malloc_usable_size doesn't provide a c.JSMallocState
-    // with our opaque pointer, thus we can't look up the memory
-    // allocation unit to operate with the underlying slice.
-    //
-    // I tried to assert this at comptime but I'm not sure how to
-    // compare ptrs to ensure equality at comptime (since
-    // @intFromPtr only works for runtime-known pointers).
-    //
     // Thanks to the following ziggit forum thread for the suggestion
     // on allocating a struct with the slice in order to access the
     // underlying slice from an opaque pointer:
@@ -160,17 +150,15 @@ const MallocFunctions = struct {
         return new_ptr;
     }
 
-    // TODO I don't know how to use this. I'm unable to fetch the slice
-    // from the ptr since I don't have access to the instance alloc map.
-    // Do I need to make MallocFunctions a singleton? I'd prefer not,
-    // since it would complicate the choice of allocator.
-    // I think I need to cast the ptr to a [*]u8 first maybe?
-    // Honestly, since `slice` is the very first (and only) field of
-    // MallocFunctions, maybe I can just cast it straight to AllocUnit.
-    fn malloc_usable_size(ptr: ?*const anyopaque) callconv(.C) usize {
-        if (ptr == null) return 0;
-        const alloc_unit: *const AllocUnit = @alignCast(@ptrCast(ptr.?));
-        return alloc_unit.slice.len;
+    // The man pages for `malloc_usable_size` declare that this function
+    // is "is intended to only be used for diagnostics
+    // and statistics."
+    // Without being provided the c.JSMallocState, we are unable to lookup
+    // the allocated slice in the AllocMap, therefore we cannot determine
+    // the usable size.
+    // This function is effectively a no-op; it always returns 0.
+    fn malloc_usable_size(_: ?*const anyopaque) callconv(.C) usize {
+        return 0;
     }
 
     fn fromState(state: [*c]c.JSMallocState) *MallocFunctions {
