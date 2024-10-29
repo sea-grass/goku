@@ -133,6 +133,11 @@ const MallocFunctions = struct {
     // I tried to assert this at comptime but I'm not sure how to
     // compare ptrs to ensure equality at comptime (since
     // @intFromPtr only works for runtime-known pointers).
+    //
+    // Thanks to the following ziggit forum thread for the suggestion
+    // on allocating a struct with the slice in order to access the
+    // underlying slice from an opaque pointer:
+    // https://ziggit.dev/t/how-to-go-from-extern-pointer-to-slice/178
     const AllocUnit = struct { slice: []u8 };
     const AllocMap = std.AutoHashMap(?*anyopaque, AllocUnit);
 
