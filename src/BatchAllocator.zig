@@ -10,41 +10,85 @@ const testing = std.testing;
 
 const BatchAllocator = @This();
 
-arena: heap.ArenaAllocator,
-curr: ?heap.ArenaAllocator = null,
+const State = union(enum) {
+    pub const Enum = @typeInfo(State).@"union".tag_type.?;
+
+    init: struct {
+        arena: heap.ArenaAllocator,
+    },
+    live: struct {
+        arena: heap.ArenaAllocator,
+        curr: heap.ArenaAllocator,
+    },
+    closed: void,
+};
+
+state: State,
 
 pub fn init(ally: mem.Allocator) BatchAllocator {
     return .{
-        .arena = heap.ArenaAllocator.init(ally),
+        .state = .{
+            .init = .{
+                .arena = heap.ArenaAllocator.init(ally),
+            },
+        },
     };
 }
 
 /// Free all allocated memory.
 pub fn deinit(self: *BatchAllocator) void {
-    self.arena.deinit();
+    switch (self.state) {
+        .init, .live => {
+            self.state.init.arena.deinit();
+            self.state = .closed;
+        },
+        .closed => {
+            @panic("Attempted double deinit of BatchAllocator.");
+        },
+    }
 }
 
 /// Mark all of the allocated memory for this batch
 /// as usable, without freeing it.
 pub fn flush(self: *BatchAllocator) void {
-    if (self.curr) |*arena| {
-        arena.deinit();
-        self.curr = null;
+    switch (self.state) {
+        .init => {},
+        .live => {
+            self.state.live.curr.deinit();
+            self.state = .{
+                .init = .{
+                    .arena = self.state.live.arena,
+                },
+            };
+        },
+        .closed => {
+            @panic("Attempted flush of BatchAllocator after deinit.");
+        },
     }
 }
 
 /// Retrieve the arena allocator for the current batch.
 pub fn allocator(self: *BatchAllocator) mem.Allocator {
-    if (self.curr) |*arena| return arena.allocator();
+    switch (self.state) {
+        .init => {
+            self.state = .{
+                .live = .{
+                    .arena = self.state.init.arena,
+                    .curr = heap.ArenaAllocator.init(self.state.init.arena.allocator()),
+                },
+            };
+        },
+        .live => {},
+        .closed => {
+            @panic("Attempted allocator retrieval after deinit.");
+        },
+    }
 
-    self.curr = heap.ArenaAllocator.init(self.arena.allocator());
-
-    return self.curr.?.allocator();
+    return self.state.live.curr.allocator();
 }
 
 test BatchAllocator {
     var batch_allocator = init(testing.allocator);
-    defer batch_allocator.deinit();
 
     const workload_size = 10;
 
@@ -55,6 +99,17 @@ test BatchAllocator {
         try buf.writer().print("Work item {d}", .{i});
 
         batch_allocator.flush();
-        try testing.expectEqual(null, batch_allocator.curr);
+
+        try testing.expectEqual(
+            .init,
+            @as(State.Enum, batch_allocator.state),
+        );
     }
+
+    batch_allocator.deinit();
+
+    try testing.expectEqual(
+        .closed,
+        @as(State.Enum, batch_allocator.state),
+    );
 }

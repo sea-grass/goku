@@ -26,27 +26,27 @@ db: *Database,
 
 const Site = @This();
 
-// HTML Sitemap looks like this:
-// <nav><ul>
-// <li><a href="{slug}">{text}</a></li>
-// <li><a href="{slug}">{text}</a></li>
-// ...
-// </ul></nav>
-const html_sitemap_preamble =
-    \\<nav><ul>
-;
-const html_sitemap_postamble =
-    \\</ul></nav>
-;
-
-const WriteSitemapIterator = Database.IteratorType(.{
+const WriteHtmlSitemapIterator = Database.IteratorType(.{
     .stmt =
     \\SELECT slug, title FROM pages;
     ,
     .type = struct { slug: []const u8, title: []const u8 },
 });
 
-const Sitemap = struct {
+const HtmlSitemap = struct {
+    // HTML HtmlSitemap looks like this:
+    // <nav><ul>
+    // <li><a href="{slug}">{text}</a></li>
+    // <li><a href="{slug}">{text}</a></li>
+    // ...
+    // </ul></nav>
+    pub const preamble =
+        \\<nav><ul>
+    ;
+    pub const postamble =
+        \\</ul></nav>
+    ;
+
     /// It's ridiculous for a URI to exceed this number of bytes
     pub const http_uri_len_max = 2000;
 
@@ -60,15 +60,15 @@ const Sitemap = struct {
     pub const item_size_max = item_surround.len + http_uri_len_max + url_title_len_max;
 
     pub fn write(site: Site, writer: anytype) !void {
-        try writer.writeAll(html_sitemap_preamble);
+        try writer.writeAll(preamble);
 
         // iterate over pages in site
         {
-            var it = try WriteSitemapIterator.init(site.allocator, site.db);
+            var it = try WriteHtmlSitemapIterator.init(site.allocator, site.db);
             defer it.deinit();
 
             while (try it.next()) |entry| {
-                var buffer: [Sitemap.item_size_max]u8 = undefined;
+                var buffer: [HtmlSitemap.item_size_max]u8 = undefined;
                 var fba = heap.FixedBufferAllocator.init(
                     &buffer,
                 );
@@ -86,7 +86,7 @@ const Sitemap = struct {
             }
         }
 
-        try writer.writeAll(html_sitemap_postamble);
+        try writer.writeAll(postamble);
     }
 };
 
@@ -118,12 +118,11 @@ pub fn deinit(self: Site) void {
     _ = self;
 }
 
-const Part = enum {
-    sitemap,
-    assets,
-    pages,
-};
-pub fn write(self: Site, part: Part, out_dir: fs.Dir) !void {
+pub fn write(
+    self: Site,
+    part: enum { sitemap, assets, pages },
+    out_dir: fs.Dir,
+) !void {
     switch (part) {
         .sitemap => try writeSitemap(self, out_dir),
         .assets => try writeAssets(out_dir),
@@ -143,7 +142,7 @@ fn writeSitemap(self: Site, out_dir: fs.Dir) !void {
 
     var file_buf = io.bufferedWriter(file.writer());
 
-    try Sitemap.write(self, file_buf.writer());
+    try HtmlSitemap.write(self, file_buf.writer());
 
     try file_buf.flush();
 }
