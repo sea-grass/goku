@@ -183,11 +183,15 @@ test "provide print" {
                 const str = c.JS_ToCString(_ctx, argv.?[0..1][0]);
                 defer c.JS_FreeCString(_ctx, str);
 
-                const slice = mem.span(str);
-                debug.assert(slice.len == "Hello, world".len);
+                const n: *@TypeOf(result) = @alignCast(@ptrCast(c.JS_GetContextOpaque(_ctx)));
 
-                const n: *u8 = @ptrCast(c.JS_GetContextOpaque(_ctx));
-                n.* += 1;
+                const slice = mem.span(str);
+
+                // Note that we don't actually print here - instead
+                // we store reporting info for the following unit test
+                // assertions.
+                n.*.len = slice.len;
+                n.*.times_called += 1;
 
                 return .{
                     .tag = c.JS_TAG_UNDEFINED,
