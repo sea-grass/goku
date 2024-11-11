@@ -43,9 +43,7 @@ const MallocFunctions = struct {
         self.map.deinit();
     }
 
-    pub fn js_malloc_functions(self: *MallocFunctions) [*c]c.JSMallocFunctions {
-        _ = self;
-
+    pub fn js_malloc_functions(_: *MallocFunctions) [*c]c.JSMallocFunctions {
         return @constCast(@ptrCast(&MallocFunctions._js_malloc_functions));
     }
 
@@ -68,7 +66,9 @@ const MallocFunctions = struct {
 
         const self = fromState(state);
 
-        return reallocInner(self, ptr, n) catch null;
+        return reallocInner(self, ptr, n) catch {
+            @panic("Could not realloc memory");
+        };
     }
 
     // The man pages for `malloc_usable_size` declare that this function
@@ -164,8 +164,8 @@ test "provide print" {
     defer c.JS_FreeContext(ctx);
 
     // Add userdata to context to be able to assert our c function is called.
-    var times_called: u8 = 0;
-    c.JS_SetContextOpaque(ctx, @ptrCast(&times_called));
+    var result: struct { times_called: u8 = 0, len: usize = 0 } = .{};
+    c.JS_SetContextOpaque(ctx, @ptrCast(&result));
 
     // Define the module that will provide the import.
     {
@@ -213,7 +213,8 @@ test "provide print" {
     const val = c.JS_Eval(ctx, prog, prog.len, "<main>", c.JS_EVAL_TYPE_MODULE);
     defer c.JS_FreeValue(ctx, val);
 
-    try testing.expectEqual(1, times_called);
+    try testing.expectEqual(1, result.times_called);
+    try testing.expectEqual("Hello, world".len, result.len);
 }
 
 fn expectException(comptime expected: []const u8, ctx: *c.JSContext) !void {

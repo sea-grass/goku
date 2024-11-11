@@ -1,3 +1,4 @@
+const BatchAllocator = @import("BatchAllocator.zig");
 const bulma = @import("bulma");
 const htmx = @import("htmx");
 const debug = std.debug;
@@ -200,17 +201,6 @@ const WritePagesIterator = struct {
     }
 };
 
-// I need to come up for a name for the following allocation strategy.
-// allocator (provided out-of-scope) ->
-//  arena allocator (lifetime only for current scope) ->
-//      arena allocator (lifetime per iteration)
-// The idea is that each iteration will take about the same amount of memory.
-// Maybe something like:
-// allocator (lifetime beyond this scope) ->
-//  buf (lifetime for current scope) ->
-//      chunk (lifetime per iteration)
-// Using the language that we retain a buffer via the allocator and then
-// rent out a chunk to each iteration?
 fn writePages(self: Site, out_dir: fs.Dir) !void {
     var it = try WritePagesIterator.init(
         self.allocator,
@@ -218,8 +208,8 @@ fn writePages(self: Site, out_dir: fs.Dir) !void {
     );
     defer it.deinit();
 
-    var buf = heap.ArenaAllocator.init(self.allocator);
-    defer buf.deinit();
+    var batch_allocator = BatchAllocator.init(self.allocator);
+    defer batch_allocator.deinit();
 
     while (try it.next()) |entry| {
         const zone = tracy.initZone(
@@ -228,11 +218,10 @@ fn writePages(self: Site, out_dir: fs.Dir) !void {
         );
         defer zone.deinit();
 
-        var chunk = heap.ArenaAllocator.init(buf.allocator());
-        defer chunk.deinit();
+        defer batch_allocator.flush();
 
         try _render(
-            chunk.allocator(),
+            batch_allocator.allocator(),
             self.db,
             self.url_prefix,
             self.site_root,

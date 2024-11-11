@@ -335,7 +335,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
         }
 
         // Calls the internal emit implementation
-        fn emit(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, escaping: c_int, _: [*c]c.FILE) callconv(.C) c_int {
+        fn emit(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, escaping: c_int, _: ?*c.FILE) callconv(.C) c_int {
             debug.assert(ptr != null);
             // Trying to emit a value we could not get?
             debug.assert(buf != null);
