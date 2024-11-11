@@ -9,6 +9,7 @@ const page = @import("page.zig");
 const process = std.process;
 const filesystem = @import("source/filesystem.zig");
 const std = @import("std");
+const storage = @import("storage.zig");
 const time = std.time;
 const tracy = @import("tracy");
 const Database = @import("Database.zig");
@@ -199,8 +200,8 @@ pub fn main() !void {
     var db = try Database.init(unlimited_allocator);
     defer db.deinit();
 
-    try Database.Page.init(&db);
-    try Database.Template.init(&db);
+    try storage.Page.init(&db);
+    try storage.Template.init(&db);
 
     //
     // INDEX SITE
@@ -245,7 +246,7 @@ pub fn main() !void {
             };
             defer data.deinit(unlimited_allocator);
 
-            try Database.Page.insert(
+            try storage.Page.insert(
                 &db,
                 .{
                     .slug = data.slug,
@@ -286,7 +287,7 @@ pub fn main() !void {
 
             var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
 
-            try Database.Template.insert(
+            try storage.Template.insert(
                 &db,
                 .{
                     .filepath = try entry.realpath(&filepath_buf),

@@ -38,8 +38,12 @@ pub fn init(ally: mem.Allocator) BatchAllocator {
 /// Free all allocated memory.
 pub fn deinit(self: *BatchAllocator) void {
     switch (self.state) {
-        .init, .live => {
+        .init => {
             self.state.init.arena.deinit();
+            self.state = .closed;
+        },
+        .live => {
+            self.state.live.arena.deinit();
             self.state = .closed;
         },
         .closed => {
