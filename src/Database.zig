@@ -1,3 +1,4 @@
+const BatchAllocator = @import("BatchAllocator.zig");
 const debug = std.debug;
 const fmt = std.fmt;
 const heap = std.heap;
@@ -8,9 +9,6 @@ const testing = std.testing;
 
 allocator: mem.Allocator,
 db: sqlite.Db,
-
-pub const StatementType = sqlite.StatementType;
-pub const Iterator = sqlite.Iterator;
 
 pub const Page = Table("pages", .{
     .create =
@@ -71,6 +69,53 @@ fn Table(
                 statements.insert.?,
                 .{},
                 data,
+            );
+        }
+    };
+}
+
+pub const IteratorTypeOptions = struct {
+    stmt: []const u8,
+    type: type,
+};
+
+/// A wrapper around a `sqlite.Database.Iterator` to handle batch memory
+/// allocations for a given `SELECT` query.
+pub fn IteratorType(comptime opts: IteratorTypeOptions) type {
+    return struct {
+        batch: BatchAllocator,
+        stmt: sqlite.StatementType(.{}, opts.stmt),
+        it: sqlite.Iterator(opts.type),
+
+        const Iterator = @This();
+
+        pub fn init(ally: mem.Allocator, db: *Database) !Iterator {
+            var stmt = try db.db.prepare(opts.stmt);
+            errdefer stmt.deinit();
+
+            const it = try stmt.iterator(opts.type, .{});
+
+            var batch = BatchAllocator.init(ally);
+            errdefer batch.deinit();
+
+            return .{
+                .batch = batch,
+                .stmt = stmt,
+                .it = it,
+            };
+        }
+
+        pub fn deinit(self: *Iterator) void {
+            self.batch.deinit();
+            self.stmt.deinit();
+        }
+
+        pub fn next(self: *Iterator) !?opts.type {
+            self.batch.flush();
+
+            return try self.it.nextAlloc(
+                self.batch.allocator(),
+                .{},
             );
         }
     };
