@@ -44,21 +44,20 @@ test "Page" {
     var get_stmt = try db.db.prepare(query);
     defer get_stmt.deinit();
 
-    var it = try get_stmt.iterator(
+    const Iterator = Page.Iterator(
         struct { slug: []const u8, date: []const u8, title: []const u8 },
-        .{},
     );
 
-    var arena = heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
+    var it = try Iterator.init(testing.allocator, &db);
+    defer it.deinit();
 
-    const entry = try it.nextAlloc(arena.allocator(), .{});
+    const entry = try it.next();
     try testing.expect(entry != null);
 
     try testing.expectEqualStrings(entry.?.slug, "/");
     try testing.expectEqualStrings(entry.?.title, "Home page");
 
-    try testing.expectEqual(null, try it.nextAlloc(arena.allocator(), .{}));
+    try testing.expectEqual(null, try it.next());
 }
 
 test "Template" {
@@ -68,19 +67,17 @@ test "Template" {
     try Template.init(&db);
     try Template.insert(&db, .{ .filepath = "/path/to/template.html" });
 
-    const query = "SELECT filepath FROM templates";
-    var get_stmt = try db.db.prepare(query);
-    defer get_stmt.deinit();
+    const Iterator = Template.Iterator(
+        struct { filepath: []const u8 },
+    );
 
-    var it = try get_stmt.iterator(struct { filepath: []const u8 }, .{});
+    var it = try Iterator.init(testing.allocator, &db);
+    defer it.deinit();
 
-    var arena = heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
-    const entry = try it.nextAlloc(arena.allocator(), .{});
+    const entry = try it.next();
     try testing.expect(entry != null);
 
     try testing.expectEqualStrings(entry.?.filepath, "/path/to/template.html");
 
-    try testing.expectEqual(null, try it.nextAlloc(arena.allocator(), .{}));
+    try testing.expectEqual(null, try it.next());
 }

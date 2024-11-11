@@ -9,6 +9,7 @@ test {
     _ = @import("serve.zig");
     _ = @import("Site.zig");
     _ = @import("source/filesystem.zig");
+    _ = @import("storage.zig");
 }
 
 test {
