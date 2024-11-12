@@ -13,98 +13,103 @@
 //! });
 //! ```
 
+const ascii = std.ascii;
 const builtin = @import("builtin");
+const fmt = std.fmt;
 const heap = std.heap;
 const math = std.math;
 const mem = std.mem;
+const posix = std.posix;
+const process = std.process;
 const std = @import("std");
 const time = std.time;
 
 const BORDER = "=" ** 80;
 
+const Status = enum {
+    pass,
+    fail,
+    skip,
+    text,
+};
+
 // use in custom panic handler
 var current_test: ?[]const u8 = null;
 
-pub fn main() !void {
-    var buf: [8192]u8 = undefined;
-    var fba = heap.FixedBufferAllocator.init(&buf);
-    const allocator = fba.allocator();
-
-    const env = Env.init(allocator);
-    defer env.deinit(allocator);
-
-    var slowest = try SlowTracker.init(allocator, 5);
-    defer slowest.deinit();
-
-    var pass: usize = 0;
-    var fail: usize = 0;
-    var skip: usize = 0;
-    var leak: usize = 0;
-
-    const printer = Printer.init();
-    try printer.print("\r\x1b[0K", .{}); // beginning of line and clear to end of line
-
-    for (builtin.test_functions) |t| {
-        if (isSetup(t)) {
-            try runSetup(t, printer);
-        }
+pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
+    if (current_test) |ct| {
+        std.debug.print("\x1b[31m{[border]s}\npanic running \"{[name]s}\"\n{[border]s}\x1b[0m\n", .{
+            .border = BORDER,
+            .name = ct,
+        });
     }
 
-    for (builtin.test_functions) |t| {
-        if (isSetup(t) or isTeardown(t)) {
-            continue;
-        }
+    std.debug.defaultPanic(msg, error_return_trace, ret_addr);
+}
 
-        runTest(
-            t,
-            env,
-            &slowest,
-            &leak,
-            &pass,
-            &skip,
-            &fail,
-            printer,
-        ) catch |err| switch (err) {
-            error.FailFirst => {
-                break;
-            },
-            else => {
-                continue;
-            },
+const Env = struct {
+    verbose: bool,
+    fail_first: bool,
+    filter: ?[]const u8,
+
+    fn init(allocator: mem.Allocator) !Env {
+        return .{
+            .verbose = try readEnv(
+                bool,
+                allocator,
+                "TEST_VERBOSE",
+            ) orelse true,
+            .fail_first = try readEnv(
+                bool,
+                allocator,
+                "TEST_VERBOSE",
+            ) orelse true,
+            .filter = try readEnv(
+                []const u8,
+                allocator,
+                "TEST_FILTER",
+            ),
         };
     }
 
-    for (builtin.test_functions) |t| {
-        if (isTeardown(t)) {
-            try runTeardown(t, printer);
+    fn deinit(self: Env, allocator: mem.Allocator) void {
+        if (self.filter) |filter| {
+            allocator.free(filter);
         }
     }
 
-    const total_tests = pass + fail;
-    const status = if (fail == 0) Status.pass else Status.fail;
-    try printer.status(status, "\n{d} of {d} test{s} passed\n", .{ pass, total_tests, if (total_tests != 1) "s" else "" });
-    if (skip > 0) {
-        try printer.status(.skip, "{d} test{s} skipped\n", .{ skip, if (skip != 1) "s" else "" });
-    }
-    if (leak > 0) {
-        try printer.status(.fail, "{d} test{s} leaked\n", .{ leak, if (leak != 1) "s" else "" });
-    }
-    try printer.print("\n", .{});
-    try slowest.display(printer);
-    try printer.print("\n", .{});
-    std.posix.exit(if (fail == 0) 0 else 1);
-}
+    // If T is []const u8, caller owns the result.
+    fn readEnv(comptime T: type, allocator: mem.Allocator, key: []const u8) !?T {
+        switch (T) {
+            []const u8, bool => {},
+            else => @compileError("readEnv for T not implemented"),
+        }
 
-fn friendlyName(name: []const u8) []const u8 {
-    var it = mem.splitScalar(u8, name, '.');
-    while (it.next()) |value| {
-        if (mem.eql(u8, value, "test")) {
-            const rest = it.rest();
-            return if (rest.len > 0) rest else name;
+        const value = process.getEnvVarOwned(
+            allocator,
+            key,
+        ) catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => {
+                return null;
+            },
+            else => {
+                std.log.warn("failed to get env var {s} due to err {any}", .{ key, err });
+                return null;
+            },
+        };
+
+        switch (T) {
+            []const u8 => {
+                return value;
+            },
+            bool => {
+                defer allocator.free(value);
+                return ascii.eqlIgnoreCase(value, "true");
+            },
+            else => unreachable,
         }
     }
-    return name;
-}
+};
 
 const Printer = struct {
     out: std.fs.File.Writer,
@@ -129,13 +134,6 @@ const Printer = struct {
         try self.out.print(format, args);
         try self.out.writeAll("\x1b[0m");
     }
-};
-
-const Status = enum {
-    pass,
-    fail,
-    skip,
-    text,
 };
 
 const SlowTracker = struct {
@@ -238,90 +236,86 @@ const SlowTracker = struct {
     }
 };
 
-const Env = struct {
-    verbose: bool,
-    fail_first: bool,
-    filter: ?[]const u8,
+pub fn main() !void {
+    var buf: [8192]u8 = undefined;
+    var fba = heap.FixedBufferAllocator.init(&buf);
+    const allocator = fba.allocator();
 
-    fn init(allocator: mem.Allocator) Env {
-        return .{
-            .verbose = readEnvBool(allocator, "TEST_VERBOSE", true),
-            .fail_first = readEnvBool(allocator, "TEST_FAIL_FIRST", false),
-            .filter = readEnv(allocator, "TEST_FILTER"),
-        };
-    }
+    const env = try Env.init(allocator);
+    defer env.deinit(allocator);
 
-    fn deinit(self: Env, allocator: mem.Allocator) void {
-        if (self.filter) |f| {
-            allocator.free(f);
-        }
-    }
+    var slowest = try SlowTracker.init(allocator, 5);
+    defer slowest.deinit();
 
-    fn readEnv(allocator: mem.Allocator, key: []const u8) ?[]const u8 {
-        const v = std.process.getEnvVarOwned(allocator, key) catch |err| {
-            if (err == error.EnvironmentVariableNotFound) {
-                return null;
-            }
-            std.log.warn("failed to get env var {s} due to err {}", .{ key, err });
-            return null;
-        };
-        return v;
-    }
+    var pass: usize = 0;
+    var fail: usize = 0;
+    var skip: usize = 0;
+    var leak: usize = 0;
 
-    fn readEnvBool(allocator: mem.Allocator, key: []const u8, deflt: bool) bool {
-        const value = readEnv(allocator, key) orelse return deflt;
-        defer allocator.free(value);
-        return std.ascii.eqlIgnoreCase(value, "true");
-    }
-};
+    const printer = Printer.init();
+    try printer.print("\r\x1b[0K", .{}); // beginning of line and clear to end of line
 
-pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
-    if (current_test) |ct| {
-        std.debug.print("\x1b[31m{s}\npanic running \"{s}\"\n", .{ BORDER, ct });
-
-        if (error_return_trace) |trace| {
-            if (ret_addr) |addr| {
-                std.debug.print("{s}@{d}\n{any}\n", .{ msg, addr, trace });
-            } else {
-                std.debug.print("{s}@null\n{any}\n", .{ msg, trace });
-            }
-        } else {
-            if (ret_addr) |addr| {
-                std.debug.print("{s}@{d}\n(no trace)\n", .{ msg, addr });
-            } else {
-                std.debug.print("{s}@null\n(no trace)\n", .{msg});
+    for (builtin.test_functions) |t| {
+        if (env.filter) |filter| {
+            if (!isUnnamed(t) and
+                mem.indexOf(u8, t.name, filter) == null)
+            {
+                continue;
             }
         }
 
-        std.debug.print("{s}\x1b[0m\n", .{BORDER});
+        runTest(
+            t,
+            env,
+            &slowest,
+            &leak,
+            &pass,
+            &skip,
+            &fail,
+            printer,
+        ) catch |err| switch (err) {
+            error.FailFirst => {
+                break;
+            },
+            else => {
+                continue;
+            },
+        };
     }
 
-    //std.debug.defaultPanic(msg, error_return_trace, ret_addr);
-    @panic(msg);
-}
+    const total_tests = pass + fail;
+    const status: enum { pass, fail } = if (fail == 0)
+        .pass
+    else
+        .fail;
 
-fn isUnnamed(t: std.builtin.TestFn) bool {
-    const marker = ".test_";
-    const test_name = t.name;
-    const index = mem.indexOf(u8, test_name, marker) orelse return false;
-    _ = std.fmt.parseInt(u32, test_name[index + marker.len ..], 10) catch return false;
-    return true;
-}
-
-fn isSetup(t: std.builtin.TestFn) bool {
-    return mem.endsWith(
-        u8,
-        t.name,
-        "tests:beforeAll",
+    try printer.status(
+        switch (status) {
+            .pass => .pass,
+            .fail => .fail,
+        },
+        "\n{d} of {d} test{s} passed\n",
+        .{ pass, total_tests, if (total_tests != 1) "s" else "" },
     );
-}
 
-fn runSetup(t: std.builtin.TestFn, printer: Printer) !void {
-    current_test = friendlyName(t.name);
-    t.func() catch |err| {
-        try printer.status(.fail, "\nsetup \"{s}\" failed: {}\n", .{ t.name, err });
-        return err;
-    };
+    if (skip > 0) {
+        try printer.status(.skip, "{d} test{s} skipped\n", .{ skip, if (skip != 1) "s" else "" });
+    }
+
+    if (leak > 0) {
+        try printer.status(.fail, "{d} test{s} leaked\n", .{ leak, if (leak != 1) "s" else "" });
+    }
+
+    try printer.print("\n", .{});
+    try slowest.display(printer);
+    try printer.print("\n", .{});
+
+    posix.exit(
+        switch (status) {
+            .pass => 0,
+            .fail => 1,
+        },
+    );
 }
 
 fn runTest(
@@ -334,25 +328,14 @@ fn runTest(
     fail: *usize,
     printer: Printer,
 ) !void {
-    var status = Status.pass;
+    var status: Status = .pass;
     slowest.startTiming();
-
-    const is_unnamed_test = isUnnamed(t);
-    if (env.filter) |f| {
-        if (!is_unnamed_test and mem.indexOf(u8, t.name, f) == null) {
-            return;
-        }
-    }
 
     const friendly_name = friendlyName(t.name);
     current_test = friendly_name;
     std.testing.allocator_instance = .{};
     const result = t.func();
     current_test = null;
-
-    if (is_unnamed_test) {
-        return;
-    }
 
     const elapsed_ns = try slowest.endTiming(friendly_name);
 
@@ -393,18 +376,34 @@ fn runTest(
     }
 }
 
-fn runTeardown(t: std.builtin.TestFn, printer: Printer) !void {
-    current_test = friendlyName(t.name);
-    t.func() catch |err| {
-        try printer.status(.fail, "\nteardown \"{s}\" failed: {}\n", .{ t.name, err });
-        return err;
-    };
+fn friendlyName(name: []const u8) []const u8 {
+    const noisy_prefix = "test.";
+
+    return if (mem.startsWith(u8, name, noisy_prefix) and
+        name.len > noisy_prefix.len)
+        name[noisy_prefix.len..]
+    else
+        name;
 }
 
-fn isTeardown(t: std.builtin.TestFn) bool {
-    return mem.endsWith(
-        u8,
-        t.name,
-        "tests:afterAll",
-    );
+// Unnamed tests look like:
+// namespace.test_#
+//
+// isUnnamed will return true if the provided TestFn has a name which
+// ends with `.test_#`, where `#` is a valid integer.
+//
+// Note that this means that it may return true even for named tests
+// which conform to this naming scheme.
+fn isUnnamed(t: std.builtin.TestFn) bool {
+    const marker = ".test_";
+
+    if (mem.indexOf(u8, t.name, marker)) |index| {
+        const tail = t.name[index + marker.len ..];
+        _ = fmt.parseInt(usize, tail, 10) catch {
+            return false;
+        };
+        return true;
+    }
+
+    return false;
 }
