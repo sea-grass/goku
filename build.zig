@@ -90,6 +90,7 @@ pub fn build(b: *std.Build) void {
 
     const bulma = b.dependency("bulma", .{});
 
+
     const c_mod = c: {
         const yaml_src = b.dependency("yaml-src", .{});
         const md4c_src = b.dependency("md4c-src", .{});
@@ -294,6 +295,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .test_runner = b.path("src/test_runner.zig"),
     });
     exe_unit_tests.linkLibC();
     exe_unit_tests.root_module.addImport("c", c_mod);
