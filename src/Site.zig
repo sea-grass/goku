@@ -11,6 +11,7 @@ const mem = std.mem;
 const mustache = @import("mustache.zig");
 const page = @import("page.zig");
 const std = @import("std");
+const storage = @import("storage.zig");
 const tracy = @import("tracy");
 const Database = @import("Database.zig");
 const markdown = @import("markdown.zig");
@@ -26,12 +27,9 @@ db: *Database,
 
 const Site = @This();
 
-const WriteHtmlSitemapIterator = Database.IteratorType(.{
-    .stmt =
-    \\SELECT slug, title FROM pages;
-    ,
-    .type = struct { slug: []const u8, title: []const u8 },
-});
+const WriteHtmlSitemapIterator = storage.Page.Iterator(
+    struct { slug: []const u8, title: []const u8 },
+);
 
 const HtmlSitemap = struct {
     // HTML HtmlSitemap looks like this:
@@ -90,12 +88,9 @@ const HtmlSitemap = struct {
     }
 };
 
-const WritePagesIterator = Database.IteratorType(.{
-    .stmt =
-    \\SELECT slug, filepath FROM pages;
-    ,
-    .type = struct { slug: []const u8, filepath: []const u8 },
-});
+const WritePagesIterator = storage.Page.Iterator(
+    struct { slug: []const u8, filepath: []const u8 },
+);
 
 const fallback_template =
     "<!-- Missing template in page frontmatter -->{{& content }}";
