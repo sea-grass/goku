@@ -54,7 +54,11 @@ pub fn Table(
             );
         }
 
-        pub fn Iterator(DestType: type) type {
+        pub fn iterator(comptime DestType: type, ally: mem.Allocator, db: *Database) !Iterator(DestType) {
+            return try Iterator(DestType).init(ally, db);
+        }
+
+        pub fn Iterator(comptime DestType: type) type {
             return IteratorType(.{
                 .stmt = select(DestType),
                 .type = DestType,

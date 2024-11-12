@@ -44,11 +44,12 @@ test "Page" {
     var get_stmt = try db.db.prepare(query);
     defer get_stmt.deinit();
 
-    const Iterator = Page.Iterator(
+    var it = try Page.iterator(
         struct { slug: []const u8, date: []const u8, title: []const u8 },
+        testing.allocator,
+        &db,
     );
 
-    var it = try Iterator.init(testing.allocator, &db);
     defer it.deinit();
 
     const entry = try it.next();
@@ -67,11 +68,11 @@ test "Template" {
     try Template.init(&db);
     try Template.insert(&db, .{ .filepath = "/path/to/template.html" });
 
-    const Iterator = Template.Iterator(
+    var it = try Template.iterator(
         struct { filepath: []const u8 },
+        testing.allocator,
+        &db,
     );
-
-    var it = try Iterator.init(testing.allocator, &db);
     defer it.deinit();
 
     const entry = try it.next();

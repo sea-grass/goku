@@ -62,7 +62,11 @@ const HtmlSitemap = struct {
 
         // iterate over pages in site
         {
-            var it = try WriteHtmlSitemapIterator.init(site.allocator, site.db);
+            var it = try storage.Page.iterator(
+                struct { slug: []const u8, title: []const u8 },
+                site.allocator,
+                site.db,
+            );
             defer it.deinit();
 
             while (try it.next()) |entry| {
@@ -163,7 +167,8 @@ fn writeAssets(out_dir: fs.Dir) !void {
 }
 
 fn writePages(self: Site, out_dir: fs.Dir) !void {
-    var it = try WritePagesIterator.init(
+    var it = try storage.Page.iterator(
+        struct { slug: []const u8, filepath: []const u8 },
         self.allocator,
         self.db,
     );
