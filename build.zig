@@ -1,7 +1,7 @@
 const debug = std.debug;
 const std = @import("std");
 
-pub const Goku = @import("goku.zig");
+pub const Goku = @import("src/Goku.zig");
 
 const bundled_lucide_icons = @as([]const []const u8, &.{
     "github",

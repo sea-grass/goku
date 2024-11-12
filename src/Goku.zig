@@ -4,11 +4,13 @@ const std = @import("std");
 
 pub fn build(
     goku_dep: *std.Build.Dependency,
+    /// The source root for the Goku site
     site_path: std.Build.LazyPath,
     // TODO should I get Goku to generate and return an out_path
     // using WriteFiles? I think for the base case this may result
     // in simpler usage, but would make more involved use cases
     // a bit more complex.
+    /// The destination for the built HTML website
     out_path: std.Build.LazyPath,
 ) *std.Build.Step.Run {
     const b = goku_dep.builder;
