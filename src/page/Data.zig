@@ -1,8 +1,9 @@
 const c = @import("c");
 const debug = std.debug;
 const fmt = std.fmt;
+const log = std.log.scoped(.@"page.Data");
 const mem = std.mem;
-const parseCodeFence = @import("parse_code_fence.zig").parseCodeFence;
+const CodeFence = @import("CodeFence.zig");
 const std = @import("std");
 const testing = std.testing;
 const tracy = @import("tracy");
@@ -12,49 +13,46 @@ collection: ?[]const u8 = null,
 title: ?[]const u8 = null,
 date: ?[]const u8 = null,
 template: ?[]const u8 = null,
+description: ?[]const u8 = null,
 allow_html: bool = false,
 options_toc: bool = false,
 
 const Data = @This();
 
-pub fn fromReader(allocator: mem.Allocator, reader: anytype, max_len: usize) !Data {
-    var buf = std.ArrayList(u8).init(allocator);
-    defer buf.deinit();
+pub fn fromReader(allocator: mem.Allocator, reader: anytype, max_len: usize) error{ ParseError, ReadError, MissingFrontmatter }!Data {
+    const bytes: []const u8 = reader.readAllAlloc(allocator, max_len) catch return error.ReadError;
+    defer allocator.free(bytes);
 
-    try reader.readAllArrayList(&buf, max_len);
+    const code_fence_result = CodeFence.parse(bytes) orelse return error.MissingFrontmatter;
 
-    const code_fence_result = parseCodeFence(buf.items) orelse return error.MissingFrontmatter;
-    const frontmatter = code_fence_result.within;
-
-    return try fromYamlString(allocator, @ptrCast(frontmatter), frontmatter.len);
+    var diag: Diagnostics = undefined;
+    return fromYamlString(
+        allocator,
+        code_fence_result.within,
+        &diag,
+    ) catch {
+        diag.printErr(log);
+        return error.ParseError;
+    };
 }
 
-test fromReader {
-    const input =
-        \\---
-        \\slug: /
-        \\title: Home page
-        \\---
-    ;
+pub const Diagnostics = struct {
+    reason: []const u8,
+    line: usize,
+    col: usize,
 
-    var fbs = std.io.fixedBufferStream(input);
-    const reader = fbs.reader();
-
-    const yaml = try fromReader(
-        testing.allocator,
-        reader,
-        std.math.maxInt(usize),
-    );
-
-    defer yaml.deinit(testing.allocator);
-
-    try testing.expectEqualStrings("/", yaml.slug);
-    try testing.expectEqualStrings("Home page", yaml.title.?);
-}
+    pub fn printErr(self: Diagnostics, logger: anytype) void {
+        logger.err("Encountered a yaml parsing error: {s}\nLine: {d} Column: {d}\n", .{
+            self.reason,
+            self.line,
+            self.col,
+        });
+    }
+};
 
 // Duplicates slices from the input data. Caller is responsible for
 // calling page_data.deinit(allocator) afterwards.
-pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) !Data {
+pub fn fromYamlString(allocator: mem.Allocator, data: []const u8, diag: ?*Diagnostics) !Data {
     const zone = tracy.initZone(@src(), .{ .name = "PageData.fromYamlString" });
     defer zone.deinit();
 
@@ -62,11 +60,11 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
     const ptr: [*c]c.yaml_parser_t = &parser;
 
     if (c.yaml_parser_initialize(ptr) == 0) {
-        return error.YamlParserInitFailed;
+        return error.YamlParserInit;
     }
     defer c.yaml_parser_delete(ptr);
 
-    c.yaml_parser_set_input_string(ptr, data, len);
+    c.yaml_parser_set_input_string(ptr, @ptrCast(data), data.len);
 
     var done: bool = false;
 
@@ -85,19 +83,36 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
         tags,
     } = .key;
     var slug: ?[]const u8 = null;
+    errdefer if (slug) |f| allocator.free(f);
+
     var title: ?[]const u8 = null;
+    errdefer if (title) |f| allocator.free(f);
+
     var template: ?[]const u8 = null;
+    errdefer if (template) |f| allocator.free(f);
+
     var collection: ?[]const u8 = null;
+    errdefer if (collection) |f| allocator.free(f);
+
+    var description: ?[]const u8 = null;
+    errdefer if (description) |f| allocator.free(f);
+
     var date: ?[]const u8 = null;
+    errdefer if (date) |f| allocator.free(f);
+
     var allow_html: bool = false;
+
     while (!done) {
         if (c.yaml_parser_parse(ptr, ev_ptr) == 0) {
-            debug.print("Encountered a yaml parsing error: {s}\nLine: {d} Column: {d}\n", .{
-                parser.problem,
-                parser.problem_mark.line + 1,
-                parser.problem_mark.column + 1,
-            });
-            return error.YamlParseFailed;
+            if (diag) |d| {
+                // Populate diagnostics info for later reporting
+                d.* = .{
+                    .reason = mem.sliceTo(parser.problem, 0),
+                    .line = parser.problem_mark.line + 1,
+                    .col = parser.problem_mark.column + 1,
+                };
+            }
+            return error.Parse;
         }
 
         switch (ev.type) {
@@ -165,6 +180,7 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
                         next_scalar_expected = .key;
                     },
                     .description => {
+                        description = try allocator.dupe(u8, value);
                         next_scalar_expected = .key;
                     },
                     .discard => {
@@ -195,25 +211,8 @@ pub fn fromYamlString(allocator: mem.Allocator, data: [*c]const u8, len: usize) 
         .collection = collection,
         .allow_html = allow_html,
         .date = date,
+        .description = description,
     };
-}
-
-test fromYamlString {
-    const input =
-        \\slug: /
-        \\title: Home page
-    ;
-
-    const yaml = try fromYamlString(
-        testing.allocator,
-        @ptrCast(input),
-        input.len,
-    );
-
-    defer yaml.deinit(testing.allocator);
-
-    try testing.expectEqualStrings("/", yaml.slug);
-    try testing.expectEqualStrings("Home page", yaml.title.?);
 }
 
 pub fn deinit(self: Data, allocator: mem.Allocator) void {
@@ -232,4 +231,63 @@ pub fn deinit(self: Data, allocator: mem.Allocator) void {
     if (self.date) |date| {
         allocator.free(date);
     }
+
+    if (self.description) |description| {
+        allocator.free(description);
+    }
+}
+
+test fromReader {
+    const input =
+        \\---
+        \\slug: /
+        \\title: Home page
+        \\---
+    ;
+
+    var fbs = std.io.fixedBufferStream(input);
+    const reader = fbs.reader();
+
+    const yaml = try fromReader(
+        testing.allocator,
+        reader,
+        std.math.maxInt(usize),
+    );
+
+    defer yaml.deinit(testing.allocator);
+
+    try testing.expectEqualStrings("/", yaml.slug);
+    try testing.expectEqualStrings("Home page", yaml.title.?);
+}
+
+test fromYamlString {
+    const input =
+        \\slug: /
+        \\title: Home page
+    ;
+
+    const yaml = try fromYamlString(
+        testing.allocator,
+        input,
+        null,
+    );
+
+    defer yaml.deinit(testing.allocator);
+
+    try testing.expectEqualStrings("/", yaml.slug);
+    try testing.expectEqualStrings("Home page", yaml.title.?);
+}
+
+test "fromYamlString - Error" {
+    const invalid_input =
+        \\: 
+    ;
+
+    const result = fromYamlString(
+        testing.allocator,
+        invalid_input,
+        null,
+    );
+
+    try testing.expectError(error.Parse, result);
 }

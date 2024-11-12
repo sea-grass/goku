@@ -4,7 +4,7 @@
     .version = "1.0.2",
 
     .dependencies = .{
-        .bulma_src = .{
+        .upstream = .{
             .url = "git+https://github.com/jgthms/bulma#5c09f18f5fb998a40bc730d7e1fa89227e5c5464",
             .hash = "12202dd5ca49926b09ae8d803d62c9cfc7543a3b97c3efbc3705eda2451bb2e17844",
         },
@@ -12,6 +12,5 @@
     .paths = .{
         "build.zig",
         "build.zig.zon",
-        "root.zig",
     },
 }

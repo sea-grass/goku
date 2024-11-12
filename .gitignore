@@ -2,3 +2,4 @@ benchmark-build
 build
 .zig-cache
 zig-out
+kcov-output

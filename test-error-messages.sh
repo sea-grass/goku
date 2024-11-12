@@ -10,16 +10,19 @@ function goku() {
     ./zig-out/bin/goku "$@" >/dev/null 2>&1
 }
 
-zig build -Doptimize=ReleaseSafe
-# shellcheck disable=SC2181
-[[ $? -eq 0 ]] || fail "Could not compile"
+if ! zig build -Doptimize=ReleaseSafe; then
+    fail "Could not compile"
+fi
 
-goku
-[[ $? -eq 1 ]] || fail "Expected a failure exit code"
+if goku; then
+    fail "Expected a failure exit code"
+fi
 
-goku site -o build
-# shellcheck disable=SC2181
-[[ $? -eq 0 ]] || fail "Build site with relative paths"
 
-goku "$PWD/site" -o "$PWD/build"
-[[ $? -eq 0 ]] || fail "Build site using absolute paths"
+if ! goku site -o build; then
+    fail "Build site with relative paths";
+fi
+
+if ! goku "$PWD/site" -o "$PWD/build"; then
+    fail "Build site using absolute paths"
+fi

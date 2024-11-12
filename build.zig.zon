@@ -1,43 +1,33 @@
 .{
     .name = "goku",
-
-    .version = "0.0.2",
-
+    .version = "0.0.3",
     .dependencies = .{
+        .clap = .{
+            .url = "git+https://github.com/Hejsil/zig-clap#e9207ad2b86131fa9f0dfbd5c68cafd67f00fe64",
+            .hash = "1220cb2f28680ef73c1020bfd8c7b08de38821b0bc19b5469f60dcf813f1d8455dbd",
+        },
+        .bulma = .{ .path = "./bulma" },
+        .htmx = .{ .path = "./htmx" },
+        .lucide = .{ .path = "./lucide" },
+        .md4c = .{ .path = "./md4c" },
+        .mustach = .{ .path = "./mustach" },
+        .quickjs = .{ .path = "./quickjs" },
+        .sqlite = .{
+            .url = "git+https://github.com/vrischmann/zig-sqlite#7d50331972777727d0a22f5e4a51e8a06c410bad",
+            .hash = "1220f01a534f84839a66b127b88183bd81f6ab3778289150aa79f83ae126e4a8e0df",
+        },
         .tracy = .{
             // Point back to cipharius/zig-tracy once it's been updated to support Zig 0.13
             .url = "https://github.com/kcbanner/zig-tracy/archive/40ad7b4c7976dcd94b2f3a89470b2e84d42b7b8c.tar.gz",
             .hash = "1220847a8e1395c15ac39e200227a1f102c5a93be2ef12528d4ff97dd79ce164906a",
             //.path = "../zig-tracy",
         },
-        .clap = .{
-            .url = "https://github.com/Hejsil/zig-clap/archive/refs/tags/0.9.1.tar.gz",
-            .hash = "122062d301a203d003547b414237229b09a7980095061697349f8bef41be9c30266b",
-        },
-        .@"yaml-src" = .{
-            .url = "https://github.com/yaml/libyaml/archive/2c891fc7a770e8ba2fec34fc6b545c672beb37e6.tar.gz",
-            .hash = "12200c4021cb16ecdf8d3707098ff694e140c9f92cbd76bb1f30cba84965eab34db6",
-        },
-        .@"md4c-src" = .{
-            .url = "https://github.com/mity/md4c/archive/refs/tags/release-0.5.2.tar.gz",
-            .hash = "1220251028e2f8c9b08684c3a3fe1aa320751e48154ad57ebdf86857dbceeb25cbb5",
-        },
-        .sqlite = .{
-            .url = "https://github.com/vrischmann/zig-sqlite/archive/7f4be7d30b126affb66b390c7825addb1c3506bd.tar.gz",
-            .hash = "1220940ae067451e7e6824e9b92baceac93b0bd6fa9ffd315179cc9a7ce5430a46ac",
-        },
-        .@"mustach-src" = .{
-            .url = "https://gitlab.com/jobol/mustach/-/archive/bfadeda286d038a2fa31d247da7ad4c0ea7b6441/mustach-bfadeda286d038a2fa31d247da7ad4c0ea7b6441.tar.gz",
-            .hash = "12209fab7728f3d8b17eaecaf7d6a8f083fc603af92226d05c3e951258bf951fa51f",
-        },
-        .lucide = .{
-            .path = "./lucide",
-        },
-        .bulma = .{
-            .path = "./bulma",
+        .yaml = .{ .path = "./yaml" },
+        .zap = .{
+            .url = "git+https://github.com/zigzap/zap#29b923f96ee09d855b603866d2e149d506f72679",
+            .hash = "1220399fcdfff1fd73f8cbced2530ab805391f31d8c188db99ae7ba978dd77fd2814",
         },
     },
-
     .paths = .{
         "build.zig",
         "build.zig.zon",

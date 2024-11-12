@@ -7,8 +7,9 @@ const log = std.log.scoped(.goku);
 const mem = std.mem;
 const page = @import("page.zig");
 const process = std.process;
-const source = @import("source.zig");
+const filesystem = @import("source/filesystem.zig");
 const std = @import("std");
+const storage = @import("storage.zig");
 const time = std.time;
 const tracy = @import("tracy");
 const Database = @import("Database.zig");
@@ -26,6 +27,7 @@ const size_of_alice_txt = 1189000;
 const BuildCommand = struct {
     site_root: []const u8,
     out_dir: []const u8,
+    url_prefix: ?[]const u8,
 
     arena: heap.ArenaAllocator,
 
@@ -33,6 +35,7 @@ const BuildCommand = struct {
         \\-h, --help    Display this help text and exit.
         \\<str>         The absolute or relative path to your site's source directory.
         \\-o, --out <str>      The directory to place the generated site.
+        \\-p, --prefix <str>    The URL prefix to use when the site root will be published to a subpath. Default: none
         ,
     );
 
@@ -88,9 +91,12 @@ const BuildCommand = struct {
             .{ .make = true },
         ) catch return error.ParseError;
 
+        const url_prefix: ?[]const u8 = if (res.args.prefix) |prefix| prefix else null;
+
         return .{
             .site_root = arena.allocator().dupe(u8, site_root) catch return error.MemoryError,
             .out_dir = arena.allocator().dupe(u8, out_dir_path) catch return error.MemoryError,
+            .url_prefix = if (url_prefix == null) null else arena.allocator().dupe(u8, url_prefix.?) catch return error.MemoryError,
             .arena = arena,
         };
     }
@@ -144,7 +150,7 @@ const BuildCommand = struct {
 
 pub fn main() !void {
     const start = time.milliTimestamp();
-    defer log.info("Elapsed: {d}ms", .{time.milliTimestamp() - start});
+    log.info("mode {s}", .{@tagName(@import("builtin").mode)});
 
     tracy.startupProfiler();
     defer tracy.shutdownProfiler();
@@ -194,6 +200,9 @@ pub fn main() !void {
     var db = try Database.init(unlimited_allocator);
     defer db.deinit();
 
+    try storage.Page.init(&db);
+    try storage.Template.init(&db);
+
     //
     // INDEX SITE
     //
@@ -201,11 +210,14 @@ pub fn main() !void {
     var page_count: u32 = 0;
 
     {
-        var page_it: source.Filesystem = .{
-            .root = build.site_root,
-            .subpath = "pages",
-        };
-        while (try page_it.next()) |entry| {
+        var page_it = filesystem.walker(build.site_root, "pages");
+        while (page_it.next() catch |err| switch (err) {
+            error.CannotOpenDirectory => {
+                log.err("Cannot open pages dir at {s}/{s}.", .{ page_it.root, page_it.subpath });
+                return error.CannotOpenPagesDirectory;
+            },
+            else => return err,
+        }) |entry| {
             const zone = tracy.initZone(@src(), .{ .name = "Load Page from File" });
             defer zone.deinit();
 
@@ -219,13 +231,22 @@ pub fn main() !void {
             // longer than the entire Alice's Adventures in Wonderland.
             debug.assert(length < size_of_alice_txt);
 
-            const data = try page.Data.fromReader(unlimited_allocator, file.reader(), size_of_alice_txt);
-            defer data.deinit(unlimited_allocator);
-
             var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
             const filepath = try entry.realpath(&filepath_buf);
 
-            try Database.Page.insert(
+            const data = page.Data.fromReader(unlimited_allocator, file.reader(), size_of_alice_txt) catch |err| {
+                switch (err) {
+                    error.MissingFrontmatter => {
+                        log.err("Malformed page in source file: {s}", .{filepath});
+                    },
+                    else => {},
+                }
+
+                return err;
+            };
+            defer data.deinit(unlimited_allocator);
+
+            try storage.Page.insert(
                 &db,
                 .{
                     .slug = data.slug,
@@ -244,11 +265,14 @@ pub fn main() !void {
     var template_count: u32 = 0;
 
     {
-        var template_it: source.Filesystem = .{
-            .root = build.site_root,
-            .subpath = "templates",
-        };
-        while (try template_it.next()) |entry| {
+        var template_it = filesystem.walker(build.site_root, "templates");
+        while (template_it.next() catch |err| switch (err) {
+            error.CannotOpenDirectory => {
+                log.err("Cannot open templates directory. Does it exist?", .{});
+                return error.CannotOpenTemplatesDirectory;
+            },
+            else => return err,
+        }) |entry| {
             const zone = tracy.initZone(@src(), .{ .name = "Scan for template files" });
             defer zone.deinit();
 
@@ -263,7 +287,7 @@ pub fn main() !void {
 
             var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
 
-            try Database.Template.insert(
+            try storage.Template.insert(
                 &db,
                 .{
                     .filepath = try entry.realpath(&filepath_buf),
@@ -288,22 +312,17 @@ pub fn main() !void {
         var out_dir = try fs.openDirAbsolute(build.out_dir, .{});
         defer out_dir.close();
 
-        // TODO restore skip-to-main-content
-
-        var site = Site.init(unlimited_allocator, &db, build.site_root);
+        var site = Site.init(unlimited_allocator, &db, build.site_root, build.url_prefix);
         defer site.deinit();
 
-        try site.writeSitemap(out_dir);
-        try site.writeAssets(out_dir);
-        try site.writePages(out_dir);
+        try site.write(.sitemap, out_dir);
+        try site.write(.assets, out_dir);
+        try site.write(.pages, out_dir);
     }
+
+    log.info("Elapsed: {d}ms", .{time.milliTimestamp() - start});
 
     // const assets_dir = try root_dir.openDir("assets");
     // const partials_dir = try root_dir.openDir("partials");
     // const themes_dir = try root_dir.openDir("themes");
-}
-
-test {
-    _ = @import("page.zig");
-    _ = @import("source.zig");
 }

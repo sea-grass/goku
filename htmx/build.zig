@@ -6,18 +6,17 @@ pub fn build(b: *std.Build) !void {
     const wf = b.addWriteFiles();
 
     _ = wf.addCopyDirectory(
-        upstream.path("css"),
-        "css",
+        upstream.path("dist"),
+        "dist",
         .{},
     );
 
-    _ = b.addModule("bulma", .{
+    _ = b.addModule("htmx", .{
         .root_source_file = wf.add(
             "root.zig",
-            \\pub const css = @embedFile("css/bulma.css");
+            \\pub const js = @embedFile("dist/htmx.js");
             \\pub const min = .{
-            \\    .css = @embedFile("css/bulma.min.css"),
-            \\    .map = @embedFile("css/bulma.css.map"),
+            \\    .js = @embedFile("dist/htmx.min.js"),
             \\};
             ,
         ),

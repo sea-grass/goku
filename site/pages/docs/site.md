@@ -1,7 +1,7 @@
 ---
 slug: /docs/site
 title: Site
-template: docs.html
+template: page.html
 collection: docs
 ---
 
@@ -23,7 +23,7 @@ site
 
 Let's create this site by running the following commands:
 
-```sh
+```shell-session
 $ mkdir site
 
 $ mkdir site/templates
