@@ -14,9 +14,10 @@
 //! ```
 
 const ascii = std.ascii;
-const builtin = @import("builtin");
+const builtin = std.builtin;
 const fmt = std.fmt;
 const heap = std.heap;
+const io = std.io;
 const math = std.math;
 const mem = std.mem;
 const posix = std.posix;
@@ -24,19 +25,116 @@ const process = std.process;
 const std = @import("std");
 const time = std.time;
 
+pub fn main() !void {
+    var buf: [4096]u8 = undefined;
+    var fba = heap.FixedBufferAllocator.init(&buf);
+
+    var arena = heap.ArenaAllocator.init(fba.allocator());
+    defer arena.deinit();
+
+    const env = try Env.parse(&arena);
+
+    var slowest = try SlowTracker.init(fba.allocator(), 5);
+    defer slowest.deinit();
+
+    var pass: usize = 0;
+    var fail: usize = 0;
+    var skip: usize = 0;
+    var leak: usize = 0;
+
+    const stderr = io.getStdErr().writer();
+
+    // beginning of line and clear to end of line
+    try stderr.print("\r\x1b[0K", .{});
+
+    for (@import("builtin").test_functions) |t| {
+        if (env.filter) |filter| {
+            if (!isUnnamed(t) and
+                mem.indexOf(u8, t.name, filter) == null)
+            {
+                continue;
+            }
+        }
+
+        runTest(
+            t,
+            env,
+            &slowest,
+            &leak,
+            &pass,
+            &skip,
+            &fail,
+            stderr,
+        ) catch |err| switch (err) {
+            error.FailFirst => {
+                break;
+            },
+            else => {
+                continue;
+            },
+        };
+    }
+
+    const total_tests = pass + fail;
+    const status: enum { pass, fail } = if (fail == 0 and leak == 0)
+        .pass
+    else
+        .fail;
+
+    {
+        const colour = Colour.fromTestStatus(switch (status) {
+            .pass => .pass,
+            .fail => .fail,
+        });
+
+        try colour.write(stderr);
+        try stderr.print(
+            "\n{d} of {d} test{s} passed\n",
+            .{ pass, total_tests, if (total_tests != 1) "s" else "" },
+        );
+        try Colour.reset(stderr);
+    }
+
+    if (skip > 0) {
+        const colour = Colour.fromTestStatus(.skip);
+
+        try colour.write(stderr);
+        try stderr.print("{d} test{s} skipped\n", .{ skip, if (skip != 1) "s" else "" });
+        try Colour.reset(stderr);
+    }
+
+    if (leak > 0) {
+        const colour = Colour.fromTestStatus(.fail);
+
+        try colour.write(stderr);
+        try stderr.print("{d} test{s} leaked\n", .{ leak, if (leak != 1) "s" else "" });
+        try Colour.reset(stderr);
+    }
+
+    try stderr.print("\n", .{});
+    try slowest.write(stderr);
+    try stderr.print("\n", .{});
+
+    posix.exit(
+        switch (status) {
+            .pass => 0,
+            .fail => 1,
+        },
+    );
+}
+
 const BORDER = "=" ** 80;
 
 const Status = enum {
     pass,
     fail,
     skip,
-    text,
 };
 
 // use in custom panic handler
 var current_test: ?[]const u8 = null;
 
-pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
+pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace, ret_addr: ?usize) noreturn {
     if (current_test) |ct| {
         std.debug.print("\x1b[31m{[border]s}\npanic running \"{[name]s}\"\n{[border]s}\x1b[0m\n", .{
             .border = BORDER,
@@ -52,41 +150,35 @@ const Env = struct {
     fail_first: bool,
     filter: ?[]const u8,
 
-    fn init(allocator: mem.Allocator) !Env {
+    pub fn parse(arena: *heap.ArenaAllocator) !Env {
         return .{
             .verbose = try readEnv(
                 bool,
-                allocator,
+                arena,
                 "TEST_VERBOSE",
             ) orelse true,
             .fail_first = try readEnv(
                 bool,
-                allocator,
-                "TEST_VERBOSE",
+                arena,
+                "TEST_FAIL_FIRST",
             ) orelse true,
             .filter = try readEnv(
                 []const u8,
-                allocator,
+                arena,
                 "TEST_FILTER",
             ),
         };
     }
 
-    fn deinit(self: Env, allocator: mem.Allocator) void {
-        if (self.filter) |filter| {
-            allocator.free(filter);
-        }
-    }
-
     // If T is []const u8, caller owns the result.
-    fn readEnv(comptime T: type, allocator: mem.Allocator, key: []const u8) !?T {
+    fn readEnv(comptime T: type, arena: *heap.ArenaAllocator, key: []const u8) !?T {
         switch (T) {
             []const u8, bool => {},
             else => @compileError("readEnv for T not implemented"),
         }
 
         const value = process.getEnvVarOwned(
-            allocator,
+            arena.allocator(),
             key,
         ) catch |err| switch (err) {
             error.EnvironmentVariableNotFound => {
@@ -97,13 +189,14 @@ const Env = struct {
                 return null;
             },
         };
+        errdefer arena.allocator().free(value);
 
         switch (T) {
             []const u8 => {
                 return value;
             },
             bool => {
-                defer allocator.free(value);
+                defer arena.allocator().free(value);
                 return ascii.eqlIgnoreCase(value, "true");
             },
             else => unreachable,
@@ -111,28 +204,29 @@ const Env = struct {
     }
 };
 
-const Printer = struct {
-    out: std.fs.File.Writer,
+const Colour = enum {
+    pass,
+    fail,
+    skip,
 
-    fn init() Printer {
-        return .{
-            .out = std.io.getStdErr().writer(),
+    pub fn fromTestStatus(status: Status) Colour {
+        return switch (status) {
+            .pass => .pass,
+            .fail => .fail,
+            .skip => .skip,
         };
     }
 
-    fn print(self: Printer, comptime format: []const u8, args: anytype) !void {
-        try self.out.print(format, args);
-    }
-
-    fn status(self: Printer, s: Status, comptime format: []const u8, args: anytype) !void {
-        try self.out.writeAll(switch (s) {
+    pub fn write(self: Colour, writer: anytype) !void {
+        try writer.writeAll(switch (self) {
             .pass => "\x1b[32m",
             .fail => "\x1b[31m",
             .skip => "\x1b[33m",
-            else => "",
         });
-        try self.out.print(format, args);
-        try self.out.writeAll("\x1b[0m");
+    }
+
+    pub fn reset(writer: anytype) !void {
+        try writer.writeAll("\x1b[0m");
     }
 };
 
@@ -144,6 +238,7 @@ const SlowTracker = struct {
     const TestInfo = struct {
         elapsed_ns: u64,
         name: []const u8,
+        status: Status,
 
         const sort_field = "elapsed_ns";
 
@@ -163,7 +258,12 @@ const SlowTracker = struct {
 
     fn init(allocator: mem.Allocator, count: u32) !SlowTracker {
         const timer = try time.Timer.start();
-        var slowest = SlowestQueue.init(allocator, {});
+        var slowest = SlowestQueue.init(
+            allocator,
+            {},
+        );
+        errdefer slowest.deinit();
+
         try slowest.ensureTotalCapacity(count);
 
         return .{
@@ -181,7 +281,7 @@ const SlowTracker = struct {
         self.timer.reset();
     }
 
-    fn endTiming(self: *SlowTracker, test_name: []const u8) !u64 {
+    fn endTiming(self: *SlowTracker, test_name: []const u8, status: Status) !u64 {
         const elapsed_ns = self.timer.lap();
 
         // If our queue max is 0, we don't care to track timings,
@@ -191,6 +291,7 @@ const SlowTracker = struct {
         const test_info: TestInfo = .{
             .elapsed_ns = elapsed_ns,
             .name = test_name,
+            .status = status,
         };
 
         // Keep tracking tests if we're under max capacity
@@ -223,112 +324,38 @@ const SlowTracker = struct {
         }
     }
 
-    fn display(self: *SlowTracker, printer: Printer) !void {
+    fn write(self: *SlowTracker, writer: anytype) !void {
         const count = self.slowest.count();
-        try printer.print("Slowest {d} test{s}: \n", .{ count, if (count != 1) "s" else "" });
-        while (self.slowest.removeMinOrNull()) |info| {
+        try writer.print("Slowest {d} test{s}: \n", .{ count, if (count != 1) "s" else "" });
+
+        while (self.slowest.removeMaxOrNull()) |info| {
             const elapsed_ms = @as(f64, @floatFromInt(info.elapsed_ns)) / 1_000_000.0;
-            try printer.print(
-                "  {d:.2}ms\t{s}\n",
-                .{ elapsed_ms, info.name },
+            try writer.print(
+                "  {d:12.6}ms\t{s}\t{s}\n",
+                .{
+                    elapsed_ms,
+                    switch (info.status) {
+                        .pass => "pass",
+                        .fail => "fail",
+                        .skip => "skip",
+                    },
+                    info.name,
+                },
             );
         }
     }
 };
 
-pub fn main() !void {
-    var buf: [8192]u8 = undefined;
-    var fba = heap.FixedBufferAllocator.init(&buf);
-    const allocator = fba.allocator();
-
-    const env = try Env.init(allocator);
-    defer env.deinit(allocator);
-
-    var slowest = try SlowTracker.init(allocator, 5);
-    defer slowest.deinit();
-
-    var pass: usize = 0;
-    var fail: usize = 0;
-    var skip: usize = 0;
-    var leak: usize = 0;
-
-    const printer = Printer.init();
-    try printer.print("\r\x1b[0K", .{}); // beginning of line and clear to end of line
-
-    for (builtin.test_functions) |t| {
-        if (env.filter) |filter| {
-            if (!isUnnamed(t) and
-                mem.indexOf(u8, t.name, filter) == null)
-            {
-                continue;
-            }
-        }
-
-        runTest(
-            t,
-            env,
-            &slowest,
-            &leak,
-            &pass,
-            &skip,
-            &fail,
-            printer,
-        ) catch |err| switch (err) {
-            error.FailFirst => {
-                break;
-            },
-            else => {
-                continue;
-            },
-        };
-    }
-
-    const total_tests = pass + fail;
-    const status: enum { pass, fail } = if (fail == 0)
-        .pass
-    else
-        .fail;
-
-    try printer.status(
-        switch (status) {
-            .pass => .pass,
-            .fail => .fail,
-        },
-        "\n{d} of {d} test{s} passed\n",
-        .{ pass, total_tests, if (total_tests != 1) "s" else "" },
-    );
-
-    if (skip > 0) {
-        try printer.status(.skip, "{d} test{s} skipped\n", .{ skip, if (skip != 1) "s" else "" });
-    }
-
-    if (leak > 0) {
-        try printer.status(.fail, "{d} test{s} leaked\n", .{ leak, if (leak != 1) "s" else "" });
-    }
-
-    try printer.print("\n", .{});
-    try slowest.display(printer);
-    try printer.print("\n", .{});
-
-    posix.exit(
-        switch (status) {
-            .pass => 0,
-            .fail => 1,
-        },
-    );
-}
-
 fn runTest(
-    t: std.builtin.TestFn,
+    t: builtin.TestFn,
     env: Env,
     slowest: *SlowTracker,
     leak: *usize,
     pass: *usize,
     skip: *usize,
     fail: *usize,
-    printer: Printer,
+    writer: anytype,
 ) !void {
-    var status: Status = .pass;
     slowest.startTiming();
 
     const friendly_name = friendlyName(t.name);
@@ -337,11 +364,22 @@ fn runTest(
     const result = t.func();
     current_test = null;
 
-    const elapsed_ns = try slowest.endTiming(friendly_name);
+    const status: Status = if (result) |_| .pass else |err| switch (err) {
+        error.SkipZigTest => .skip,
+        else => .fail,
+    };
+    const elapsed_ns = try slowest.endTiming(
+        friendly_name,
+        status,
+    );
 
     if (std.testing.allocator_instance.deinit() == .leak) {
         leak.* += 1;
-        try printer.status(.fail, "\n{s}\n\"{s}\" - Memory Leak\n{s}\n", .{ BORDER, friendly_name, BORDER });
+        const colour = Colour.fromTestStatus(.fail);
+
+        try colour.write(writer);
+        try writer.print("\n{s}\n\"{s}\" - Memory Leak\n{s}\n", .{ BORDER, friendly_name, BORDER });
+        try Colour.reset(writer);
     }
 
     if (result) |_| {
@@ -349,12 +387,16 @@ fn runTest(
     } else |err| switch (err) {
         error.SkipZigTest => {
             skip.* += 1;
-            status = .skip;
         },
         else => {
-            status = .fail;
             fail.* += 1;
-            try printer.status(.fail, "\n{s}\n\"{s}\" - {s}\n{s}\n", .{ BORDER, friendly_name, @errorName(err), BORDER });
+
+            const colour = Colour.fromTestStatus(.fail);
+
+            try colour.write(writer);
+            try writer.print("\n{s}\n\"{s}\" - {s}\n{s}\n", .{ BORDER, friendly_name, @errorName(err), BORDER });
+            try Colour.reset(writer);
+
             if (@errorReturnTrace()) |trace| {
                 std.debug.dumpStackTrace(trace.*);
             }
@@ -366,13 +408,21 @@ fn runTest(
 
     if (env.verbose) {
         const elapsed_ms = @as(f64, @floatFromInt(elapsed_ns)) / 1_000_000.0;
-        try printer.status(
-            status,
+
+        const colour = Colour.fromTestStatus(status);
+
+        try colour.write(writer);
+        try writer.print(
             "{s} ({d:.2}ms)\n",
             .{ friendly_name, elapsed_ms },
         );
+        try Colour.reset(writer);
     } else {
-        try printer.status(status, ".", .{});
+        const colour = Colour.fromTestStatus(status);
+
+        try colour.write(writer);
+        try writer.print(".", .{});
+        try Colour.reset(writer);
     }
 }
 
@@ -394,7 +444,7 @@ fn friendlyName(name: []const u8) []const u8 {
 //
 // Note that this means that it may return true even for named tests
 // which conform to this naming scheme.
-fn isUnnamed(t: std.builtin.TestFn) bool {
+fn isUnnamed(t: builtin.TestFn) bool {
     const marker = ".test_";
 
     if (mem.indexOf(u8, t.name, marker)) |index| {
