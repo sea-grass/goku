@@ -1,7 +1,7 @@
 test {
     _ = @import("BatchAllocator.zig");
     _ = @import("Database.zig");
-    _ = @import("goku.zig");
+    _ = @import("Goku.zig");
     _ = @import("js.zig");
     _ = @import("main.zig");
     _ = @import("markdown.zig");
