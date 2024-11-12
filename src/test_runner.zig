@@ -23,6 +23,7 @@ const mem = std.mem;
 const posix = std.posix;
 const process = std.process;
 const std = @import("std");
+const testing = std.testing;
 const time = std.time;
 
 pub fn main() !void {
@@ -34,13 +35,13 @@ pub fn main() !void {
 
     const env = try Env.parse(&arena);
 
-    var slowest = try SlowTracker.init(fba.allocator(), 5);
+    var slowest = try SlowTracker.init(
+        fba.allocator(),
+        5,
+    );
     defer slowest.deinit();
 
-    var pass: usize = 0;
-    var fail: usize = 0;
-    var skip: usize = 0;
-    var leak: usize = 0;
+    var stats: Statistics = .{};
 
     const stderr = io.getStdErr().writer();
 
@@ -56,27 +57,71 @@ pub fn main() !void {
             }
         }
 
-        runTest(
+        const result = try runTest(
             t,
-            env,
-            &slowest,
-            &leak,
-            &pass,
-            &skip,
-            &fail,
-            stderr,
-        ) catch |err| switch (err) {
-            error.FailFirst => {
-                break;
+            .{ .slowest = &slowest },
+        );
+
+        if (result.leak) {
+            stats.leak += 1;
+            const colour = Colour.fromTestStatus(.fail);
+
+            try colour.write(stderr);
+            try stderr.print("\n{s}\n\"{s}\" - Memory Leak\n{s}\n", .{ BORDER, friendlyName(t.name), BORDER });
+            try Colour.reset(stderr);
+        }
+
+        switch (result.status) {
+            .fail => {
+                stats.fail += 1;
+                const colour = Colour.fromTestStatus(.fail);
+
+                try colour.write(stderr);
+                try stderr.print("\n{s}\n\"{s}\"\n{s}\n", .{ BORDER, friendlyName(t.name), BORDER });
+                try Colour.reset(stderr);
+
+                // TODO I'll need this function to encounter an error in
+                // order to use this.
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpStackTrace(trace.*);
+                }
+
+                if (env.fail_first) {
+                    break;
+                } else {
+                    continue;
+                }
             },
-            else => {
-                continue;
+            .skip => {
+                stats.skip += 1;
             },
-        };
+            .pass => {
+                stats.pass += 1;
+            },
+        }
+
+        if (env.verbose) {
+            const elapsed_ms = @as(f64, @floatFromInt(result.elapsed_ns)) / 1_000_000.0;
+
+            const colour = Colour.fromTestStatus(result.status);
+
+            try colour.write(stderr);
+            try stderr.print(
+                "{s} ({d:.2}ms)\n",
+                .{ friendlyName(t.name), elapsed_ms },
+            );
+            try Colour.reset(stderr);
+        } else {
+            const colour = Colour.fromTestStatus(result.status);
+
+            try colour.write(stderr);
+            try stderr.print(".", .{});
+            try Colour.reset(stderr);
+        }
     }
 
-    const total_tests = pass + fail;
-    const status: enum { pass, fail } = if (fail == 0 and leak == 0)
+    const total_tests = stats.total();
+    const status: enum { pass, fail } = if (stats.fail == 0 and stats.leak == 0)
         .pass
     else
         .fail;
@@ -90,24 +135,30 @@ pub fn main() !void {
         try colour.write(stderr);
         try stderr.print(
             "\n{d} of {d} test{s} passed\n",
-            .{ pass, total_tests, if (total_tests != 1) "s" else "" },
+            .{ stats.pass, total_tests, if (total_tests != 1) "s" else "" },
         );
         try Colour.reset(stderr);
     }
 
-    if (skip > 0) {
+    if (stats.skip > 0) {
         const colour = Colour.fromTestStatus(.skip);
 
         try colour.write(stderr);
-        try stderr.print("{d} test{s} skipped\n", .{ skip, if (skip != 1) "s" else "" });
+        try stderr.print(
+            "{d} test{s} skipped\n",
+            .{ stats.skip, if (stats.skip != 1) "s" else "" },
+        );
         try Colour.reset(stderr);
     }
 
-    if (leak > 0) {
+    if (stats.leak > 0) {
         const colour = Colour.fromTestStatus(.fail);
 
         try colour.write(stderr);
-        try stderr.print("{d} test{s} leaked\n", .{ leak, if (leak != 1) "s" else "" });
+        try stderr.print(
+            "{d} test{s} leaked\n",
+            .{ stats.leak, if (stats.leak != 1) "s" else "" },
+        );
         try Colour.reset(stderr);
     }
 
@@ -131,19 +182,16 @@ const Status = enum {
     skip,
 };
 
-// use in custom panic handler
-var current_test: ?[]const u8 = null;
+const Statistics = struct {
+    pass: usize = 0,
+    fail: usize = 0,
+    skip: usize = 0,
+    leak: usize = 0,
 
-pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace, ret_addr: ?usize) noreturn {
-    if (current_test) |ct| {
-        std.debug.print("\x1b[31m{[border]s}\npanic running \"{[name]s}\"\n{[border]s}\x1b[0m\n", .{
-            .border = BORDER,
-            .name = ct,
-        });
+    pub fn total(self: Statistics) usize {
+        return self.pass + self.fail;
     }
-
-    std.debug.defaultPanic(msg, error_return_trace, ret_addr);
-}
+};
 
 const Env = struct {
     verbose: bool,
@@ -346,17 +394,21 @@ const SlowTracker = struct {
     }
 };
 
+const RunTestOptions = struct {
+    slowest: *SlowTracker,
+};
+
+const TestResult = struct {
+    status: Status,
+    leak: bool,
+    elapsed_ns: u64,
+};
+
 fn runTest(
     t: builtin.TestFn,
-    env: Env,
-    slowest: *SlowTracker,
-    leak: *usize,
-    pass: *usize,
-    skip: *usize,
-    fail: *usize,
-    writer: anytype,
-) !void {
-    slowest.startTiming();
+    options: RunTestOptions,
+) !TestResult {
+    options.slowest.startTiming();
 
     const friendly_name = friendlyName(t.name);
     current_test = friendly_name;
@@ -368,62 +420,22 @@ fn runTest(
         error.SkipZigTest => .skip,
         else => .fail,
     };
-    const elapsed_ns = try slowest.endTiming(
+
+    const elapsed_ns = try options.slowest.endTiming(
         friendly_name,
         status,
     );
 
-    if (std.testing.allocator_instance.deinit() == .leak) {
-        leak.* += 1;
-        const colour = Colour.fromTestStatus(.fail);
+    const leak = testing.allocator_instance.deinit() == .leak;
 
-        try colour.write(writer);
-        try writer.print("\n{s}\n\"{s}\" - Memory Leak\n{s}\n", .{ BORDER, friendly_name, BORDER });
-        try Colour.reset(writer);
-    }
-
-    if (result) |_| {
-        pass.* += 1;
-    } else |err| switch (err) {
-        error.SkipZigTest => {
-            skip.* += 1;
+    return .{
+        .leak = leak,
+        .elapsed_ns = elapsed_ns,
+        .status = if (result) |_| .pass else |err| switch (err) {
+            error.SkipZigTest => .skip,
+            else => .fail,
         },
-        else => {
-            fail.* += 1;
-
-            const colour = Colour.fromTestStatus(.fail);
-
-            try colour.write(writer);
-            try writer.print("\n{s}\n\"{s}\" - {s}\n{s}\n", .{ BORDER, friendly_name, @errorName(err), BORDER });
-            try Colour.reset(writer);
-
-            if (@errorReturnTrace()) |trace| {
-                std.debug.dumpStackTrace(trace.*);
-            }
-            if (env.fail_first) {
-                return error.FailFirst;
-            }
-        },
-    }
-
-    if (env.verbose) {
-        const elapsed_ms = @as(f64, @floatFromInt(elapsed_ns)) / 1_000_000.0;
-
-        const colour = Colour.fromTestStatus(status);
-
-        try colour.write(writer);
-        try writer.print(
-            "{s} ({d:.2}ms)\n",
-            .{ friendly_name, elapsed_ms },
-        );
-        try Colour.reset(writer);
-    } else {
-        const colour = Colour.fromTestStatus(status);
-
-        try colour.write(writer);
-        try writer.print(".", .{});
-        try Colour.reset(writer);
-    }
+    };
 }
 
 fn friendlyName(name: []const u8) []const u8 {
@@ -456,4 +468,18 @@ fn isUnnamed(t: builtin.TestFn) bool {
     }
 
     return false;
+}
+
+// use in custom panic handler
+var current_test: ?[]const u8 = null;
+
+pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace, ret_addr: ?usize) noreturn {
+    if (current_test) |ct| {
+        std.debug.print("\x1b[31m{[border]s}\npanic running \"{[name]s}\"\n{[border]s}\x1b[0m\n", .{
+            .border = BORDER,
+            .name = ct,
+        });
+    }
+
+    std.debug.defaultPanic(msg, error_return_trace, ret_addr);
 }
