@@ -5,13 +5,12 @@ const mem = std.mem;
 const std = @import("std");
 const testing = std.testing;
 
-pub const Walker = WalkerType(.{ .max_dir_handles = 1024 });
-pub fn walker(root: []const u8, subpath: []const u8) Walker {
+pub fn walker(root: []const u8, subpath: []const u8) WalkerType(.{ .max_dir_handles = 1024 }) {
     return .{ .root = root, .subpath = subpath };
 }
 
 pub const WalkerConfig = struct {
-    max_dir_handles: comptime_int = 2,
+    max_dir_handles: comptime_int,
 };
 
 // Creates a zero-allocation filesystem walker, to iterate over all files
@@ -132,13 +131,13 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
 
         // TODO how should I test this?
         test next {
-            var instance: Walker = .{ .root = ".", .subpath = ".", .done = true };
+            var instance: Self = .{ .root = ".", .subpath = ".", .done = true };
 
             try testing.expectEqual(null, try instance.next());
         }
 
         test ensureBuffer {
-            var instance: Walker = .{ .root = ".", .subpath = "." };
+            var instance: Self = .{ .root = ".", .subpath = "." };
 
             try testing.expectEqual(null, instance.dir_queue);
 
@@ -148,7 +147,7 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
         }
 
         test ensureHandle {
-            var instance: Walker = .{
+            var instance: Self = .{
                 .root = ".",
                 .subpath = ".",
             };
@@ -165,7 +164,7 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
             var dir_handle = try fs.cwd().openDir(".", .{ .iterate = true });
             defer dir_handle.close();
 
-            var instance: Walker = .{
+            var instance: Self = .{
                 .root = ".",
                 .subpath = ".",
                 .dir_handle = dir_handle,
