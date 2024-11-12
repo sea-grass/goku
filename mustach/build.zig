@@ -16,6 +16,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    lib.linkLibC();
+
     lib.addCSourceFiles(.{
         .root = upstream.path("."),
         .files = source_files,
