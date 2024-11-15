@@ -92,6 +92,8 @@ const Server = struct {
         public_folder: []const u8,
     };
     pub fn init(self: *Server, opts: Options) void {
+        zap.mimetypeRegister("wasm", "application/wasm");
+
         self.* = .{
             .allocator = opts.allocator,
             .listener = zap.HttpListener.init(.{

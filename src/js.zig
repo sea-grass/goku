@@ -233,3 +233,52 @@ fn expectException(comptime expected: []const u8, ctx: *c.JSContext) !void {
         mem.span(str),
     );
 }
+
+/// Not implemented yet. Still figuring out how best to expose scripting engine.
+///
+/// Example JsPage script:
+///
+/// ```
+/// import {
+///   // Write the page output in full or in chunks
+///   write,
+///   // Use marker to embed page or site values within the output.
+///   // This returns symbols for the writer to identify replacements -
+///   // it does not provide the literal values for the script to operate on.
+///   marker,
+/// } from 'goku';
+///
+/// write(`<!doctype html><html><head>`);
+/// write(`<title>${marker('title')}</title>`);
+/// write(`</head><body>`);
+/// write(`<div class="section">`);
+/// write(`<div class="content">${marker('content')}</div>`);
+/// write(`</div>`);
+/// write(`</body></html>`);
+/// ```
+const JsPage = struct {
+    ctx: *c.JSContext,
+    custom_malloc: MallocFunctions,
+
+    pub fn init(runtime: *c.JSRuntime, module_src: []const u8) !JsPage {
+        const ctx = c.JS_NewContext(runtime) orelse return error.CannotAllocateJSContext;
+        errdefer c.JS_FreeContext(ctx);
+
+        const val = c.JS_Eval(ctx, module_src, module_src.len, "<main>", c.JS_EVAL_TYPE_MODULE);
+        defer c.JS_FreeValue(ctx, val);
+
+        return .{
+            .ctx = ctx,
+        };
+    }
+
+    pub fn deinit(self: JsPage) void {
+        c.JS_FreeContext(self.ctx);
+    }
+
+    pub fn render(self: JsPage, site: @import("Site.zig"), writer: anytype) !void {
+        _ = self;
+        _ = site;
+        _ = writer;
+    }
+};
