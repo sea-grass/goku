@@ -155,7 +155,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/test.zig"),
         .target = target,
         .optimize = optimize,
-        .test_runner = b.path("src/test_runner.zig"),
+        .test_runner = b.dependency("custom-test-runner", .{}).path("src/test_runner.zig"),
     });
     exe_unit_tests.root_module.addImport("bulma", bulma.module("bulma"));
     exe_unit_tests.root_module.addImport("c", c_mod);

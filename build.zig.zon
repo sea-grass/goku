@@ -6,6 +6,7 @@
             .url = "git+https://github.com/Hejsil/zig-clap#e9207ad2b86131fa9f0dfbd5c68cafd67f00fe64",
             .hash = "1220cb2f28680ef73c1020bfd8c7b08de38821b0bc19b5469f60dcf813f1d8455dbd",
         },
+        .@"custom-test-runner" = .{ .path = "./custom-test-runner" },
         .bulma = .{ .path = "./bulma" },
         .htmx = .{ .path = "./htmx" },
         .lucide = .{ .path = "./lucide" },
