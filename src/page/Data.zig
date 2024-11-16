@@ -1,7 +1,9 @@
 const c = @import("c");
 const debug = std.debug;
 const fmt = std.fmt;
+const io = std.io;
 const log = std.log.scoped(.@"page.Data");
+const math = std.math;
 const mem = std.mem;
 const CodeFence = @import("CodeFence.zig");
 const std = @import("std");
@@ -260,6 +262,47 @@ test fromReader {
     try testing.expectEqualStrings("Home page", yaml.title.?);
 }
 
+test "fromReader - fail(empty frontmatter)" {
+    var fbs = io.fixedBufferStream(
+        \\---
+        \\---
+        ,
+    );
+    const reader = fbs.reader();
+
+    const result = fromReader(
+        testing.allocator,
+        reader,
+        math.maxInt(usize),
+    );
+
+    try testing.expectError(
+        error.MissingFrontmatter,
+        result,
+    );
+}
+
+test "fromReader - fail(invalid yaml)" {
+    var fbs = io.fixedBufferStream(
+        \\---
+        \\:
+        \\---
+        ,
+    );
+    const reader = fbs.reader();
+
+    const result = fromReader(
+        testing.allocator,
+        reader,
+        math.maxInt(usize),
+    );
+
+    try testing.expectError(
+        error.ParseError,
+        result,
+    );
+}
+
 test fromYamlString {
     const input =
         \\slug: /
@@ -290,4 +333,20 @@ test "fromYamlString - Error" {
     );
 
     try testing.expectError(error.Parse, result);
+}
+
+test "correct diagnostics" {
+    const invalid_input =
+        \\:
+    ;
+
+    var diag: Diagnostics = undefined;
+    const result = fromYamlString(
+        testing.allocator,
+        invalid_input,
+        &diag,
+    );
+
+    try testing.expectError(error.Parse, result);
+    try testing.expectEqualStrings("did not find expected key", diag.reason);
 }

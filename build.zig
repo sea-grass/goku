@@ -176,11 +176,10 @@ pub fn build(b: *std.Build) void {
     const run_coverage = b.addSystemCommand(&.{
         "kcov",
         "--clean",
-        "--include-pattern=src/",
-        "--exclude-pattern=.cache/zig/",
-        // todo use b.path
-        "kcov-output/",
+        "--include-pattern=src/,modules/",
+        "--exclude-pattern=.cache/zig/,test_runner.zig",
     });
+    run_coverage.addDirectoryArg(b.path("kcov-output/"));
     run_coverage.addArtifactArg(exe_unit_tests);
     build_steps.coverage.dependOn(&run_coverage.step);
 

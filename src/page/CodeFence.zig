@@ -38,31 +38,25 @@ test parse {
 
     try testing.expect(parse("---\n\n---") != null);
 
-    try testing.expectEqualStrings(
-        "",
-        parse("---\n\n---").?.within,
-    );
-    try testing.expectEqualStrings(
-        "",
-        parse("---\n\n---").?.after,
-    );
+    const t = struct {
+        pub inline fn within(expected: []const u8, input: []const u8) !void {
+            const result = parse(input);
+            try testing.expect(result != null);
+            try testing.expectEqualStrings(expected, result.?.within);
+        }
+        pub inline fn after(expected: []const u8, input: []const u8) !void {
+            const result = parse(input);
+            try testing.expect(result != null);
+            try testing.expectEqualStrings(expected, result.?.after);
+        }
+    };
 
-    try testing.expectEqualStrings(
-        "\n",
-        parse("---\n\n\n---").?.within,
-    );
+    try t.within("", "---\n\n---");
+    try t.after("", "---\n\n---");
 
-    try testing.expectEqualStrings(
-        "id: foo",
-        parse("---\nid: foo\n---").?.within,
-    );
+    try t.within("\n", "---\n\n\n---");
 
-    try testing.expectEqualStrings(
-        "\nFoobar",
-        parse("---\n\n---\nFoobar").?.after,
-    );
-    try testing.expectEqual(
-        7,
-        parse("---\n\n---\nFoobar").?.after.len,
-    );
+    try t.within("id: foo", "---\nid: foo\n---");
+
+    try t.after("\nFoobar", "---\n\n\n---\nFoobar");
 }
