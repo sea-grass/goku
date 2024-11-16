@@ -12,6 +12,7 @@ const mustache = @import("mustache.zig");
 const page = @import("page.zig");
 const std = @import("std");
 const storage = @import("storage.zig");
+const testing = std.testing;
 const tracy = @import("tracy");
 const Database = @import("Database.zig");
 const markdown = @import("markdown.zig");
@@ -375,5 +376,59 @@ fn renderPage(
             .site_root = url_prefix orelse "",
         },
         writer,
+    );
+}
+
+const @"test" = struct {
+    /// Test that the provided content is rendered correctly.
+    pub fn content(expected: []const u8, markdown_content: []const u8) !void {
+        const page_to_render: page.Page = .{
+            .markdown = .{
+                .content = markdown_content,
+
+                .frontmatter =
+                \\---
+                \\slug: /
+                \\title: Hello, world!
+                \\---
+                ,
+            },
+        };
+
+        const template = "{{&content}}";
+
+        var db = blk: {
+            var db = try Database.init(testing.allocator);
+
+            try storage.Page.init(&db);
+            try storage.Template.init(&db);
+            break :blk db;
+        };
+
+        defer db.deinit();
+
+        var buf = std.ArrayList(u8).init(testing.allocator);
+        defer buf.deinit();
+
+        const writer = buf.writer();
+
+        try renderPage(
+            testing.allocator,
+            page_to_render,
+            .{ .bytes = template },
+            &db,
+            null,
+            writer,
+        );
+
+        try testing.expectEqualStrings(expected, buf.items);
+    }
+};
+
+test renderPage {
+    try @"test".content(
+        "<p>\nHello, world!</p>",
+        \\Hello, world!
+        ,
     );
 }
