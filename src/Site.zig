@@ -28,10 +28,6 @@ db: *Database,
 
 const Site = @This();
 
-const WriteHtmlSitemapIterator = storage.Page.Iterator(
-    struct { slug: []const u8, title: []const u8 },
-);
-
 const HtmlSitemap = struct {
     // HTML HtmlSitemap looks like this:
     // <nav><ul>
@@ -63,7 +59,7 @@ const HtmlSitemap = struct {
 
         // iterate over pages in site
         {
-            var it = try storage.Page.iterator(
+            var it = try storage.Page.iterate(
                 struct { slug: []const u8, title: []const u8 },
                 site.allocator,
                 site.db,
@@ -92,10 +88,6 @@ const HtmlSitemap = struct {
         try writer.writeAll(postamble);
     }
 };
-
-const WritePagesIterator = storage.Page.Iterator(
-    struct { slug: []const u8, filepath: []const u8 },
-);
 
 const fallback_template =
     "<!-- Missing template in page frontmatter -->{{& content }}";
@@ -168,7 +160,7 @@ fn writeAssets(out_dir: fs.Dir) !void {
 }
 
 fn writePages(self: Site, out_dir: fs.Dir) !void {
-    var it = try storage.Page.iterator(
+    var it = try storage.Page.iterate(
         struct { slug: []const u8, filepath: []const u8 },
         self.allocator,
         self.db,

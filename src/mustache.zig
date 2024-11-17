@@ -7,29 +7,8 @@ const log = std.log.scoped(.mustache);
 const lucide = @import("lucide");
 const mem = std.mem;
 const std = @import("std");
-
-const get_pages = .{
-    .stmt =
-    \\SELECT slug, date, title
-    \\FROM pages
-    \\WHERE collection = ?
-    \\ORDER BY date DESC, title ASC
-    ,
-    .type = struct {
-        slug: []const u8,
-        date: []const u8,
-        title: []const u8,
-    },
-};
-
-const get_page = .{
-    .stmt =
-    \\SELECT slug, title FROM pages WHERE collection = ?
-    \\ORDER BY date DESC
-    \\LIMIT 1
-    ,
-    .type = struct { slug: []const u8, title: []const u8 },
-};
+const storage = @import("storage.zig");
+const testing = std.testing;
 
 pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: anytype, writer: anytype) !void {
     var arena = heap.ArenaAllocator.init(allocator);
@@ -46,6 +25,34 @@ pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: any
     // ...but currently the render context is responsible for the output buffering.
     const result = try renderMustache(template, &Context.vtable, &render_context, writer);
     _ = result;
+}
+
+test renderStream {
+    var buf = std.ArrayList(u8).init(testing.allocator);
+    defer buf.deinit();
+
+    const template = "{{title}}";
+
+    var db = try @import("Database.zig").init(testing.allocator);
+    try storage.Page.init(&db);
+    try storage.Template.init(&db);
+    defer db.deinit();
+
+    try renderStream(
+        testing.allocator,
+        template,
+        .{
+            .db = db,
+            .site_root = "/",
+            .data = .{
+                .title = "foo",
+                .slug = "/foo",
+            },
+        },
+        buf.writer(),
+    );
+
+    try testing.expectEqualStrings("foo", buf.items);
 }
 
 const RenderMustacheError = error{ UnexpectedBehaviour, CouldNotRenderTemplate };
@@ -191,6 +198,20 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                     var list_buf = std.ArrayList(u8).init(ctx.arena);
                     defer list_buf.deinit();
 
+                    const get_pages = .{
+                        .stmt =
+                        \\SELECT slug, date, title
+                        \\FROM pages
+                        \\WHERE collection = ?
+                        \\ORDER BY date DESC, title ASC
+                        ,
+                        .type = struct {
+                            slug: []const u8,
+                            date: []const u8,
+                            title: []const u8,
+                        },
+                    };
+
                     var get_stmt = try ctx.context.db.db.prepare(get_pages.stmt);
                     defer get_stmt.deinit();
 
@@ -233,6 +254,15 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                 } else if (mem.endsWith(u8, key, ".latest")) {
                     const collection = key["collections.".len .. key.len - ".latest".len];
 
+                    const get_page = .{
+                        .stmt =
+                        \\SELECT slug, title FROM pages WHERE collection = ?
+                        \\ORDER BY date DESC
+                        \\LIMIT 1
+                        ,
+                        .type = struct { slug: []const u8, title: []const u8 },
+                    };
+
                     var get_stmt = try ctx.context.db.db.prepare(get_page.stmt);
                     defer get_stmt.deinit();
 
@@ -244,6 +274,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                             .collection = collection,
                         },
                     ) orelse return error.EmptyCollection;
+
                     // TODO is there a way to free this?
                     //defer row.deinit();
 

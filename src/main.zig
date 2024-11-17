@@ -10,6 +10,7 @@ const process = std.process;
 const filesystem = @import("source/filesystem.zig");
 const std = @import("std");
 const storage = @import("storage.zig");
+const testing = std.testing;
 const time = std.time;
 const tracy = @import("tracy");
 const Database = @import("Database.zig");

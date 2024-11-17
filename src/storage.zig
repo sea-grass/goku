@@ -44,7 +44,7 @@ test "Page" {
     var get_stmt = try db.db.prepare(query);
     defer get_stmt.deinit();
 
-    var it = try Page.iterator(
+    var it = try Page.iterate(
         struct { slug: []const u8, date: []const u8, title: []const u8 },
         testing.allocator,
         &db,
@@ -68,7 +68,7 @@ test "Template" {
     try Template.init(&db);
     try Template.insert(&db, .{ .filepath = "/path/to/template.html" });
 
-    var it = try Template.iterator(
+    var it = try Template.iterate(
         struct { filepath: []const u8 },
         testing.allocator,
         &db,
