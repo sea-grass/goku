@@ -152,7 +152,7 @@ pub fn build(b: *std.Build) void {
         // We provide a name to the unit tests so the generated
         // docs will use it for the namespace.
         .name = "goku",
-        .root_source_file = b.path("src/test.zig"),
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
         .test_runner = b.dependency("custom-test-runner", .{}).path("src/test_runner.zig"),
