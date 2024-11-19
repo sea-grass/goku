@@ -21,7 +21,7 @@ pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: any
         .writer = writer,
     };
 
-    try mustache_writer.write(template, writer);
+    try mustache_writer.write(template);
 }
 
 test renderStream {
@@ -68,9 +68,7 @@ fn MustacheWriterType(comptime Context: type, comptime Writer: type) type {
         };
 
         const WriteError = error{ UnexpectedBehaviour, CouldNotRenderTemplate };
-        pub fn write(ctx: *Self, template: []const u8, writer: anytype) WriteError!void {
-            _ = writer;
-
+        pub fn write(ctx: *Self, template: []const u8) WriteError!void {
             var result: [*c]const u8 = null;
             var result_len: usize = undefined;
 
