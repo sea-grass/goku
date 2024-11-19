@@ -14,8 +14,8 @@ pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: any
     var arena = heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    const Context = RenderContext(@TypeOf(context), @TypeOf(writer));
-    var render_context: Context = .{
+    const MustacheWriter = MustacheWriterType(@TypeOf(context), @TypeOf(writer));
+    var render_context: MustacheWriter = .{
         .arena = arena.allocator(),
         .context = context,
         .writer = writer,
@@ -23,7 +23,7 @@ pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: any
 
     // We want renderMustache to control the rendering, so we give it a writer
     // ...but currently the render context is responsible for the output buffering.
-    const result = try renderMustache(template, &Context.vtable, &render_context, writer);
+    const result = try renderMustache(template, &MustacheWriter.vtable, &render_context, writer);
     _ = result;
 }
 
@@ -103,7 +103,7 @@ fn renderMustache(template: []const u8, vtable: *const c.mustach_itf, ctx: anyty
     return .{};
 }
 
-fn RenderContext(comptime Context: type, comptime Writer: type) type {
+fn MustacheWriterType(comptime Context: type, comptime Writer: type) type {
     return struct {
         arena: mem.Allocator,
         context: Context,
