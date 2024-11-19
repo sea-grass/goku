@@ -155,7 +155,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
-        .test_runner = b.dependency("custom-test-runner", .{}).path("src/test_runner.zig"),
+        //.test_runner = b.dependency("custom-test-runner", .{}).path("src/test_runner.zig"),
     });
     exe_unit_tests.root_module.addImport("bulma", bulma.module("bulma"));
     exe_unit_tests.root_module.addImport("c", c_mod);
@@ -263,6 +263,7 @@ const BuildCModuleOptions = struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 };
+
 pub fn buildCModule(b: *std.Build, opts: BuildCModuleOptions) *std.Build.Module {
     const md4c = opts.md4c;
     const mustach = opts.mustach;
