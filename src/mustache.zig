@@ -68,7 +68,7 @@ fn MustacheWriterType(comptime Context: type, comptime Writer: type) type {
         };
 
         const WriteError = error{ UnexpectedBehaviour, CouldNotRenderTemplate };
-        pub fn write(ctx: *Self, template: []const u8) WriteError!void {
+        pub fn write(ctx: *MustacheWriter, template: []const u8) WriteError!void {
             var result: [*c]const u8 = null;
             var result_len: usize = undefined;
 
@@ -110,9 +110,9 @@ fn MustacheWriterType(comptime Context: type, comptime Writer: type) type {
             }
         }
 
-        const Self = @This();
+        const MustacheWriter = @This();
 
-        fn getKnownFromContext(self: *Self, key: []const u8) !?[]const u8 {
+        fn getKnownFromContext(self: *MustacheWriter, key: []const u8) !?[]const u8 {
 
             // These are known goku constants that are expected to be available during page rendering.
             const context_keys = &.{ "content", "site_root" };
@@ -131,7 +131,7 @@ fn MustacheWriterType(comptime Context: type, comptime Writer: type) type {
             return null;
         }
 
-        fn getFromContextData(self: *Self, key: []const u8) !?[]const u8 {
+        fn getFromContextData(self: *MustacheWriter, key: []const u8) !?[]const u8 {
             inline for (@typeInfo(@TypeOf(self.context.data)).@"struct".fields) |f| {
                 if (mem.eql(u8, key, f.name)) {
                     switch (@typeInfo(f.type)) {
@@ -160,7 +160,7 @@ fn MustacheWriterType(comptime Context: type, comptime Writer: type) type {
             return null;
         }
 
-        fn getLucideIcon(_: *Self, key: []const u8) !?[]const u8 {
+        fn getLucideIcon(_: *MustacheWriter, key: []const u8) !?[]const u8 {
             if (mem.startsWith(u8, key, "lucide.")) {
                 return lucide.icon(key["lucide.".len..]);
             }
@@ -168,7 +168,7 @@ fn MustacheWriterType(comptime Context: type, comptime Writer: type) type {
             return null;
         }
 
-        fn gget(ctx: *Self, key: []const u8) !?[]const u8 {
+        fn gget(ctx: *MustacheWriter, key: []const u8) !?[]const u8 {
             if (try ctx.getKnownFromContext(key)) |value| {
                 return value;
             }
@@ -339,7 +339,7 @@ fn MustacheWriterType(comptime Context: type, comptime Writer: type) type {
         // Will write the contents of `buf` to an internal buffer.
         // If `is_escaped` is true, it will escape the contents as
         // it streams them.
-        fn eemit(self: *Self, buf: []const u8, is_escaped: bool) !void {
+        fn eemit(self: *MustacheWriter, buf: []const u8, is_escaped: bool) !void {
             if (is_escaped) {
                 var escaped = std.ArrayList(u8).init(self.arena);
                 defer escaped.deinit();
