@@ -16,7 +16,7 @@ const tracy = @import("tracy");
 const Database = @import("Database.zig");
 const Site = @import("Site.zig");
 
-pub const std_options = .{
+pub const std_options: std.Options = .{
     .log_level = switch (@import("builtin").mode) {
         .Debug => .debug,
         else => .info,
