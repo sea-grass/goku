@@ -14,8 +14,10 @@ pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: any
     var arena = heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    const MustacheWriter = MustacheWriterType(@TypeOf(context), @TypeOf(writer));
-    var mustache_writer: MustacheWriter = .{
+    var mustache_writer: MustacheWriterType(
+        @TypeOf(context),
+        @TypeOf(writer),
+    ) = .{
         .arena = arena.allocator(),
         .context = context,
         .writer = writer,
