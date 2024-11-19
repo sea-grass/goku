@@ -1,7 +1,8 @@
-const mem = std.mem;
-const log = std.log.scoped(.Page);
-const std = @import("std");
 const Data = @import("Data.zig");
+const log = std.log.scoped(.Page);
+const mem = std.mem;
+const std = @import("std");
+const testing = std.testing;
 
 pub const Page = union(enum) {
     markdown: struct {
@@ -10,14 +11,49 @@ pub const Page = union(enum) {
     },
 
     pub fn data(self: Page, allocator: mem.Allocator) !Data {
-        var diag: Data.Diagnostics = undefined;
         return Data.fromYamlString(
             allocator,
             self.markdown.frontmatter,
-            &diag,
+            null,
         ) catch |err| {
-            diag.printErr(log);
             return err;
         };
     }
+
+    test data {
+        const frontmatter =
+            \\---
+            \\title: Hello, world
+            \\slug: /
+            \\---
+        ;
+
+        const result = try data(
+            .{
+                .markdown = .{
+                    .content = "",
+                    .frontmatter = frontmatter,
+                },
+            },
+            testing.allocator,
+        );
+        defer result.deinit(testing.allocator);
+
+        try testing.expectEqualStrings("Hello, world", result.title.?);
+    }
+
+    test "data error" {
+        const frontmatter =
+            \\---
+            \\---
+        ;
+
+        const result = data(.{ .markdown = .{ .content = "", .frontmatter = frontmatter } }, testing.allocator);
+
+        try testing.expectError(error.MissingSlug, result);
+    }
 };
+
+test {
+    std.testing.refAllDecls(@This());
+}

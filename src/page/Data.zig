@@ -27,13 +27,11 @@ pub fn fromReader(allocator: mem.Allocator, reader: anytype, max_len: usize) err
 
     const code_fence_result = CodeFence.parse(bytes) orelse return error.MissingFrontmatter;
 
-    var diag: Diagnostics = undefined;
     return fromYamlString(
         allocator,
         code_fence_result.within,
-        &diag,
+        null,
     ) catch {
-        diag.printErr(log);
         return error.ParseError;
     };
 }
