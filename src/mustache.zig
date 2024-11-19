@@ -21,7 +21,7 @@ pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: any
         .writer = writer,
     };
 
-    try renderMustache(template, &MustacheWriter.vtable, &mustache_writer, writer);
+    try MustacheWriter.write(template, &MustacheWriter.vtable, &mustache_writer, writer);
 }
 
 test renderStream {
@@ -52,51 +52,6 @@ test renderStream {
     try testing.expectEqualStrings("foo", buf.items);
 }
 
-const RenderMustacheError = error{ UnexpectedBehaviour, CouldNotRenderTemplate };
-fn renderMustache(template: []const u8, vtable: *const c.mustach_itf, ctx: anytype, writer: anytype) RenderMustacheError!void {
-    _ = writer;
-
-    var result: [*c]const u8 = null;
-    var result_len: usize = undefined;
-
-    const return_val = c.mustach_mem(
-        @ptrCast(template),
-        template.len,
-        vtable,
-        ctx,
-        0,
-        @ptrCast(&result),
-        &result_len,
-    );
-
-    switch (return_val) {
-        c.MUSTACH_OK => {
-            // We provide our own emit callback so any result written
-            // by mustach is undefined behaviour
-            if (result_len != 0) return error.UnexpectedBehaviour;
-            // We don't expect mustach to write anything to result, but it does
-            // modify the address in result for some reason? In any case, here
-            // we make sure that it's the empty string if it is set.
-            if (result != null and result[0] != 0) return error.UnexpectedBehaviour;
-        },
-        c.MUSTACH_ERROR_SYSTEM,
-        c.MUSTACH_ERROR_INVALID_ITF,
-        c.MUSTACH_ERROR_UNEXPECTED_END,
-        c.MUSTACH_ERROR_BAD_UNESCAPE_TAG,
-        c.MUSTACH_ERROR_EMPTY_TAG,
-        c.MUSTACH_ERROR_BAD_DELIMITER,
-        c.MUSTACH_ERROR_TOO_DEEP,
-        c.MUSTACH_ERROR_CLOSING,
-        c.MUSTACH_ERROR_TOO_MUCH_NESTING,
-        => |err| {
-            log.debug("Uh oh! Error {any}\n", .{err});
-            return error.CouldNotRenderTemplate;
-        },
-        // We've handled all other known mustach return codes
-        else => unreachable,
-    }
-}
-
 fn MustacheWriterType(comptime Context: type, comptime Writer: type) type {
     return struct {
         arena: mem.Allocator,
@@ -111,6 +66,51 @@ fn MustacheWriterType(comptime Context: type, comptime Writer: type) type {
             .leave = leave,
             .partial = partial,
         };
+
+        const WriteError = error{ UnexpectedBehaviour, CouldNotRenderTemplate };
+        pub fn write(template: []const u8, _vtable: *const c.mustach_itf, ctx: anytype, writer: anytype) WriteError!void {
+            _ = writer;
+
+            var result: [*c]const u8 = null;
+            var result_len: usize = undefined;
+
+            const return_val = c.mustach_mem(
+                @ptrCast(template),
+                template.len,
+                _vtable,
+                ctx,
+                0,
+                @ptrCast(&result),
+                &result_len,
+            );
+
+            switch (return_val) {
+                c.MUSTACH_OK => {
+                    // We provide our own emit callback so any result written
+                    // by mustach is undefined behaviour
+                    if (result_len != 0) return error.UnexpectedBehaviour;
+                    // We don't expect mustach to write anything to result, but it does
+                    // modify the address in result for some reason? In any case, here
+                    // we make sure that it's the empty string if it is set.
+                    if (result != null and result[0] != 0) return error.UnexpectedBehaviour;
+                },
+                c.MUSTACH_ERROR_SYSTEM,
+                c.MUSTACH_ERROR_INVALID_ITF,
+                c.MUSTACH_ERROR_UNEXPECTED_END,
+                c.MUSTACH_ERROR_BAD_UNESCAPE_TAG,
+                c.MUSTACH_ERROR_EMPTY_TAG,
+                c.MUSTACH_ERROR_BAD_DELIMITER,
+                c.MUSTACH_ERROR_TOO_DEEP,
+                c.MUSTACH_ERROR_CLOSING,
+                c.MUSTACH_ERROR_TOO_MUCH_NESTING,
+                => |err| {
+                    log.debug("Uh oh! Error {any}\n", .{err});
+                    return error.CouldNotRenderTemplate;
+                },
+                // We've handled all other known mustach return codes
+                else => unreachable,
+            }
+        }
 
         const Self = @This();
 
