@@ -15,16 +15,13 @@ pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: any
     defer arena.deinit();
 
     const MustacheWriter = MustacheWriterType(@TypeOf(context), @TypeOf(writer));
-    var render_context: MustacheWriter = .{
+    var mustache_writer: MustacheWriter = .{
         .arena = arena.allocator(),
         .context = context,
         .writer = writer,
     };
 
-    // We want renderMustache to control the rendering, so we give it a writer
-    // ...but currently the render context is responsible for the output buffering.
-    const result = try renderMustache(template, &MustacheWriter.vtable, &render_context, writer);
-    _ = result;
+    try renderMustache(template, &MustacheWriter.vtable, &mustache_writer, writer);
 }
 
 test renderStream {
@@ -56,8 +53,7 @@ test renderStream {
 }
 
 const RenderMustacheError = error{ UnexpectedBehaviour, CouldNotRenderTemplate };
-const RenderMustacheResult = struct {};
-fn renderMustache(template: []const u8, vtable: *const c.mustach_itf, ctx: anytype, writer: anytype) RenderMustacheError!RenderMustacheResult {
+fn renderMustache(template: []const u8, vtable: *const c.mustach_itf, ctx: anytype, writer: anytype) RenderMustacheError!void {
     _ = writer;
 
     var result: [*c]const u8 = null;
@@ -99,8 +95,6 @@ fn renderMustache(template: []const u8, vtable: *const c.mustach_itf, ctx: anyty
         // We've handled all other known mustach return codes
         else => unreachable,
     }
-
-    return .{};
 }
 
 fn MustacheWriterType(comptime Context: type, comptime Writer: type) type {
