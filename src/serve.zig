@@ -84,7 +84,79 @@ fn readSitemap(allocator: mem.Allocator, public_folder_path: []const u8) ![]cons
 
 const Server = struct {
     allocator: mem.Allocator,
-    listener: zap.HttpListener,
+    listener: zap.Endpoint.Listener,
+    public: Public,
+
+    const Public = struct {
+        public_folder: []const u8,
+        ep: zap.Endpoint,
+
+        pub fn init(public_folder: []const u8) Public {
+            return .{
+                .ep = zap.Endpoint.init(.{
+                    .path = "/",
+                    .get = get,
+                }),
+                .public_folder = public_folder,
+            };
+        }
+
+        pub fn deinit(self: Public) void {
+            self.ep.deinit();
+        }
+
+        pub fn endpoint(self: *Public) *zap.Endpoint {
+            return &self.ep;
+        }
+
+        fn get(ep: *zap.Endpoint, r: zap.Request) void {
+            getWithError(
+                @fieldParentPtr("ep", ep),
+                r,
+            ) catch {};
+        }
+
+        fn getWithError(self: *Public, r: zap.Request) !void {
+            if (r.path == null) return error.MissingPath;
+
+            var buf: [fs.max_path_bytes]u8 = undefined;
+            var fba = heap.FixedBufferAllocator.init(&buf);
+
+            const path = file: {
+                if (mem.endsWith(u8, r.path.?, "/")) {
+                    break :file try fs.path.join(
+                        fba.allocator(),
+                        &.{ self.public_folder, r.path.?, "index.html" },
+                    );
+                } else {
+                    break :file try fs.path.join(
+                        fba.allocator(),
+                        &.{ self.public_folder, r.path.? },
+                    );
+                }
+            };
+
+            if (mem.endsWith(u8, path, ".html")) {
+                try r.setHeader("Cache-Control", "no-cache");
+            }
+            r.sendFile(path) catch |err| {
+                if (mem.endsWith(u8, path, "index.html")) {
+                    return err;
+                }
+            };
+
+            fba.reset();
+            if (mem.endsWith(u8, path, ".html")) {
+                try r.setHeader("Cache-Control", "no-cache");
+            }
+            try r.sendFile(
+                try fs.path.join(
+                    fba.allocator(),
+                    &.{ self.public_folder, r.path.?, "index.html" },
+                ),
+            );
+        }
+    };
 
     pub const Options = struct {
         allocator: mem.Allocator,
@@ -96,20 +168,22 @@ const Server = struct {
 
         self.* = .{
             .allocator = opts.allocator,
-            .listener = zap.HttpListener.init(.{
+            .listener = zap.Endpoint.Listener.init(opts.allocator, .{
                 .port = opts.port,
-                .on_request = Server.onRequest,
-                .on_upgrade = if (enable_websocket) Server.onUpgrade else null,
+                .on_request = onRequest,
+                .on_upgrade = if (enable_websocket) onUpgrade else null,
                 .log = true,
                 .max_clients = 10,
                 .max_body_size = 1 * 1024, // careful here  HUH ????
-                .public_folder = opts.public_folder,
             }),
+            .public = Public.init(opts.public_folder),
         };
+
+        self.listener.register(self.public.endpoint()) catch @panic("Could not register public_folder endpoint");
     }
 
     pub fn deinit(self: *Server) void {
-        _ = self;
+        self.listener.deinit();
     }
 
     pub fn start(self: *Server) !void {
@@ -125,7 +199,7 @@ const Server = struct {
     }
 
     fn onRequest(r: zap.Request) void {
-        handle(r) catch |err| switch (err) {
+        handleStatic(r) catch handle(r) catch |err| switch (err) {
             error.NotFound => {
                 r.setStatus(.not_found);
                 r.sendBody("Not found") catch {};
@@ -144,6 +218,10 @@ const Server = struct {
 
         // I don't want to use a global variable, but they have it in their example
         // I think I'll need to make this an endpoint.
+    }
+
+    fn handleStatic(r: zap.Request) !void {
+        try r.sendBody("Wee!");
     }
 
     fn handle(r: zap.Request) !void {
