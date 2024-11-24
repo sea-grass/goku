@@ -84,32 +84,115 @@ fn readSitemap(allocator: mem.Allocator, public_folder_path: []const u8) ![]cons
 
 const Server = struct {
     allocator: mem.Allocator,
-    listener: zap.HttpListener,
+    listener: zap.Endpoint.Listener,
+    public: Public,
+
+    const Public = struct {
+        public_folder: []const u8,
+        ep: zap.Endpoint,
+
+        pub fn init(public_folder: []const u8) Public {
+            return .{
+                .ep = zap.Endpoint.init(.{
+                    .path = "/",
+                    .get = get,
+                }),
+                .public_folder = public_folder,
+            };
+        }
+
+        pub fn deinit(self: Public) void {
+            _ = self;
+        }
+
+        pub fn endpoint(self: *Public) *zap.Endpoint {
+            return &self.ep;
+        }
+
+        fn get(ep: *zap.Endpoint, r: zap.Request) void {
+            getWithError(
+                @fieldParentPtr("ep", ep),
+                r,
+            ) catch {};
+        }
+
+        fn filePath(self: *Public, path: []const u8, buf: []u8) ![]const u8 {
+            var fba = heap.FixedBufferAllocator.init(buf);
+
+            return try fs.path.join(
+                fba.allocator(),
+                &.{ self.public_folder, path },
+            );
+        }
+
+        fn customCacheControlHeader(path: []const u8) ?[]const u8 {
+            inline for (&.{
+                ".html",
+                "sources.tar",
+            }) |suffix| {
+                if (mem.endsWith(u8, path, suffix))
+                    return "no-cache";
+            }
+            return null;
+        }
+
+        fn getWithError(self: *Public, r: zap.Request) !void {
+            if (r.path == null) return error.MissingPath;
+
+            var buf: [fs.max_path_bytes]u8 = undefined;
+            const path = try self.filePath(r.path.?, &buf);
+
+            if (customCacheControlHeader(path)) |value| {
+                try r.setHeader("Cache-Control", value);
+            }
+
+            r.sendFile(path) catch |err| switch (err) {
+                error.SendFile => {
+                    return handleFallback(r);
+                },
+                else => return err,
+            };
+        }
+
+        fn handleFallback(r: zap.Request) error{ NotFound, Foobie, MalformedRequestPath }!void {
+            if (!mem.endsWith(u8, r.path.?, "/")) {
+                var buf: [fs.max_path_bytes]u8 = undefined;
+                const path: []const u8 = fmt.bufPrint(&buf, "{s}/", .{r.path.?}) catch return error.Foobie;
+                r.redirectTo(path, .temporary_redirect) catch return error.Foobie;
+            }
+
+            return error.NotFound;
+        }
+    };
 
     pub const Options = struct {
         allocator: mem.Allocator,
         port: u16,
         public_folder: []const u8,
     };
+
     pub fn init(self: *Server, opts: Options) void {
         zap.mimetypeRegister("wasm", "application/wasm");
 
         self.* = .{
             .allocator = opts.allocator,
-            .listener = zap.HttpListener.init(.{
+            .listener = zap.Endpoint.Listener.init(opts.allocator, .{
                 .port = opts.port,
-                .on_request = Server.onRequest,
-                .on_upgrade = if (enable_websocket) Server.onUpgrade else null,
+                .on_request = onRequest,
                 .log = true,
                 .max_clients = 10,
                 .max_body_size = 1 * 1024, // careful here  HUH ????
-                .public_folder = opts.public_folder,
             }),
+            .public = Public.init(opts.public_folder),
         };
+
+        self.listener.register(self.public.endpoint()) catch
+            @panic("Could not register public_folder endpoint");
     }
 
     pub fn deinit(self: *Server) void {
-        _ = self;
+        self.listener.deinit();
+        self.public.deinit();
     }
 
     pub fn start(self: *Server) !void {
@@ -125,56 +208,7 @@ const Server = struct {
     }
 
     fn onRequest(r: zap.Request) void {
-        handle(r) catch |err| switch (err) {
-            error.NotFound => {
-                r.setStatus(.not_found);
-                r.sendBody("Not found") catch {};
-            },
-            else => {},
-        };
-    }
-
-    fn onUpgrade(r: zap.Request, target_protocol: []const u8) void {
-        if (!mem.eql(u8, target_protocol, "websocket")) {
-            log.warn("Received illegal protocol: {s}", .{target_protocol});
-            r.setStatus(.bad_request);
-            r.sendBody("400 Bad Request") catch @panic("Failed to send 400 response");
-            return;
-        }
-
-        // I don't want to use a global variable, but they have it in their example
-        // I think I'll need to make this an endpoint.
-    }
-
-    fn handle(r: zap.Request) !void {
-        // TODO websocket feature check will be via a runtime arg
-        if (comptime enable_websocket and mem.eql(u8, r.path.?, "/ws")) {
-            try handleWebsocket(r);
-        } else {
-            try handleFallback(r);
-        }
-    }
-
-    fn handleWebsocket(r: zap.Request) !void {
-        _ = r;
-    }
-
-    // Zap will fall back to this handler if it does not find a matching file in the public folder
-    // This handler will try to redirect requests for directories to their index.html file, if possible.
-    fn handleFallback(r: zap.Request) error{ NotFound, Foobie, MalformedRequestPath }!void {
-        const path = r.path.?;
-
-        var it = mem.splitBackwardsScalar(u8, path, '/');
-        const last_part = it.next() orelse return error.MalformedRequestPath;
-
-        if (mem.lastIndexOfScalar(u8, last_part, '.') == null) {
-            // honestly, this isn't even the best approach...what if the url just has a `.` in it?
-            // TODO probably a better constant to use for max url length
-            var buf: [fs.max_path_bytes]u8 = undefined;
-            const new_path = fmt.bufPrint(&buf, "{s}/{s}", .{ path, "index.html" }) catch return error.Foobie;
-            r.redirectTo(new_path, .temporary_redirect) catch return error.Foobie;
-        }
-
-        return error.NotFound;
+        r.setStatus(.not_found);
+        r.sendBody("Not found") catch {};
     }
 };
