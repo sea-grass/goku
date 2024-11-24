@@ -69,6 +69,41 @@ const BuildSteps = struct {
     }
 };
 
+pub const Docs = struct {
+    compile: *std.Build.Step.Compile,
+    serve: *std.Build.Step.Run,
+    install: *std.Build.Step.InstallDir,
+
+    pub fn fromTests(compile: *std.Build.Step.Compile) Docs {
+        const b: *std.Build = compile.root_module.owner;
+        const target = compile.root_module.resolved_target.?;
+        const optimize = compile.root_module.optimize.?;
+
+        const install = compile.root_module.owner.addInstallDirectory(.{
+            .source_dir = compile.getEmittedDocs(),
+            .install_dir = .prefix,
+            .install_subdir = "docs",
+        });
+
+        const exe = b.addExecutable(.{
+            .name = b.fmt("serve-{s}", .{compile.name}),
+            .root_source_file = b.path("src/serve.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.root_module.addImport("zap", b.dependency("zap", .{}).module("zap"));
+
+        const serve = b.addRunArtifact(exe);
+        serve.addDirectoryArg(compile.getEmittedDocs());
+
+        return .{
+            .compile = compile,
+            .install = install,
+            .serve = serve,
+        };
+    }
+};
+
 pub fn build(b: *std.Build) void {
     const build_steps = BuildSteps.init(b);
     defer build_steps.deinit();
@@ -247,12 +282,8 @@ pub fn build(b: *std.Build) void {
     build_steps.serve.dependOn(build_steps.site);
     build_steps.serve.dependOn(&run_serve_cmd.step);
 
-    const install_docs = b.addInstallDirectory(.{
-        .source_dir = exe_unit_tests.getEmittedDocs(),
-        .install_dir = .prefix,
-        .install_subdir = "docs",
-    });
-    build_steps.docs.dependOn(&install_docs.step);
+    const docs = Docs.fromTests(exe_unit_tests);
+    build_steps.docs.dependOn(&docs.serve.step);
 }
 
 const BuildCModuleOptions = struct {
