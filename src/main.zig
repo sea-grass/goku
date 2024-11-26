@@ -25,6 +25,71 @@ pub const std_options: std.Options = .{
 
 const size_of_alice_txt = 1189000;
 
+const SubCommands = enum {
+    build,
+    help,
+    init,
+};
+
+const main_parsers = .{
+    .command = clap.parsers.enumeration(SubCommands),
+};
+
+const main_params = clap.parseParamsComptime(
+    \\-h, --help  Display this help text and exit.
+    \\<command>
+    \\
+);
+
+const MainArgs = clap.ResultEx(clap.Help, &main_params, main_parsers);
+
+pub fn main() !void {
+    var gpa: heap.GeneralPurposeAllocator(.{}) = .{};
+    defer _ = gpa.deinit();
+    const unlimited_allocator = gpa.allocator();
+
+    var iter = try process.ArgIterator.initWithAllocator(unlimited_allocator);
+    defer iter.deinit();
+
+    // skip exe name
+    _ = iter.next();
+
+    var diag: clap.Diagnostic = .{};
+    var res = clap.parseEx(clap.Help, &main_params, main_parsers, &iter, .{
+        .diagnostic = &diag,
+        .allocator = unlimited_allocator,
+
+        // Terminate the parsing of arguments after the first positional,
+        // the subcommand. This will leave the rest of the iter args unconsumed,
+        // so the iter can be reused for parsing the subcommand arguments.
+        .terminating_positional = 0,
+    }) catch |err| {
+        diag.report(io.getStdErr().writer(), err) catch {};
+        return err;
+    };
+    defer res.deinit();
+
+    if (res.args.help != 0) {
+        log.info("JHelp", .{});
+        process.exit(0);
+    }
+
+    const command = res.positionals[0] orelse return error.MissingCommand;
+
+    switch (command) {
+        .help => {
+            log.info("GHelp", .{});
+            process.exit(0);
+        },
+        .init => {
+            log.info("init", .{});
+        },
+        .build => {
+            log.info("build", .{});
+        },
+    }
+}
+
 const BuildCommand = struct {
     site_root: []const u8,
     out_dir: []const u8,
@@ -156,7 +221,7 @@ const BuildCommand = struct {
     }
 };
 
-pub fn main() !void {
+pub fn main2() !void {
     const start = time.milliTimestamp();
     log.info("mode {s}", .{@tagName(@import("builtin").mode)});
 

@@ -3,8 +3,8 @@
     .version = "0.0.3",
     .dependencies = .{
         .clap = .{
-            .url = "git+https://github.com/Hejsil/zig-clap#e9207ad2b86131fa9f0dfbd5c68cafd67f00fe64",
-            .hash = "1220cb2f28680ef73c1020bfd8c7b08de38821b0bc19b5469f60dcf813f1d8455dbd",
+            .url = "git+https://github.com/Hejsil/zig-clap#560c8dd72ab25d556123846254040c5bf9ad3ba4",
+            .hash = "12200abadc141099ff2ba5098f7eca9bf84d548dd92ec5827ef323d813d59b049780",
         },
         .@"custom-test-runner" = .{ .path = "./modules/custom-test-runner" },
         .bulma = .{ .path = "./modules/bulma" },
