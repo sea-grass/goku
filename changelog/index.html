@@ -2,7 +2,7 @@
 <html>
   <head>
     <title>Changelog</title>
-    <link rel="stylesheet" type="text/css" href="/bulma.css" />
+    <link rel="stylesheet" type="text/css" href="/goku/bulma.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>a[href^="https://"]::after {
         content: " [*]";
@@ -80,6 +80,14 @@
         <p class="subtitle"></p>
         <section class="content">
           <h2>
+0.0.6</h2>
+<p>
+This release is a quick follow-up to the previous release to fix a bug with the theme shortcodes.</p><h3>
+Shortcodes</h3>
+<ul>
+<li>
+<code>{{& theme.head }}</code> now correctly references theme assets according to the <code>url_prefix</code>, if provided.</li></ul>
+<h2>
 0.0.5</h2>
 <p>
 This PR contains many changes that are under the hood to support future features. User-facing changes include a more recent supported Zig version, updates to page parameters, more informative error messages, updates to shortcodes, and improvements to the markdown renderer.</p><h3>
