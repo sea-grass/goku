@@ -7,14 +7,16 @@ const log = std.log.scoped(.goku);
 const mem = std.mem;
 const page = @import("page.zig");
 const process = std.process;
-const source = @import("source.zig");
+const filesystem = @import("source/filesystem.zig");
 const std = @import("std");
+const storage = @import("storage.zig");
+const testing = std.testing;
 const time = std.time;
 const tracy = @import("tracy");
 const Database = @import("Database.zig");
 const Site = @import("Site.zig");
 
-pub const std_options = .{
+pub const std_options: std.Options = .{
     .log_level = switch (@import("builtin").mode) {
         .Debug => .debug,
         else => .info,
@@ -199,6 +201,9 @@ pub fn main() !void {
     var db = try Database.init(unlimited_allocator);
     defer db.deinit();
 
+    try storage.Page.init(&db);
+    try storage.Template.init(&db);
+
     //
     // INDEX SITE
     //
@@ -206,8 +211,15 @@ pub fn main() !void {
     var page_count: u32 = 0;
 
     {
-        var page_it = source.filesystem.walker(build.site_root, "pages");
-        while (try page_it.next()) |entry| {
+        var page_it = filesystem.walker(build.site_root, "pages");
+        while (page_it.next() catch |err| switch (err) {
+            error.CannotOpenDirectory => {
+                log.err("Cannot open pages dir at {s}/{s}.", .{ page_it.root, page_it.subpath });
+                log.err("Suggestion: Create the directory {s}/{s}.", .{ page_it.root, page_it.subpath });
+                return error.CannotOpenPagesDirectory;
+            },
+            else => return err,
+        }) |entry| {
             const zone = tracy.initZone(@src(), .{ .name = "Load Page from File" });
             defer zone.deinit();
 
@@ -229,6 +241,15 @@ pub fn main() !void {
                     error.MissingFrontmatter => {
                         log.err("Malformed page in source file: {s}", .{filepath});
                     },
+                    error.MissingSlug => {
+                        log.err("Page is missing required, non-empty frontmatter parameter: slug (source file: {s})", .{filepath});
+                    },
+                    error.MissingTitle => {
+                        log.err("Page is missing required, non-empty frontmatter parameter: title (source file: {s})", .{filepath});
+                    },
+                    error.MissingTemplate => {
+                        log.err("Page is missing required, non-empty frontmatter parameter: template (source file: {s})", .{filepath});
+                    },
                     else => {},
                 }
 
@@ -236,12 +257,13 @@ pub fn main() !void {
             };
             defer data.deinit(unlimited_allocator);
 
-            try Database.Page.insert(
+            try storage.Page.insert(
                 &db,
                 .{
                     .slug = data.slug,
                     .title = data.title orelse "(missing title)",
                     .filepath = filepath,
+                    .template = data.template.?,
                     .collection = data.collection orelse "",
                     .date = data.date,
                 },
@@ -255,8 +277,15 @@ pub fn main() !void {
     var template_count: u32 = 0;
 
     {
-        var template_it = source.filesystem.walker(build.site_root, "templates");
-        while (try template_it.next()) |entry| {
+        var template_it = filesystem.walker(build.site_root, "templates");
+        while (template_it.next() catch |err| switch (err) {
+            error.CannotOpenDirectory => {
+                log.err("Cannot open templates dir at {s}/{s}.", .{ template_it.root, template_it.subpath });
+                log.err("Suggestion: Create the directory {s}/{s}.", .{ template_it.root, template_it.subpath });
+                return error.CannotOpenTemplatesDirectory;
+            },
+            else => return err,
+        }) |entry| {
             const zone = tracy.initZone(@src(), .{ .name = "Scan for template files" });
             defer zone.deinit();
 
@@ -267,11 +296,14 @@ pub fn main() !void {
             const length = try file.getEndPos();
 
             // I don't think it makes sense to have an empty template file, right?
-            debug.assert(length > 0);
+            if (length == 0) {
+                log.err("Template file cannot be empty. (template path: {s})", .{entry.subpath});
+                return error.EmptyTemplate;
+            }
 
             var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
 
-            try Database.Template.insert(
+            try storage.Template.insert(
                 &db,
                 .{
                     .filepath = try entry.realpath(&filepath_buf),
@@ -283,6 +315,71 @@ pub fn main() !void {
         }
 
         log.debug("Discovered template count {d}", .{template_count});
+    }
+
+    {
+        // Find all unique templates in pages
+        // Ensure each template exists as an entry in sqlite
+
+        const get_templates = .{
+            .stmt =
+            \\ SELECT DISTINCT template
+            \\ FROM pages
+            ,
+            .type = struct {
+                template: []const u8,
+            },
+        };
+
+        var get_stmt = try db.db.prepare(get_templates.stmt);
+        defer get_stmt.deinit();
+
+        var it = try get_stmt.iterator(
+            get_templates.type,
+            .{},
+        );
+
+        var arena = heap.ArenaAllocator.init(unlimited_allocator);
+        defer arena.deinit();
+
+        while (try it.nextAlloc(arena.allocator(), .{})) |entry| {
+            const get_template = .{
+                .stmt =
+                \\ SELECT filepath
+                \\ FROM templates
+                \\ WHERE filepath = ?
+                \\ LIMIT 1
+                ,
+                .type = struct {
+                    filepath: []const u8,
+                },
+            };
+
+            var get_template_stmt = try db.db.prepare(get_template.stmt);
+            defer get_template_stmt.deinit();
+
+            var buf: [fs.max_path_bytes]u8 = undefined;
+            var fba = heap.FixedBufferAllocator.init(&buf);
+            const filepath = try fs.path.join(fba.allocator(), &.{
+                build.site_root,
+                "templates",
+                entry.template,
+            });
+
+            const row = try get_template_stmt.oneAlloc(
+                get_template.type,
+                arena.allocator(),
+                .{},
+                .{
+                    .filepath = filepath,
+                },
+            );
+
+            if (row == null) {
+                log.err("The template ({s}) does not exist.", .{entry.template});
+                return error.MissingTemplate;
+            }
+        }
     }
 
     //
@@ -309,9 +406,4 @@ pub fn main() !void {
     // const assets_dir = try root_dir.openDir("assets");
     // const partials_dir = try root_dir.openDir("partials");
     // const themes_dir = try root_dir.openDir("themes");
-}
-
-test {
-    _ = @import("page.zig");
-    _ = @import("source.zig");
 }

@@ -1,3 +1,4 @@
+const BatchAllocator = @import("BatchAllocator.zig");
 const bulma = @import("bulma");
 const htmx = @import("htmx");
 const debug = std.debug;
@@ -10,6 +11,8 @@ const mem = std.mem;
 const mustache = @import("mustache.zig");
 const page = @import("page.zig");
 const std = @import("std");
+const storage = @import("storage.zig");
+const testing = std.testing;
 const tracy = @import("tracy");
 const Database = @import("Database.zig");
 const markdown = @import("markdown.zig");
@@ -25,29 +28,69 @@ db: *Database,
 
 const Site = @This();
 
-// HTML Sitemap looks like this:
-// <nav><ul>
-// <li><a href="{slug}">{text}</a></li>
-// <li><a href="{slug}">{text}</a></li>
-// ...
-// </ul></nav>
-const html_sitemap_preamble =
-    \\<nav><ul>
-;
-const html_sitemap_postamble =
-    \\</ul></nav>
-;
-// I went to a news website's front page and found that the longest
-// article title was 128 bytes long. That seems like it could be
-// a reasonable limit, but I'd rather just double it out of the gate
-// and set the max length to 256.
-const sitemap_url_title_len_max = 256;
-// It's ridiculous for a URL to exceed this number of bytes
-const http_uri_len_max = 2000;
-const sitemap_item_surround = "<li><a href=\"\"></a></li>";
-const html_sitemap_item_size_max = (sitemap_item_surround.len +
-    http_uri_len_max +
-    sitemap_url_title_len_max);
+const HtmlSitemap = struct {
+    // HTML HtmlSitemap looks like this:
+    // <nav><ul>
+    // <li><a href="{slug}">{text}</a></li>
+    // <li><a href="{slug}">{text}</a></li>
+    // ...
+    // </ul></nav>
+    pub const preamble =
+        \\<nav><ul>
+    ;
+    pub const postamble =
+        \\</ul></nav>
+    ;
+
+    /// It's ridiculous for a URI to exceed this number of bytes
+    pub const http_uri_len_max = 2000;
+
+    /// I went to a news website's front page and found that the longest
+    /// article title was 128 bytes long. That seems like it could be
+    /// a reasonable limit, but I'd rather just double it out of the gate
+    /// and set the max length to 256.
+    pub const url_title_len_max = 256;
+
+    pub const item_surround = "<li><a href=\"\"></a></li>";
+    pub const item_size_max = item_surround.len + http_uri_len_max + url_title_len_max;
+
+    pub fn write(site: Site, writer: anytype) !void {
+        try writer.writeAll(preamble);
+
+        // iterate over pages in site
+        {
+            var it = try storage.Page.iterate(
+                struct { slug: []const u8, title: []const u8 },
+                site.allocator,
+                site.db,
+            );
+            defer it.deinit();
+
+            while (try it.next()) |entry| {
+                var buffer: [HtmlSitemap.item_size_max]u8 = undefined;
+                var fba = heap.FixedBufferAllocator.init(
+                    &buffer,
+                );
+                var buf = std.ArrayList(u8).init(
+                    fba.allocator(),
+                );
+
+                try buf.writer().print(
+                    \\<li><a href="{s}{s}">{s}</a></li>
+                ,
+                    .{ site.url_prefix orelse "", entry.slug, entry.title },
+                );
+
+                try writer.writeAll(buf.items);
+            }
+        }
+
+        try writer.writeAll(postamble);
+    }
+};
+
+const fallback_template =
+    "<!-- Missing template in page frontmatter -->{{& content }}";
 
 pub fn init(
     allocator: mem.Allocator,
@@ -67,12 +110,11 @@ pub fn deinit(self: Site) void {
     _ = self;
 }
 
-const Part = enum {
-    sitemap,
-    assets,
-    pages,
-};
-pub fn write(self: Site, part: Part, out_dir: fs.Dir) !void {
+pub fn write(
+    self: Site,
+    part: enum { sitemap, assets, pages },
+    out_dir: fs.Dir,
+) !void {
     switch (part) {
         .sitemap => try writeSitemap(self, out_dir),
         .assets => try writeAssets(out_dir),
@@ -92,44 +134,7 @@ fn writeSitemap(self: Site, out_dir: fs.Dir) !void {
 
     var file_buf = io.bufferedWriter(file.writer());
 
-    try file_buf.writer().writeAll(html_sitemap_preamble);
-
-    {
-        const get_pages =
-            \\SELECT slug, title FROM pages;
-        ;
-
-        var get_stmt = try self.db.db.prepare(get_pages);
-        defer get_stmt.deinit();
-
-        var it = try get_stmt.iterator(
-            struct { slug: []const u8, title: []const u8 },
-            .{},
-        );
-
-        var arena = heap.ArenaAllocator.init(self.allocator);
-        defer arena.deinit();
-
-        while (try it.nextAlloc(arena.allocator(), .{})) |entry| {
-            var buffer: [html_sitemap_item_size_max]u8 = undefined;
-            var fba = heap.FixedBufferAllocator.init(
-                &buffer,
-            );
-            var buf = std.ArrayList(u8).init(
-                fba.allocator(),
-            );
-
-            try buf.writer().print(
-                \\<li><a href="{s}{s}">{s}</a></li>
-            ,
-                .{ self.url_prefix orelse "", entry.slug, entry.title },
-            );
-
-            try file_buf.writer().writeAll(buf.items);
-        }
-    }
-
-    try file_buf.writer().writeAll(html_sitemap_postamble);
+    try HtmlSitemap.write(self, file_buf.writer());
 
     try file_buf.flush();
 }
@@ -154,73 +159,28 @@ fn writeAssets(out_dir: fs.Dir) !void {
     }
 }
 
-fn WritePagesIterator(comptime query: []const u8, comptime T: type) type {
-    return struct {
-        arena: heap.ArenaAllocator,
-        stmt: Database.StatementType(.{}, query),
-        it: Database.Iterator(T),
-
-        const Self = @This();
-
-        pub fn init(ally: mem.Allocator, db: *Database) !Self {
-            var stmt = try db.db.prepare(query);
-            errdefer stmt.deinit();
-
-            const it = try stmt.iterator(T, .{});
-
-            var arena = heap.ArenaAllocator.init(ally);
-            errdefer arena.deinit();
-
-            return .{
-                .arena = arena,
-                .stmt = stmt,
-                .it = it,
-            };
-        }
-
-        pub fn deinit(self: *Self) void {
-            self.arena.deinit();
-            self.stmt.deinit();
-        }
-
-        pub fn next(self: *Self) !?T {
-            return try self.it.nextAlloc(
-                self.arena.allocator(),
-                .{},
-            );
-        }
-    };
-}
-
 fn writePages(self: Site, out_dir: fs.Dir) !void {
-    // We create an arena allocator for processing the pages. To avoid
-    // allocating/freeing memory at the start/end of each page render,
-    // we let the memory grow according to the maximum needs of a page
-    // and keep it around until we're done rendering.
-    var page_buf_allocator = heap.ArenaAllocator.init(
-        self.allocator,
-    );
-    defer page_buf_allocator.deinit();
-
-    const get_pages =
-        \\SELECT slug, filepath FROM pages;
-    ;
-    var it = try WritePagesIterator(
-        get_pages,
+    var it = try storage.Page.iterate(
         struct { slug: []const u8, filepath: []const u8 },
-    ).init(
         self.allocator,
         self.db,
     );
     defer it.deinit();
 
+    var batch_allocator = BatchAllocator.init(self.allocator);
+    defer batch_allocator.deinit();
+
     while (try it.next()) |entry| {
-        var arena = heap.ArenaAllocator.init(
-            page_buf_allocator.allocator(),
+        const zone = tracy.initZone(
+            @src(),
+            .{ .name = "Render Page Loop" },
         );
-        defer arena.deinit();
+        defer zone.deinit();
+
+        defer batch_allocator.flush();
+
         try _render(
-            &arena,
+            batch_allocator.allocator(),
             self.db,
             self.url_prefix,
             self.site_root,
@@ -231,10 +191,129 @@ fn writePages(self: Site, out_dir: fs.Dir) !void {
     }
 }
 
+// Assumes that the provided allocator is an arena.
+// Reads the page and its associated template from the filesystem
+// and writes the rendered page to a file in the out_dir.
+fn _render(
+    ally: mem.Allocator,
+    db: *Database,
+    url_prefix: ?[]const u8,
+    site_root: []const u8,
+    filepath: []const u8,
+    slug: []const u8,
+    out_dir: fs.Dir,
+) !void {
+    // Read the file contents
+    const contents = contents: {
+        const in_file = try fs.openFileAbsolute(
+            filepath,
+            .{},
+        );
+        defer in_file.close();
+
+        break :contents try in_file.readToEndAlloc(
+            ally,
+            math.maxInt(u32),
+        );
+    };
+
+    // Parse the Page metadata
+    const result = page.CodeFence.parse(contents) orelse
+        return error.MalformedPageFile;
+
+    const p: page.Page = .{
+        .markdown = .{
+            .frontmatter = result.within,
+            .content = result.after,
+        },
+    };
+
+    const data = try p.data(ally);
+
+    // Create the out file
+    const file = file: {
+        var filename_buf = std.ArrayList(u8).init(ally);
+        defer filename_buf.deinit();
+
+        // TODO the function accepts slug as an argument but we'll also have
+        // the slug after parsing the page metadata out. Is it redundant to
+        // accept the slug as a function argument?
+        debug.assert(slug.len > 0);
+        debug.assert(slug[0] == '/');
+        if (slug.len > 1) {
+            debug.assert(!mem.endsWith(u8, slug, "/"));
+            try filename_buf.appendSlice(slug);
+        }
+        try filename_buf.appendSlice("/index.html");
+
+        make_parent: {
+            if (fs.path.dirname(filename_buf.items)) |parent| {
+                debug.assert(parent[0] == '/');
+                if (parent.len == 1) break :make_parent;
+
+                var dir = try out_dir.makeOpenPath(
+                    parent[1..],
+                    .{},
+                );
+                defer dir.close();
+                break :file try dir.createFile(
+                    fs.path.basename(filename_buf.items),
+                    .{},
+                );
+            }
+        }
+
+        break :file try out_dir.createFile(
+            fs.path.basename(filename_buf.items),
+            .{},
+        );
+    };
+    defer file.close();
+
+    var html_buffer = io.bufferedWriter(file.writer());
+
+    // Load the template from the filesystem
+    const template = template: {
+        if (data.template) |t| {
+            const template_path = try fs.path.join(
+                ally,
+                &.{ site_root, "templates", t },
+            );
+
+            var template_file = try fs.openFileAbsolute(
+                template_path,
+                .{},
+            );
+            defer template_file.close();
+
+            const template = try template_file.readToEndAlloc(
+                ally,
+                math.maxInt(u32),
+            );
+            break :template template;
+        }
+
+        break :template fallback_template;
+    };
+
+    try renderPage(
+        ally,
+        p,
+        .{ .bytes = template },
+        db,
+        url_prefix,
+        html_buffer.writer(),
+    );
+
+    try html_buffer.flush();
+}
+
+// TODO actual needs don't reflect this initial design. Simplify.
 pub const TemplateOption = union(enum) {
     this: void,
     bytes: []const u8,
 };
+
 // Write `page` as an html document to the `writer`.
 fn renderPage(
     allocator: mem.Allocator,
@@ -275,7 +354,7 @@ fn renderPage(
 
     try markdown.renderStream(
         content,
-        url_prefix,
+        .{ .url_prefix = url_prefix },
         content_buf.writer(),
     );
 
@@ -292,114 +371,56 @@ fn renderPage(
     );
 }
 
-fn _render(
-    arena: *heap.ArenaAllocator,
-    db: *Database,
-    url_prefix: ?[]const u8,
-    site_root: []const u8,
-    filepath: []const u8,
-    slug: []const u8,
-    out_dir: fs.Dir,
-) !void {
-    const zone = tracy.initZone(
-        @src(),
-        .{ .name = "Render Page Loop" },
-    );
-    defer zone.deinit();
+const @"test" = struct {
+    /// Test that the provided content is rendered correctly.
+    pub fn content(expected: []const u8, markdown_content: []const u8) !void {
+        const page_to_render: page.Page = .{
+            .markdown = .{
+                .content = markdown_content,
 
-    const in_file = try fs.openFileAbsolute(
-        filepath,
-        .{},
-    );
-    defer in_file.close();
+                .frontmatter =
+                \\---
+                \\slug: /
+                \\title: Hello, world!
+                \\---
+                ,
+            },
+        };
 
-    const contents = try in_file.readToEndAlloc(
-        arena.allocator(),
-        math.maxInt(u32),
-    );
+        const template = "{{&content}}";
 
-    const result = page.CodeFence.parse(contents) orelse
-        return error.MalformedPageFile;
+        var db = blk: {
+            var db = try Database.init(testing.allocator);
 
-    var file_name_buffer: [fs.MAX_NAME_BYTES]u8 = undefined;
-    var file_name_fba = heap.FixedBufferAllocator.init(
-        &file_name_buffer,
-    );
-    var file_name_buf = std.ArrayList(u8).init(
-        file_name_fba.allocator(),
-    );
+            try storage.Page.init(&db);
+            try storage.Template.init(&db);
+            break :blk db;
+        };
 
-    debug.assert(slug.len > 0);
-    debug.assert(slug[0] == '/');
-    if (slug.len > 1) {
-        debug.assert(!mem.endsWith(u8, slug, "/"));
-        try file_name_buf.appendSlice(slug);
-    }
-    try file_name_buf.appendSlice("/index.html");
+        defer db.deinit();
 
-    const file = file: {
-        make_parent: {
-            if (fs.path.dirname(file_name_buf.items)) |parent| {
-                debug.assert(parent[0] == '/');
-                if (parent.len == 1) break :make_parent;
+        var buf = std.ArrayList(u8).init(testing.allocator);
+        defer buf.deinit();
 
-                var dir = try out_dir.makeOpenPath(
-                    parent[1..],
-                    .{},
-                );
-                defer dir.close();
-                break :file try dir.createFile(
-                    fs.path.basename(file_name_buf.items),
-                    .{},
-                );
-            }
-        }
+        const writer = buf.writer();
 
-        break :file try out_dir.createFile(
-            fs.path.basename(file_name_buf.items),
-            .{},
+        try renderPage(
+            testing.allocator,
+            page_to_render,
+            .{ .bytes = template },
+            &db,
+            null,
+            writer,
         );
-    };
-    defer file.close();
 
-    var html_buffer = io.bufferedWriter(file.writer());
+        try testing.expectEqualStrings(expected, buf.items);
+    }
+};
 
-    const p: page.Page = .{
-        .markdown = .{
-            .frontmatter = result.within,
-            .content = result.after,
-        },
-    };
-
-    const data = try p.data(arena.allocator());
-
-    const template = template: {
-        if (data.template) |t| {
-            const template_path = try fs.path.join(
-                arena.allocator(),
-                &.{ site_root, "templates", t },
-            );
-
-            var template_file = try fs.openFileAbsolute(
-                template_path,
-                .{},
-            );
-            defer template_file.close();
-
-            const template = try template_file.readToEndAlloc(
-                arena.allocator(),
-                math.maxInt(u32),
-            );
-            break :template template;
-        }
-
-        // no template, so use some sort of fallback
-        break :template "<!-- Missing template in page frontmatter -->{{& content }}";
-    };
-
-    try renderPage(arena.allocator(), p, .{
-        .bytes = template,
-    }, db, url_prefix, html_buffer.writer());
-
-    try html_buffer.flush();
+test renderPage {
+    try @"test".content(
+        "<p>\nHello, world!</p>",
+        \\Hello, world!
+        ,
+    );
 }

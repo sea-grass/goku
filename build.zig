@@ -1,34 +1,7 @@
 const debug = std.debug;
 const std = @import("std");
 
-// The public, build-time API for goku.
-pub const Goku = struct {
-    pub fn build(
-        b: *std.Build,
-        goku_dep: *std.Build.Dependency,
-        site_path: std.Build.LazyPath,
-        out_path: std.Build.LazyPath,
-    ) *std.Build.Step.Run {
-        const run_goku = b.addRunArtifact(goku_dep.artifact("goku"));
-        run_goku.has_side_effects = true;
-
-        run_goku.addDirectoryArg(site_path);
-        run_goku.addArg("-o");
-        run_goku.addDirectoryArg(out_path);
-
-        return run_goku;
-    }
-
-    pub fn serve(
-        b: *std.Build,
-        goku_dep: *std.Build.Dependency,
-        public_path: std.Build.LazyPath,
-    ) *std.Build.Step.Run {
-        const serve_site = b.addRunArtifact(goku_dep.artifact("serve"));
-        serve_site.addDirectoryArg(public_path);
-        return serve_site;
-    }
-};
+pub const Goku = @import("src/Goku.zig");
 
 const bundled_lucide_icons = @as([]const []const u8, &.{
     "github",
@@ -39,6 +12,8 @@ const bundled_lucide_icons = @as([]const []const u8, &.{
 
 const BuildSteps = struct {
     check: *std.Build.Step,
+    coverage: *std.Build.Step,
+    docs: *std.Build.Step,
     generate_benchmark_site: *std.Build.Step,
     run: *std.Build.Step,
     run_benchmark: *std.Build.Step,
@@ -51,6 +26,14 @@ const BuildSteps = struct {
             .check = b.step(
                 "check",
                 "Check the Zig code",
+            ),
+            .coverage = b.step(
+                "coverage",
+                "Analyze code coverage",
+            ),
+            .docs = b.step(
+                "docs",
+                "Generate source code docs",
             ),
             .generate_benchmark_site = b.step(
                 "generate-benchmark",
@@ -83,6 +66,41 @@ const BuildSteps = struct {
             const step = @field(self, f.name);
             debug.assert(step.dependencies.items.len > 0);
         }
+    }
+};
+
+pub const Docs = struct {
+    compile: *std.Build.Step.Compile,
+    serve: *std.Build.Step.Run,
+    install: *std.Build.Step.InstallDir,
+
+    pub fn fromTests(compile: *std.Build.Step.Compile) Docs {
+        const b: *std.Build = compile.root_module.owner;
+        const target = compile.root_module.resolved_target.?;
+        const optimize = compile.root_module.optimize.?;
+
+        const install = compile.root_module.owner.addInstallDirectory(.{
+            .source_dir = compile.getEmittedDocs(),
+            .install_dir = .prefix,
+            .install_subdir = "docs",
+        });
+
+        const exe = b.addExecutable(.{
+            .name = b.fmt("serve-{s}", .{compile.name}),
+            .root_source_file = b.path("src/serve.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.root_module.addImport("zap", b.dependency("zap", .{}).module("zap"));
+
+        const serve = b.addRunArtifact(exe);
+        serve.addDirectoryArg(compile.getEmittedDocs());
+
+        return .{
+            .compile = compile,
+            .install = install,
+            .serve = serve,
+        };
     }
 };
 
@@ -130,9 +148,10 @@ pub fn build(b: *std.Build) void {
     const zap = b.dependency("zap", .{ .target = target, .optimize = optimize });
 
     const c_mod = buildCModule(b, .{
-        .yaml = b.dependency("yaml-src", .{}),
-        .md4c = b.dependency("md4c-src", .{}),
-        .mustach = b.dependency("mustach-src", .{}),
+        .md4c = b.dependency("md4c", .{}),
+        .mustach = b.dependency("mustach", .{}),
+        .quickjs = b.dependency("quickjs", .{}),
+        .yaml = b.dependency("yaml", .{}),
         .target = target,
         .optimize = optimize,
     });
@@ -143,7 +162,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    exe.linkLibC();
     exe.root_module.addImport("c", c_mod);
     exe.root_module.addImport("tracy", tracy.module("tracy"));
     exe.root_module.addImport("clap", clap.module("clap"));
@@ -166,18 +184,22 @@ pub fn build(b: *std.Build) void {
     build_steps.run.dependOn(&run_cmd.step);
 
     const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
+        // We provide a name to the unit tests so the generated
+        // docs will use it for the namespace.
+        .name = "goku",
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        //.test_runner = b.dependency("custom-test-runner", .{}).path("src/test_runner.zig"),
     });
-    exe_unit_tests.linkLibC();
-    exe_unit_tests.root_module.addImport("c", c_mod);
-    exe_unit_tests.root_module.addImport("tracy", tracy.module("tracy"));
-    exe_unit_tests.root_module.addImport("clap", clap.module("clap"));
-    exe_unit_tests.root_module.addImport("sqlite", sqlite.module("sqlite"));
-    exe_unit_tests.root_module.addImport("lucide", lucide.module("lucide"));
     exe_unit_tests.root_module.addImport("bulma", bulma.module("bulma"));
+    exe_unit_tests.root_module.addImport("c", c_mod);
+    exe_unit_tests.root_module.addImport("clap", clap.module("clap"));
     exe_unit_tests.root_module.addImport("htmx", htmx.module("htmx"));
+    exe_unit_tests.root_module.addImport("lucide", lucide.module("lucide"));
+    exe_unit_tests.root_module.addImport("sqlite", sqlite.module("sqlite"));
+    exe_unit_tests.root_module.addImport("tracy", tracy.module("tracy"));
+    exe_unit_tests.root_module.addImport("zap", zap.module("zap"));
     exe_unit_tests.linkLibrary(sqlite.artifact("sqlite"));
     if (tracy_enable) {
         exe_unit_tests.linkLibrary(tracy.artifact("tracy"));
@@ -186,13 +208,22 @@ pub fn build(b: *std.Build) void {
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
     build_steps.@"test".dependOn(&run_exe_unit_tests.step);
 
+    const run_coverage = b.addSystemCommand(&.{
+        "kcov",
+        "--clean",
+        "--include-pattern=src/,modules/",
+        "--exclude-pattern=.cache/zig/,test_runner.zig",
+    });
+    run_coverage.addDirectoryArg(b.path("kcov-output/"));
+    run_coverage.addArtifactArg(exe_unit_tests);
+    build_steps.coverage.dependOn(&run_coverage.step);
+
     const exe_check = b.addExecutable(.{
         .name = "goku",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
-    exe_check.linkLibC();
     exe_check.root_module.addImport("c", c_mod);
     exe_check.root_module.addImport("tracy", tracy.module("tracy"));
     exe_check.root_module.addImport("clap", clap.module("clap"));
@@ -240,32 +271,44 @@ pub fn build(b: *std.Build) void {
 
     var this_dep_hack: std.Build.Dependency = .{ .builder = b };
 
-    const build_site_cmd = Goku.build(b, &this_dep_hack, b.path("site"), b.path("build"));
+    const build_site_cmd = Goku.build(&this_dep_hack, b.path("site"), b.path("build"));
     if (b.args) |args| {
         build_site_cmd.addArgs(args);
     }
     build_steps.site.dependOn(&build_site_cmd.step);
     build_steps.site.dependOn(b.getInstallStep());
 
-    const run_serve_cmd = Goku.serve(b, &this_dep_hack, b.path("build"));
+    const run_serve_cmd = Goku.serve(&this_dep_hack, b.path("build"));
     build_steps.serve.dependOn(build_steps.site);
     build_steps.serve.dependOn(&run_serve_cmd.step);
+
+    const docs = Docs.fromTests(exe_unit_tests);
+    build_steps.docs.dependOn(&docs.serve.step);
 }
 
-pub fn buildCModule(b: *std.Build, opts: anytype) *std.Build.Module {
-    const yaml_src = opts.yaml;
-    const md4c_src = opts.md4c;
-    const mustach_src = opts.mustach;
+const BuildCModuleOptions = struct {
+    md4c: *std.Build.Dependency,
+    mustach: *std.Build.Dependency,
+    quickjs: *std.Build.Dependency,
+    yaml: *std.Build.Dependency,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+};
+
+pub fn buildCModule(b: *std.Build, opts: BuildCModuleOptions) *std.Build.Module {
+    const md4c = opts.md4c;
+    const mustach = opts.mustach;
+    const quickjs = opts.quickjs;
+    const yaml = opts.yaml;
     const target = opts.target;
     const optimize = opts.optimize;
 
     const c = b.addTranslateC(.{
-        .root_source_file = b.addWriteFiles().add(
-            "c.h",
+        .root_source_file = b.addWriteFiles().add("c.h",
             \\#include <yaml.h>
             \\#include <md4c-html.h>
             \\#include <mustach.h>
-            ,
+            \\#include <quickjs.h>
         ),
         .target = target,
         .optimize = optimize,
@@ -274,157 +317,17 @@ pub fn buildCModule(b: *std.Build, opts: anytype) *std.Build.Module {
 
     const mod = c.createModule();
 
-    {
-        const wf = b.addWriteFiles();
-        c.step.dependOn(&wf.step);
+    c.addIncludePath(md4c.artifact("md4c").getEmittedIncludeTree());
+    mod.linkLibrary(md4c.artifact("md4c"));
 
-        _ = wf.add(
-            "config.h",
-            \\#define YAML_VERSION_STRING "0.2.5"
-            \\#define YAML_VERSION_MAJOR 0
-            \\#define YAML_VERSION_MINOR 2
-            \\#define YAML_VERSION_PATCH 5
-            ,
-        );
-        inline for (&.{
-            "yaml.h",
-        }) |filename| {
-            _ = wf.addCopyFile(
-                yaml_src.path("include/" ++ filename),
-                filename,
-            );
-        }
-        inline for (&.{
-            "yaml_private.h",
-        }) |filename| {
-            _ = wf.addCopyFile(
-                yaml_src.path("src/" ++ filename),
-                filename,
-            );
-        }
+    c.addIncludePath(mustach.artifact("mustach").getEmittedIncludeTree());
+    mod.linkLibrary(mustach.artifact("mustach"));
 
-        // TODO Not sure why I have to do both addIncludeDir (for
-        // the translate_c step) and addIncludePath (for the C
-        // source files) -- is there a way to get them both to
-        // look in the same place?
-        c.addIncludePath(yaml_src.path("include"));
-        mod.addIncludePath(wf.getDirectory());
+    c.addIncludePath(quickjs.artifact("quickjs").getEmittedIncludeTree());
+    mod.linkLibrary(quickjs.artifact("quickjs"));
 
-        const c_source_files = &.{
-            "parser.c",
-            "scanner.c",
-            "reader.c",
-            "api.c",
-        };
-        inline for (c_source_files) |filename| {
-            _ = wf.addCopyFile(
-                yaml_src.path("src/" ++ filename),
-                filename,
-            );
-        }
-
-        mod.addCSourceFiles(.{
-            .root = wf.getDirectory(),
-            .files = c_source_files,
-            .flags = &.{
-                "-std=gnu99",
-                "-DHAVE_CONFIG_H",
-            },
-        });
-    }
-
-    {
-        const wf = b.addWriteFiles();
-        c.step.dependOn(&wf.step);
-
-        inline for (&.{
-            "entity.h",
-            "md4c.h",
-            "md4c-html.h",
-        }) |filename| {
-            _ = wf.addCopyFile(
-                md4c_src.path("src/" ++ filename),
-                filename,
-            );
-        }
-
-        // TODO Not sure why I have to do both addIncludeDir (for
-        // the translate_c step) and addIncludePath (for the C
-        // source files) -- is there a way to get them both to
-        // look in the same place?
-        c.addIncludePath(md4c_src.path("src"));
-        mod.addIncludePath(wf.getDirectory());
-
-        const c_source_files = &.{
-            "entity.c",
-            "md4c.c",
-            "md4c-html.c",
-        };
-        inline for (c_source_files) |filename| {
-            _ = wf.addCopyFile(
-                md4c_src.path("src/" ++ filename),
-                filename,
-            );
-        }
-
-        mod.addCSourceFiles(.{
-            .root = wf.getDirectory(),
-            .files = c_source_files,
-            .flags = &.{
-                "-Wall",
-                "-Wextra",
-                "-Wshadow",
-            },
-        });
-    }
-
-    {
-        const wf = b.addWriteFiles();
-        c.step.dependOn(&wf.step);
-
-        inline for (&.{
-            "mustach.h",
-            "mustach2.h",
-            "mini-mustach.h",
-            "mustach-helpers.h",
-            "mustach-wrap.h",
-        }) |filename| {
-            _ = wf.addCopyFile(
-                mustach_src.path(filename),
-                filename,
-            );
-        }
-
-        // TODO Not sure why I have to do both addIncludeDir (for
-        // the translate_c step) and addIncludePath (for the C
-        // source files) -- is there a way to get them both to
-        // look in the same place?
-        // TODO `getPath` is intended to be used during the make
-        // phase only - is there a better way to `addIncludeDir`
-        // when pointing to a dependency path?
-        c.addIncludePath(mustach_src.path("."));
-        mod.addIncludePath(wf.getDirectory());
-
-        const c_source_files = &.{
-            "mustach.c",
-            "mustach2.c",
-            "mini-mustach.c",
-            "mustach-helpers.c",
-            "mustach-wrap.c",
-        };
-        inline for (c_source_files) |filename| {
-            _ = wf.addCopyFile(
-                mustach_src.path(filename),
-                filename,
-            );
-        }
-
-        mod.addCSourceFiles(.{
-            .root = wf.getDirectory(),
-            .files = c_source_files,
-            .flags = &.{},
-        });
-    }
+    c.addIncludePath(yaml.artifact("yaml").getEmittedIncludeTree());
+    mod.linkLibrary(yaml.artifact("yaml"));
 
     return mod;
 }

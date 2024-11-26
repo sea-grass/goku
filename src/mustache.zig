@@ -7,73 +7,54 @@ const log = std.log.scoped(.mustache);
 const lucide = @import("lucide");
 const mem = std.mem;
 const std = @import("std");
+const storage = @import("storage.zig");
+const testing = std.testing;
 
 pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: anytype, writer: anytype) !void {
     var arena = heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    const Context = RenderContext(@TypeOf(context), @TypeOf(writer));
-    var render_context: Context = .{
+    var mustache_writer: MustacheWriterType(
+        @TypeOf(context),
+        @TypeOf(writer),
+    ) = .{
         .arena = arena.allocator(),
         .context = context,
         .writer = writer,
     };
 
-    // We want renderMustache to control the rendering, so we give it a writer
-    // ...but currently the render context is responsible for the output buffering.
-    const result = try renderMustache(template, &Context.vtable, &render_context, writer);
-    _ = result;
+    try mustache_writer.write(template);
 }
 
-const RenderMustacheError = error{ UnexpectedBehaviour, CouldNotRenderTemplate };
-const RenderMustacheResult = struct {};
-fn renderMustache(template: []const u8, vtable: *const c.mustach_itf, ctx: anytype, writer: anytype) RenderMustacheError!RenderMustacheResult {
-    _ = writer;
+test renderStream {
+    var buf = std.ArrayList(u8).init(testing.allocator);
+    defer buf.deinit();
 
-    var result: [*c]const u8 = null;
-    var result_len: usize = undefined;
+    const template = "{{title}}";
 
-    const return_val = c.mustach_mem(
-        @ptrCast(template),
-        template.len,
-        vtable,
-        ctx,
-        0,
-        @ptrCast(&result),
-        &result_len,
+    var db = try @import("Database.zig").init(testing.allocator);
+    try storage.Page.init(&db);
+    try storage.Template.init(&db);
+    defer db.deinit();
+
+    try renderStream(
+        testing.allocator,
+        template,
+        .{
+            .db = db,
+            .site_root = "/",
+            .data = .{
+                .title = "foo",
+                .slug = "/foo",
+            },
+        },
+        buf.writer(),
     );
 
-    switch (return_val) {
-        c.MUSTACH_OK => {
-            // We provide our own emit callback so any result written
-            // by mustach is undefined behaviour
-            if (result_len != 0) return error.UnexpectedBehaviour;
-            // We don't expect mustach to write anything to result, but it does
-            // modify the address in result for some reason? In any case, here
-            // we make sure that it's the empty string if it is set.
-            if (result != null and result[0] != 0) return error.UnexpectedBehaviour;
-        },
-        c.MUSTACH_ERROR_SYSTEM,
-        c.MUSTACH_ERROR_INVALID_ITF,
-        c.MUSTACH_ERROR_UNEXPECTED_END,
-        c.MUSTACH_ERROR_BAD_UNESCAPE_TAG,
-        c.MUSTACH_ERROR_EMPTY_TAG,
-        c.MUSTACH_ERROR_BAD_DELIMITER,
-        c.MUSTACH_ERROR_TOO_DEEP,
-        c.MUSTACH_ERROR_CLOSING,
-        c.MUSTACH_ERROR_TOO_MUCH_NESTING,
-        => |err| {
-            log.debug("Uh oh! Error {any}\n", .{err});
-            return error.CouldNotRenderTemplate;
-        },
-        // We've handled all other known mustach return codes
-        else => unreachable,
-    }
-
-    return .{};
+    try testing.expectEqualStrings("foo", buf.items);
 }
 
-fn RenderContext(comptime Context: type, comptime Writer: type) type {
+fn MustacheWriterType(comptime Context: type, comptime Writer: type) type {
     return struct {
         arena: mem.Allocator,
         context: Context,
@@ -88,9 +69,52 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
             .partial = partial,
         };
 
-        const Self = @This();
+        const WriteError = error{ UnexpectedBehaviour, CouldNotRenderTemplate };
+        pub fn write(ctx: *MustacheWriter, template: []const u8) WriteError!void {
+            var result: [*c]const u8 = null;
+            var result_len: usize = undefined;
 
-        fn getKnownFromContext(self: *Self, key: []const u8) !?[]const u8 {
+            const return_val = c.mustach_mem(
+                @ptrCast(template),
+                template.len,
+                &vtable,
+                ctx,
+                0,
+                @ptrCast(&result),
+                &result_len,
+            );
+
+            switch (return_val) {
+                c.MUSTACH_OK => {
+                    // We provide our own emit callback so any result written
+                    // by mustach is undefined behaviour
+                    if (result_len != 0) return error.UnexpectedBehaviour;
+                    // We don't expect mustach to write anything to result, but it does
+                    // modify the address in result for some reason? In any case, here
+                    // we make sure that it's the empty string if it is set.
+                    if (result != null and result[0] != 0) return error.UnexpectedBehaviour;
+                },
+                c.MUSTACH_ERROR_SYSTEM,
+                c.MUSTACH_ERROR_INVALID_ITF,
+                c.MUSTACH_ERROR_UNEXPECTED_END,
+                c.MUSTACH_ERROR_BAD_UNESCAPE_TAG,
+                c.MUSTACH_ERROR_EMPTY_TAG,
+                c.MUSTACH_ERROR_BAD_DELIMITER,
+                c.MUSTACH_ERROR_TOO_DEEP,
+                c.MUSTACH_ERROR_CLOSING,
+                c.MUSTACH_ERROR_TOO_MUCH_NESTING,
+                => |err| {
+                    log.debug("Uh oh! Error {any}\n", .{err});
+                    return error.CouldNotRenderTemplate;
+                },
+                // We've handled all other known mustach return codes
+                else => unreachable,
+            }
+        }
+
+        const MustacheWriter = @This();
+
+        fn getKnownFromContext(self: *MustacheWriter, key: []const u8) !?[]const u8 {
 
             // These are known goku constants that are expected to be available during page rendering.
             const context_keys = &.{ "content", "site_root" };
@@ -109,7 +133,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
             return null;
         }
 
-        fn getFromContextData(self: *Self, key: []const u8) !?[]const u8 {
+        fn getFromContextData(self: *MustacheWriter, key: []const u8) !?[]const u8 {
             inline for (@typeInfo(@TypeOf(self.context.data)).@"struct".fields) |f| {
                 if (mem.eql(u8, key, f.name)) {
                     switch (@typeInfo(f.type)) {
@@ -138,7 +162,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
             return null;
         }
 
-        fn getLucideIcon(_: *Self, key: []const u8) !?[]const u8 {
+        fn getLucideIcon(_: *MustacheWriter, key: []const u8) !?[]const u8 {
             if (mem.startsWith(u8, key, "lucide.")) {
                 return lucide.icon(key["lucide.".len..]);
             }
@@ -146,7 +170,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
             return null;
         }
 
-        fn gget(ctx: *Self, key: []const u8) !?[]const u8 {
+        fn gget(ctx: *MustacheWriter, key: []const u8) !?[]const u8 {
             if (try ctx.getKnownFromContext(key)) |value| {
                 return value;
             }
@@ -168,19 +192,26 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                     var list_buf = std.ArrayList(u8).init(ctx.arena);
                     defer list_buf.deinit();
 
-                    const get_pages =
-                        \\SELECT slug, title FROM pages WHERE collection = ?
+                    const get_pages = .{
+                        .stmt =
+                        \\SELECT slug, date, title
+                        \\FROM pages
+                        \\WHERE collection = ?
                         \\ORDER BY date DESC, title ASC
-                    ;
+                        ,
+                        .type = struct {
+                            slug: []const u8,
+                            date: []const u8,
+                            title: []const u8,
+                        },
+                    };
 
-                    var get_stmt = try ctx.context.db.db.prepare(get_pages);
+                    var get_stmt = try ctx.context.db.db.prepare(get_pages.stmt);
                     defer get_stmt.deinit();
 
                     var it = try get_stmt.iterator(
-                        struct { slug: []const u8, title: []const u8 },
-                        .{
-                            .collection = collection,
-                        },
+                        get_pages.type,
+                        .{ .collection = collection },
                     );
 
                     var arena = heap.ArenaAllocator.init(ctx.arena);
@@ -191,9 +222,18 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                     var num_items: u32 = 0;
                     while (try it.nextAlloc(arena.allocator(), .{})) |entry| {
                         try list_buf.writer().print(
-                            \\<li><a href="{s}{s}">{s}</a></li>
+                            \\<li>
+                            \\<a href="{[site_root]s}{[slug]s}">
+                            \\{[date]s} {[title]s}
+                            \\</a>
+                            \\</li>
                         ,
-                            .{ ctx.context.site_root, entry.slug, entry.title },
+                            .{
+                                .site_root = ctx.context.site_root,
+                                .slug = entry.slug,
+                                .date = entry.date,
+                                .title = entry.title,
+                            },
                         );
 
                         num_items += 1;
@@ -208,23 +248,27 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
                 } else if (mem.endsWith(u8, key, ".latest")) {
                     const collection = key["collections.".len .. key.len - ".latest".len];
 
-                    const get_page =
+                    const get_page = .{
+                        .stmt =
                         \\SELECT slug, title FROM pages WHERE collection = ?
                         \\ORDER BY date DESC
                         \\LIMIT 1
-                    ;
+                        ,
+                        .type = struct { slug: []const u8, title: []const u8 },
+                    };
 
-                    var get_stmt = try ctx.context.db.db.prepare(get_page);
+                    var get_stmt = try ctx.context.db.db.prepare(get_page.stmt);
                     defer get_stmt.deinit();
 
                     const row = try get_stmt.oneAlloc(
-                        struct { slug: []const u8, title: []const u8 },
+                        get_page.type,
                         ctx.arena,
                         .{},
                         .{
                             .collection = collection,
                         },
                     ) orelse return error.EmptyCollection;
+
                     // TODO is there a way to free this?
                     //defer row.deinit();
 
@@ -297,7 +341,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
         // Will write the contents of `buf` to an internal buffer.
         // If `is_escaped` is true, it will escape the contents as
         // it streams them.
-        fn eemit(self: *Self, buf: []const u8, is_escaped: bool) !void {
+        fn eemit(self: *MustacheWriter, buf: []const u8, is_escaped: bool) !void {
             if (is_escaped) {
                 var escaped = std.ArrayList(u8).init(self.arena);
                 defer escaped.deinit();
@@ -316,7 +360,7 @@ fn RenderContext(comptime Context: type, comptime Writer: type) type {
         }
 
         // Calls the internal emit implementation
-        fn emit(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, escaping: c_int, _: [*c]c.FILE) callconv(.C) c_int {
+        fn emit(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, escaping: c_int, _: ?*c.FILE) callconv(.C) c_int {
             debug.assert(ptr != null);
             // Trying to emit a value we could not get?
             debug.assert(buf != null);

@@ -1,0 +1,10 @@
+.{
+    .name = "custom-test-runner",
+    .version = "0.0.1",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src/test_runner.zig",
+    },
+}

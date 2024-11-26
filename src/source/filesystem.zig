@@ -5,13 +5,12 @@ const mem = std.mem;
 const std = @import("std");
 const testing = std.testing;
 
-pub const Walker = WalkerType(.{ .max_dir_handles = 1024 });
-pub fn walker(root: []const u8, subpath: []const u8) Walker {
+pub fn walker(root: []const u8, subpath: []const u8) WalkerType(.{ .max_dir_handles = 1024 }) {
     return .{ .root = root, .subpath = subpath };
 }
 
 pub const WalkerConfig = struct {
-    max_dir_handles: comptime_int = 2,
+    max_dir_handles: comptime_int,
 };
 
 // Creates a zero-allocation filesystem walker, to iterate over all files
@@ -30,6 +29,8 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
         fba: heap.FixedBufferAllocator = undefined,
         dir_queue: ?std.ArrayList(fs.Dir) = null,
 
+        const Self = @This();
+
         pub const Entry = struct {
             dir: fs.Dir,
             subpath: []const u8,
@@ -43,7 +44,7 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
             }
         };
 
-        pub fn next(self: *@This()) !?Entry {
+        pub fn next(self: *Self) !?Entry {
             if (self.done) return null;
 
             try self.ensureBuffer();
@@ -80,7 +81,7 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
             return null;
         }
 
-        fn ensureBuffer(self: *@This()) !void {
+        fn ensureBuffer(self: *Self) !void {
             debug.assert(!self.done);
 
             if (self.dir_queue == null) {
@@ -91,26 +92,33 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
             debug.assert(self.dir_queue != null);
         }
 
-        fn ensureHandle(self: *@This()) !void {
+        pub const HandleError = error{CannotOpenDirectory};
+        fn ensureHandle(self: *Self) HandleError!void {
             debug.assert(!self.done);
 
             if (self.dir_handle == null) {
-                var root = root: {
-                    if (fs.path.isAbsolute(self.root)) {
-                        break :root try fs.openDirAbsolute(self.root, .{});
-                    } else {
-                        break :root try fs.cwd().openDir(self.root, .{});
-                    }
-                };
+                var root = if (fs.path.isAbsolute(self.root))
+                    fs.openDirAbsolute(
+                        self.root,
+                        .{},
+                    ) catch return HandleError.CannotOpenDirectory
+                else
+                    fs.cwd().openDir(
+                        self.root,
+                        .{},
+                    ) catch return HandleError.CannotOpenDirectory;
                 defer root.close();
 
-                self.dir_handle = try root.openDir(self.subpath, .{ .iterate = true });
+                self.dir_handle = root.openDir(
+                    self.subpath,
+                    .{ .iterate = true },
+                ) catch return HandleError.CannotOpenDirectory;
             }
 
             debug.assert(self.dir_handle != null);
         }
 
-        fn ensureIterator(self: *@This()) !void {
+        fn ensureIterator(self: *Self) !void {
             debug.assert(!self.done);
             debug.assert(self.dir_handle != null);
 
@@ -123,13 +131,13 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
 
         // TODO how should I test this?
         test next {
-            var instance: Walker = .{ .root = ".", .subpath = ".", .done = true };
+            var instance: Self = .{ .root = ".", .subpath = ".", .done = true };
 
             try testing.expectEqual(null, try instance.next());
         }
 
         test ensureBuffer {
-            var instance: Walker = .{ .root = ".", .subpath = "." };
+            var instance: Self = .{ .root = ".", .subpath = "." };
 
             try testing.expectEqual(null, instance.dir_queue);
 
@@ -139,7 +147,7 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
         }
 
         test ensureHandle {
-            var instance: Walker = .{
+            var instance: Self = .{
                 .root = ".",
                 .subpath = ".",
             };
@@ -156,7 +164,7 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
             var dir_handle = try fs.cwd().openDir(".", .{ .iterate = true });
             defer dir_handle.close();
 
-            var instance: Walker = .{
+            var instance: Self = .{
                 .root = ".",
                 .subpath = ".",
                 .dir_handle = dir_handle,
@@ -169,4 +177,8 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
             try testing.expect(instance.dir_iterator != null);
         }
     };
+}
+
+test {
+    testing.refAllDecls(@This());
 }

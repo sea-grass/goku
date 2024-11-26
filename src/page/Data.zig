@@ -1,7 +1,9 @@
 const c = @import("c");
 const debug = std.debug;
 const fmt = std.fmt;
+const io = std.io;
 const log = std.log.scoped(.@"page.Data");
+const math = std.math;
 const mem = std.mem;
 const CodeFence = @import("CodeFence.zig");
 const std = @import("std");
@@ -19,20 +21,29 @@ options_toc: bool = false,
 
 const Data = @This();
 
-pub fn fromReader(allocator: mem.Allocator, reader: anytype, max_len: usize) error{ ParseError, ReadError, MissingFrontmatter }!Data {
+pub fn fromReader(allocator: mem.Allocator, reader: anytype, max_len: usize) error{
+    MissingSlug,
+    MissingTitle,
+    ParseError,
+    ReadError,
+    MissingFrontmatter,
+    MissingTemplate,
+}!Data {
     const bytes: []const u8 = reader.readAllAlloc(allocator, max_len) catch return error.ReadError;
     defer allocator.free(bytes);
 
     const code_fence_result = CodeFence.parse(bytes) orelse return error.MissingFrontmatter;
 
-    var diag: Diagnostics = undefined;
     return fromYamlString(
         allocator,
         code_fence_result.within,
-        &diag,
-    ) catch {
-        diag.printErr(log);
-        return error.ParseError;
+        null,
+    ) catch |err| return switch (err) {
+        error.MissingSlug,
+        error.MissingTitle,
+        error.MissingTemplate,
+        => |e| e,
+        else => error.ParseError,
     };
 }
 
@@ -202,7 +213,9 @@ pub fn fromYamlString(allocator: mem.Allocator, data: []const u8, diag: ?*Diagno
         c.yaml_event_delete(ev_ptr);
     }
 
-    if (slug == null) return error.MissingSlug;
+    if (slug == null or slug.?.len == 0) return error.MissingSlug;
+    if (title == null or title.?.len == 0) return error.MissingTitle;
+    if (template == null or template.?.len == 0) return error.MissingTemplate;
 
     return .{
         .slug = slug.?,
@@ -260,6 +273,47 @@ test fromReader {
     try testing.expectEqualStrings("Home page", yaml.title.?);
 }
 
+test "fromReader - fail(empty frontmatter)" {
+    var fbs = io.fixedBufferStream(
+        \\---
+        \\---
+        ,
+    );
+    const reader = fbs.reader();
+
+    const result = fromReader(
+        testing.allocator,
+        reader,
+        math.maxInt(usize),
+    );
+
+    try testing.expectError(
+        error.MissingFrontmatter,
+        result,
+    );
+}
+
+test "fromReader - fail(invalid yaml)" {
+    var fbs = io.fixedBufferStream(
+        \\---
+        \\:
+        \\---
+        ,
+    );
+    const reader = fbs.reader();
+
+    const result = fromReader(
+        testing.allocator,
+        reader,
+        math.maxInt(usize),
+    );
+
+    try testing.expectError(
+        error.ParseError,
+        result,
+    );
+}
+
 test fromYamlString {
     const input =
         \\slug: /
@@ -290,4 +344,20 @@ test "fromYamlString - Error" {
     );
 
     try testing.expectError(error.Parse, result);
+}
+
+test "correct diagnostics" {
+    const invalid_input =
+        \\:
+    ;
+
+    var diag: Diagnostics = undefined;
+    const result = fromYamlString(
+        testing.allocator,
+        invalid_input,
+        &diag,
+    );
+
+    try testing.expectError(error.Parse, result);
+    try testing.expectEqualStrings("did not find expected key", diag.reason);
 }

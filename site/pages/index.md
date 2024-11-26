@@ -2,7 +2,7 @@
 slug: /
 title: Goku
 allow_html: true
-template: home.html
+template: page.html
 description: A static site generator written in Zig.
 ---
 
