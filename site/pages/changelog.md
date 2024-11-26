@@ -4,6 +4,10 @@ title: Changelog
 template: page.html
 ---
 
+## 0.0.7 (in progress)
+
+- Goku CLI subcommands `goku init`, `goku build`
+
 ## 0.0.6
 
 This release is a quick follow-up to the previous release to fix a bug with the theme shortcodes.
