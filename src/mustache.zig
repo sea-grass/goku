@@ -320,12 +320,20 @@ fn MustacheWriterType(comptime Context: type, comptime Writer: type) type {
             }
 
             if (mem.eql(u8, key, "theme.head")) {
-                return try fmt.allocPrint(
-                    ctx.arena,
-                    \\<link rel="stylesheet" type="text/css" href="/bulma.css" />
-                ,
-                    .{},
-                );
+                return if (ctx.context.site_root.len == 0)
+                    try fmt.allocPrint(
+                        ctx.arena,
+                        \\<link rel="stylesheet" type="text/css" href="/bulma.css" />
+                    ,
+                        .{},
+                    )
+                else
+                    try fmt.allocPrint(
+                        ctx.arena,
+                        \\<link rel="stylesheet" type="text/css" href="{[site_root]s}/bulma.css" />
+                    ,
+                        .{ .site_root = ctx.context.site_root },
+                    );
             } else if (mem.eql(u8, key, "theme.body")) {
                 // theme.body can be used by themes to inject e.g. scripts.
                 // It's currently empty, but content authors are still recommended
