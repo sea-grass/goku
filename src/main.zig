@@ -42,6 +42,7 @@ const BuildCommand = struct {
 
     pub const ParseError = error{
         Help,
+        MalformedUrlPrefix,
         MemoryError,
         MissingOutDir,
         MissingSiteRoot,
@@ -93,6 +94,12 @@ const BuildCommand = struct {
         ) catch return error.ParseError;
 
         const url_prefix: ?[]const u8 = if (res.args.prefix) |prefix| prefix else null;
+
+        if (url_prefix != null) {
+            if (!mem.startsWith(u8, url_prefix.?, "/")) {
+                return error.MalformedUrlPrefix;
+            }
+        }
 
         return .{
             .site_root = arena.allocator().dupe(u8, site_root) catch return error.MemoryError,
@@ -188,6 +195,10 @@ pub fn main() !void {
         },
         BuildCommand.ParseError.SiteRootDoesNotExist => {
             log.err("Provided site root directory does not exist. Exiting.", .{});
+            process.exit(1);
+        },
+        BuildCommand.ParseError.MalformedUrlPrefix => {
+            log.err("Provided url prefix is invalid. Note that the url prefix must begin with a '/' character.", .{});
             process.exit(1);
         },
         else => process.exit(1),

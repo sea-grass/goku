@@ -4,6 +4,14 @@ title: Changelog
 template: page.html
 ---
 
+## 0.0.6
+
+This release is a quick follow-up to the previous release to fix a bug with the theme shortcodes.
+
+### Shortcodes
+
+- `{{& theme.head }}` now correctly references theme assets according to the `url_prefix`, if provided.
+
 ## 0.0.5
 
 This PR contains many changes that are under the hood to support future features. User-facing changes include a more recent supported Zig version, updates to page parameters, more informative error messages, updates to shortcodes, and improvements to the markdown renderer.
