@@ -11,13 +11,11 @@ pub const Page = union(enum) {
     },
 
     pub fn data(self: Page, allocator: mem.Allocator) !Data {
-        return Data.fromYamlString(
+        return try Data.fromYamlString(
             allocator,
             self.markdown.frontmatter,
             null,
-        ) catch |err| {
-            return err;
-        };
+        );
     }
 
     test data {

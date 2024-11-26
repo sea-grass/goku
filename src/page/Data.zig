@@ -21,7 +21,14 @@ options_toc: bool = false,
 
 const Data = @This();
 
-pub fn fromReader(allocator: mem.Allocator, reader: anytype, max_len: usize) error{ ParseError, ReadError, MissingFrontmatter }!Data {
+pub fn fromReader(allocator: mem.Allocator, reader: anytype, max_len: usize) error{
+    MissingSlug,
+    MissingTitle,
+    ParseError,
+    ReadError,
+    MissingFrontmatter,
+    MissingTemplate,
+}!Data {
     const bytes: []const u8 = reader.readAllAlloc(allocator, max_len) catch return error.ReadError;
     defer allocator.free(bytes);
 
@@ -31,8 +38,12 @@ pub fn fromReader(allocator: mem.Allocator, reader: anytype, max_len: usize) err
         allocator,
         code_fence_result.within,
         null,
-    ) catch {
-        return error.ParseError;
+    ) catch |err| return switch (err) {
+        error.MissingSlug,
+        error.MissingTitle,
+        error.MissingTemplate,
+        => |e| e,
+        else => error.ParseError,
     };
 }
 
@@ -202,7 +213,9 @@ pub fn fromYamlString(allocator: mem.Allocator, data: []const u8, diag: ?*Diagno
         c.yaml_event_delete(ev_ptr);
     }
 
-    if (slug == null) return error.MissingSlug;
+    if (slug == null or slug.?.len == 0) return error.MissingSlug;
+    if (title == null or title.?.len == 0) return error.MissingTitle;
+    if (template == null or template.?.len == 0) return error.MissingTemplate;
 
     return .{
         .slug = slug.?,

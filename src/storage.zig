@@ -7,10 +7,26 @@ pub const Page = Database.Table(
     "pages",
     .{
         .create =
-        \\CREATE TABLE pages(slug TEXT, title TEXT, filepath TEXT, collection TEXT, date DATE);
+        \\CREATE TABLE pages(
+        \\  slug TEXT,
+        \\  title TEXT,
+        \\  filepath TEXT,
+        \\  template TEXT,
+        \\  collection TEXT,
+        \\  date DATE
+        \\);
         ,
         .insert =
-        \\INSERT INTO pages(slug, title, filepath, collection, date) VALUES (?, ?, ?, ?, ?);
+        \\INSERT INTO pages(
+        \\  slug,
+        \\  title,
+        \\  filepath,
+        \\  template,
+        \\  collection,
+        \\  date
+        \\)
+        \\VALUES
+        \\(?, ?, ?, ?, ?, ?);
         ,
     },
 );
@@ -36,13 +52,10 @@ test "Page" {
         .slug = "/",
         .title = "Home page",
         .filepath = null,
+        .template = null,
         .collection = null,
         .date = null,
     });
-
-    const query = "SELECT slug, date, title FROM pages";
-    var get_stmt = try db.db.prepare(query);
-    defer get_stmt.deinit();
 
     var it = try Page.iterate(
         struct { slug: []const u8, date: []const u8, title: []const u8 },

@@ -215,6 +215,7 @@ pub fn main() !void {
         while (page_it.next() catch |err| switch (err) {
             error.CannotOpenDirectory => {
                 log.err("Cannot open pages dir at {s}/{s}.", .{ page_it.root, page_it.subpath });
+                log.err("Suggestion: Create the directory {s}/{s}.", .{ page_it.root, page_it.subpath });
                 return error.CannotOpenPagesDirectory;
             },
             else => return err,
@@ -240,6 +241,15 @@ pub fn main() !void {
                     error.MissingFrontmatter => {
                         log.err("Malformed page in source file: {s}", .{filepath});
                     },
+                    error.MissingSlug => {
+                        log.err("Page is missing required, non-empty frontmatter parameter: slug (source file: {s})", .{filepath});
+                    },
+                    error.MissingTitle => {
+                        log.err("Page is missing required, non-empty frontmatter parameter: title (source file: {s})", .{filepath});
+                    },
+                    error.MissingTemplate => {
+                        log.err("Page is missing required, non-empty frontmatter parameter: template (source file: {s})", .{filepath});
+                    },
                     else => {},
                 }
 
@@ -253,6 +263,7 @@ pub fn main() !void {
                     .slug = data.slug,
                     .title = data.title orelse "(missing title)",
                     .filepath = filepath,
+                    .template = data.template.?,
                     .collection = data.collection orelse "",
                     .date = data.date,
                 },
@@ -269,7 +280,8 @@ pub fn main() !void {
         var template_it = filesystem.walker(build.site_root, "templates");
         while (template_it.next() catch |err| switch (err) {
             error.CannotOpenDirectory => {
-                log.err("Cannot open templates directory. Does it exist?", .{});
+                log.err("Cannot open templates dir at {s}/{s}.", .{ template_it.root, template_it.subpath });
+                log.err("Suggestion: Create the directory {s}/{s}.", .{ template_it.root, template_it.subpath });
                 return error.CannotOpenTemplatesDirectory;
             },
             else => return err,
@@ -284,7 +296,10 @@ pub fn main() !void {
             const length = try file.getEndPos();
 
             // I don't think it makes sense to have an empty template file, right?
-            debug.assert(length > 0);
+            if (length == 0) {
+                log.err("Template file cannot be empty. (template path: {s})", .{entry.subpath});
+                return error.EmptyTemplate;
+            }
 
             var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
 
@@ -300,6 +315,71 @@ pub fn main() !void {
         }
 
         log.debug("Discovered template count {d}", .{template_count});
+    }
+
+    {
+        // Find all unique templates in pages
+        // Ensure each template exists as an entry in sqlite
+
+        const get_templates = .{
+            .stmt =
+            \\ SELECT DISTINCT template
+            \\ FROM pages
+            ,
+            .type = struct {
+                template: []const u8,
+            },
+        };
+
+        var get_stmt = try db.db.prepare(get_templates.stmt);
+        defer get_stmt.deinit();
+
+        var it = try get_stmt.iterator(
+            get_templates.type,
+            .{},
+        );
+
+        var arena = heap.ArenaAllocator.init(unlimited_allocator);
+        defer arena.deinit();
+
+        while (try it.nextAlloc(arena.allocator(), .{})) |entry| {
+            const get_template = .{
+                .stmt =
+                \\ SELECT filepath
+                \\ FROM templates
+                \\ WHERE filepath = ?
+                \\ LIMIT 1
+                ,
+                .type = struct {
+                    filepath: []const u8,
+                },
+            };
+
+            var get_template_stmt = try db.db.prepare(get_template.stmt);
+            defer get_template_stmt.deinit();
+
+            var buf: [fs.max_path_bytes]u8 = undefined;
+            var fba = heap.FixedBufferAllocator.init(&buf);
+            const filepath = try fs.path.join(fba.allocator(), &.{
+                build.site_root,
+                "templates",
+                entry.template,
+            });
+
+            const row = try get_template_stmt.oneAlloc(
+                get_template.type,
+                arena.allocator(),
+                .{},
+                .{
+                    .filepath = filepath,
+                },
+            );
+
+            if (row == null) {
+                log.err("The template ({s}) does not exist.", .{entry.template});
+                return error.MissingTemplate;
+            }
+        }
     }
 
     //
