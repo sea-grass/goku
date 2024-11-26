@@ -12,20 +12,16 @@ pub fn check(dir: *fs.Dir) !void {
 }
 
 pub fn write(dir: *fs.Dir) !void {
-    try dir.writeFile(.{
-        .sub_path = "build.zig",
-        .data = @embedFile("scaffold/site_template/build.zig"),
-    });
-
-    try dir.writeFile(.{
-        .sub_path = "build.zig.zon",
-        .data = @embedFile("scaffold/site_template/build.zig.zon"),
-    });
-
-    try dir.writeFile(.{
-        .sub_path = ".gitignore",
-        .data = @embedFile("scaffold/site_template/.gitignore"),
-    });
+    inline for (&.{
+        "build.zig",
+        "build.zig.zon",
+        ".gitignore",
+    }) |sub_path| {
+        try dir.writeFile(.{
+            .sub_path = sub_path,
+            .data = @embedFile("scaffold/site_template/" ++ sub_path),
+        });
+    }
 
     {
         var pages_dir = try dir.makeOpenPath("pages", .{});
