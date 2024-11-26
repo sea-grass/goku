@@ -2,22 +2,38 @@
 <html>
   <head>
     <title>Site</title>
-    <link rel="stylesheet" lang="text/css" href="/goku/bulma.css">
+    <link rel="stylesheet" type="text/css" href="/bulma.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>a[href^="https://"]::after {
         content: " [*]";
       }
       .navbar-menu {
         box-shadow: none;
-      }</style>
+      }
+      strong code {
+        font-weight: 700;
+        letter-spacing: 0;
+        animation: widen 2s infinite alternate ease-in-out;
+      }
+      @keyframes widen {
+        from {
+          letter-spacing: 0;
+        }
+        to {
+          letter-spacing: 0.3em;
+        }
+      }
+
+      .room-to-breathe::after { content: ""; display: block; height: 30vh; }
+    </style>
   </head>
-  <body>
+  <body class="room-to-breathe">
     <section class="section">
       <div class="container">
         <nav class="navbar mb-4" role="navigation">
           <div class="navbar-menu is-active">
             <div class="navbar-start">
-              <a href="/goku/" class="navbar-item">Back home</a>
+              <a href="/goku/" class="navbar-item">Home</a>
             </div>
             <div class="navbar-end">
               <a href="/goku/docs" class="navbar-item">Docs</a>
@@ -112,19 +128,20 @@ Hello, world.
 EOF
 </code></pre><p>
 Let's break down each of these commands.</p><p>
-mkdir site creates the site directory.</p><p>
-mkdir site/templates creates the site/templates directory.</p><p>
-The line starting with cat &gt;site/templates/basic.html will create the file site/templates/basic.html with the contents between each of the EOF tokens.</p><p>
-mkdir site/pages creates the site/pages directory.</p><p>
-The line starting with cat &gt;site/pages/index.md will create the file site/pages/index.md with the contents between the EOF tokens.</p><h2>
+<code>mkdir site</code> creates the <code>site</code> directory.</p><p>
+<code>mkdir site/templates</code> creates the <code>site/templates</code> directory.</p><p>
+The line starting with <code>cat &gt;site/templates/basic.html</code> will create the file <code>site/templates/basic.html</code> with the contents between each of the <code>EOF</code> tokens.</p><p>
+<code>mkdir site/pages</code> creates the <code>site/pages</code> directory.</p><p>
+The line starting with <code>cat &gt;site/pages/index.md</code> will create the file <code>site/pages/index.md</code> with the contents between the EOF tokens.</p><h2>
 Adding more pages</h2>
 <p>
-To add more pages to your site, all you need to do is create a .md file somewhere in site/pages with at least the slug, title, and template parameters.</p><h2>
+To add more pages to your site, all you need to do is create a <code>.md</code> file somewhere in <code>site/pages</code> with at least the <code>slug</code>, <code>title</code>, and <code>template</code> parameters.</p><h2>
 Adding more templates</h2>
 <p>
-Similar to the method to add new pages to your site, you create new templates by placing a .html file in your site/templates folder.</p>
+Similar to the method to add new pages to your site, you create new templates by placing a <code>.html</code> file in your <code>site/templates</code> folder.</p>
         </section>
       </div>
     </section>
+    
   </body>
 </html>

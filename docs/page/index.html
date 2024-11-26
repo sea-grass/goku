@@ -2,22 +2,38 @@
 <html>
   <head>
     <title>Page</title>
-    <link rel="stylesheet" lang="text/css" href="/goku/bulma.css">
+    <link rel="stylesheet" type="text/css" href="/bulma.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>a[href^="https://"]::after {
         content: " [*]";
       }
       .navbar-menu {
         box-shadow: none;
-      }</style>
+      }
+      strong code {
+        font-weight: 700;
+        letter-spacing: 0;
+        animation: widen 2s infinite alternate ease-in-out;
+      }
+      @keyframes widen {
+        from {
+          letter-spacing: 0;
+        }
+        to {
+          letter-spacing: 0.3em;
+        }
+      }
+
+      .room-to-breathe::after { content: ""; display: block; height: 30vh; }
+    </style>
   </head>
-  <body>
+  <body class="room-to-breathe">
     <section class="section">
       <div class="container">
         <nav class="navbar mb-4" role="navigation">
           <div class="navbar-menu is-active">
             <div class="navbar-start">
-              <a href="/goku/" class="navbar-item">Back home</a>
+              <a href="/goku/" class="navbar-item">Home</a>
             </div>
             <div class="navbar-end">
               <a href="/goku/docs" class="navbar-item">Docs</a>
@@ -63,47 +79,59 @@
 </div>
         <p class="subtitle"></p>
         <section class="content">
-          <h2>
-Overview</h2>
-<p>
-A Page inside Goku looks like this:</p><pre><code>.{
-  .markdown = .{
-    // Required
-    .slug = "/",
-    .content = "Welcome to the home page."
-    // Optional
-    .title = "Home page",
-    .template = "home.html",
-  },
-}
-</code></pre><p>
-Goku is able to parse the yaml frontmatter and render the markdown content.</p><p>
-You can create the same page in your site by creating a file in your site's pages folder:</p><pre><code>---
+          <p>
+A Page in Goku is represented by its metadata and content.</p><p>
+An author can create a Page
+using markdown for the content
+and yaml frontmatter for its metadata.</p><p>
+The Page must be placed in a file with the <code>.md</code> extension
+as a descendant of the <code>site/pages/</code> directory.</p><p>
+For example, consider a file located at <code>site/pages/home.md</code>
+with the following contents:</p><pre><code>---
 slug: /
 title: Home page
 template: home.html
 ---
 
 Welcome to the home page.
-</code></pre><h2>
-Simplifying unique pages</h2>
+</code></pre><p>
+Inside Goku, the above snippet would translate to this struct:</p><pre><code>Page {
+  .metadata = .{
+    .slug = "/",
+    .title = "Home page",
+    .template = "home.html",
+  },
+  .content = "Welcome to the home page.",
+}
+</code></pre><p>
+Notice that the filename isn't part of the Page struct.
+How you name and organize your pages inside the <code>site/pages/</code> directory
+is up to you.</p><h2>
+Metadata</h2>
 <p>
-Goku performs multiple render passes on your content: first, a template render, using mustache rendering, then a markdown render. This way, you can use all of mustache inside of your pages. When pages are unique, there's no need to create a shared template and split the content between page and template:</p><pre><code>---
-slug: /
-title: Home page
----
-
-&lt;div class="hero"&gt;
-  {{ title }}
-&lt;/div&gt;
-
-Welcome to the home page.
-</code></pre><blockquote>
+The Page Metadata is specified as yaml frontmatter inside the Page file.
+We consider the metadata to be made up of Parameters.
+Some Parameters are required, like <code>slug</code> and <code>title</code>.</p><h3>
+Parameters</h3>
 <p>
-:warning: Note: Goku only supports markdown with yaml frontmatter at this time. As the needs arise, Goku plans to support other page sources as well.</p></blockquote>
+Following is a table of all supported Parameters and their uses.</p><h4>
+Required Parameters</h4>
+<ul>
+<li>
+<strong><code>slug</code></strong> - The url where this page should be located.</li><li>
+<strong><code>title</code></strong> - The title of the page.</li><li>
+<strong><code>template</code></strong> - The location of the template (relative to the <code>site/templates/</code> directory) used to render this page.</li></ul>
+<h4>
+Optional Parameters</h4>
+<ul>
+<li>
+<strong><code>collection</code></strong> - The name of the collection to which this page belongs.</li><li>
+<strong><code>date</code></strong> - A date which can be used to order page entries when rendering a collection.</li><li>
+<strong><code>allow_html</code></strong> - A flag to determine whether the contents of this page should be rendered using mustache templating.</li></ul>
 
         </section>
       </div>
     </section>
+    
   </body>
 </html>

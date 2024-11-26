@@ -2,22 +2,38 @@
 <html>
   <head>
     <title>Goku Docs</title>
-    <link rel="stylesheet" lang="text/css" href="/goku/bulma.css">
+    <link rel="stylesheet" type="text/css" href="/bulma.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>a[href^="https://"]::after {
         content: " [*]";
       }
       .navbar-menu {
         box-shadow: none;
-      }</style>
+      }
+      strong code {
+        font-weight: 700;
+        letter-spacing: 0;
+        animation: widen 2s infinite alternate ease-in-out;
+      }
+      @keyframes widen {
+        from {
+          letter-spacing: 0;
+        }
+        to {
+          letter-spacing: 0.3em;
+        }
+      }
+
+      .room-to-breathe::after { content: ""; display: block; height: 30vh; }
+    </style>
   </head>
-  <body>
+  <body class="room-to-breathe">
     <section class="section">
       <div class="container">
         <nav class="navbar mb-4" role="navigation">
           <div class="navbar-menu is-active">
             <div class="navbar-start">
-              <a href="/goku/" class="navbar-item">Back home</a>
+              <a href="/goku/" class="navbar-item">Home</a>
             </div>
             <div class="navbar-end">
               <a href="/goku/docs" class="navbar-item">Docs</a>
@@ -63,10 +79,27 @@
 </div>
         <p class="subtitle">Learn how to create, modify, and publish your own website with Goku.</p>
         <section class="content">
-          <ul><li><a href="/goku/docs/collection">Collection</a></li><li><a href="/goku/getting-started">Getting started</a></li><li><a href="/goku/docs/page">Page</a></li><li><a href="/goku/docs/site">Site</a></li></ul>
+          <ul><li>
+<a href="/goku/docs/collection">
+ Collection
+</a>
+</li><li>
+<a href="/goku/getting-started">
+ Getting started
+</a>
+</li><li>
+<a href="/goku/docs/page">
+ Page
+</a>
+</li><li>
+<a href="/goku/docs/site">
+ Site
+</a>
+</li></ul>
 
         </section>
       </div>
     </section>
+    
   </body>
 </html>

@@ -2,22 +2,38 @@
 <html>
   <head>
     <title>Changelog</title>
-    <link rel="stylesheet" lang="text/css" href="/goku/bulma.css">
+    <link rel="stylesheet" type="text/css" href="/bulma.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>a[href^="https://"]::after {
         content: " [*]";
       }
       .navbar-menu {
         box-shadow: none;
-      }</style>
+      }
+      strong code {
+        font-weight: 700;
+        letter-spacing: 0;
+        animation: widen 2s infinite alternate ease-in-out;
+      }
+      @keyframes widen {
+        from {
+          letter-spacing: 0;
+        }
+        to {
+          letter-spacing: 0.3em;
+        }
+      }
+
+      .room-to-breathe::after { content: ""; display: block; height: 30vh; }
+    </style>
   </head>
-  <body>
+  <body class="room-to-breathe">
     <section class="section">
       <div class="container">
         <nav class="navbar mb-4" role="navigation">
           <div class="navbar-menu is-active">
             <div class="navbar-start">
-              <a href="/goku/" class="navbar-item">Back home</a>
+              <a href="/goku/" class="navbar-item">Home</a>
             </div>
             <div class="navbar-end">
               <a href="/goku/docs" class="navbar-item">Docs</a>
@@ -64,12 +80,46 @@
         <p class="subtitle"></p>
         <section class="content">
           <h2>
+0.0.5</h2>
+<p>
+This PR contains many changes that are under the hood to support future features. User-facing changes include a more recent supported Zig version, updates to page parameters, more informative error messages, updates to shortcodes, and improvements to the markdown renderer.</p><h3>
+Updated Zig version</h3>
+<p>
+The officially supported Zig version is now Zig <code>0.14.0-dev.1911+3bf89f55c</code>. You must upgrade to at least this Zig version when you upgrade to Goku 0.0.5.</p><h3>
+Page Parameters</h3>
+<ul>
+<li>
+<code>template</code> is now a required parameter</li></ul>
+<h3>
+More informative error messages</h3>
+<p>
+Prior to v0.0.5, Goku would print unhelpful errors, for example <code>FileNotFound</code> when a template that a page references is missing. Now Goku does a better job at anticipating these errors and suggesting some potential fixes in some cases.</p><p>
+Error reporting was improved for these cases:</p><ul>
+<li>
+If pages dir is missing, suggests to create it</li><li>
+If templates dir is missing, suggests to create it</li><li>
+If required frontmatter fields slug, title, or template are missing,
+prints specific message</li><li>
+If a page references a non-existent template, an informative error is
+printed</li><li>
+If a template is empty, an informative error is printed</li></ul>
+<h3>
+Shortcodes</h3>
+<ul>
+<li>
+<code>{{& collections.*.list}}</code> now sorts entries by date descending then by title ascending. If the entry has a date, it is printed alongside the title in the rendered html.</li></ul>
+<h3>
+Markdown renderer</h3>
+<p>
+Goku uses <code>md4c</code> for its markdown rendering, which provides a callback-style interface for customizing how the document is processed. Markdown features have been implemented as required for the goku site, which means that it doesn't yet fully render all possible markdown.</p><p>
+In this PR, Goku now properly renders inline <code>code</code> and <code>strong</code> content in markdown content.</p><p>
+If you need more support for other markdown features, feel free to open an issue in this repository. Better yet, check out <code>src/markdown.zig</code> and open a PR with your changes.</p><h2>
 0.0.4</h2>
 <p>
 This release updates the officially supported Zig version, adds some features to improve the experience of building and previewing Goku sites, automates some of the work for supporting alternate site roots, and includes some behind-the-scenes changes to support more advanced features and to pave the way for user-defined themes.</p><h3>
 Updated Zig version</h3>
 <p>
-The officially supported Zig version is now Zig 0.14.0-dev.1710+8ee52f99c. You must upgrade to at least this Zig version when you upgrade to Goku 0.0.4.</p><h3>
+The officially supported Zig version is now Zig <code>0.14.0-dev.1710+8ee52f99c</code>. You must upgrade to at least this Zig version when you upgrade to Goku 0.0.4.</p><h3>
 Getting started</h3>
 <h4>
 build.zig</h4>
@@ -98,21 +148,21 @@ pub fn build(b: *std.Build) !void {
 </code></pre><h3>
 Themes</h3>
 <p>
-Goku does not yet support user-defined themes, but some shortcodes ({{& theme.head}} and {{& theme.body}}) have been added to make the transition to themes smoother once they are supported.</p><p>
-Previously, users had to include bulma.css and htmx.js to their templates manually. The suggested migration path is to replace these instances with the shortcodes.</p><h3>
+Goku does not yet support user-defined themes, but some shortcodes (<code>{{& theme.head}}</code> and <code>{{& theme.body}}</code>) have been added to make the transition to themes smoother once they are supported.</p><p>
+Previously, users had to include <code>bulma.css</code> and <code>htmx.js</code> to their templates manually. The suggested migration path is to replace these instances with the shortcodes.</p><h3>
 Shortcodes</h3>
 <p>
 Some shortcodes were added in this release.</p><ul>
 <li>
-{{& theme.head}} - Render the theme's assets and metadata (typically inside &lt;head&gt; in your template)</li><li>
-{{& theme.body}} - Render the theme's scripts (typically right before the end of &lt;body&gt; in your template)</li></ul>
+<code>{{& theme.head}}</code> - Render the theme's assets and metadata (typically inside <code>&lt;head&gt;</code> in your template)</li><li>
+<code>{{& theme.body}}</code> - Render the theme's scripts (typically right before the end of <code>&lt;body&gt;</code> in your template)</li></ul>
 <h3>
 Site root</h3>
 <p>
 This release simplifies the usage of site_root. When rendering markdown pages, Goku now automatically prefixes sitewide urls with the url prefix supplied at build-time.</p><p>
-If your site is hosted at some url path that is not the root (e.g. if your Goku site root is at http://example.com/blog) then you needed to do two things: set the url prefix when building your site, and prefix all links in your content with {{site_root}}. Now, you don't need to prefix your links in your content at all.</p><p>
-Suggested migration path is to remove {{site_root}} from your pages. If your pages only had the allow_html: true parameter because of site_root usage, you can remove it.</p><p>
-Note that templates still require the usage of {{site_root}} (since the automatic insertion of site_root only occurs during markdown rendering).</p><h2>
+If your site is hosted at some url path that is not the root (e.g. if your Goku site root is at <code>http://example.com/blog</code>) then you needed to do two things: set the url prefix when building your site, and prefix all links in your content with <code>{{site_root}}</code>. Now, you don't need to prefix your links in your content at all.</p><p>
+Suggested migration path is to remove <code>{{site_root}}</code> from your pages. If your pages only had the <code>allow_html: true</code> parameter because of <code>site_root</code> usage, you can remove it.</p><p>
+Note that templates still require the usage of <code>{{site_root}}</code> (since the automatic insertion of <code>site_root</code> only occurs during markdown rendering).</p><h2>
 0.0.3</h2>
 <p>
 This release includes basic support for collections (a way to group pages in order to link to and search through them), improvements for published sites at subpaths, and some UX improvements at when building a Goku site, in the form of more helpful error messages.</p><h3>
@@ -121,15 +171,15 @@ Page Parameters</h3>
 Pages now support some additional parameters.</p><p>
 Added:</p><ul>
 <li>
-collection: &lt;name&gt; - Add this page to the collection named &lt;name&gt;.</li><li>
-date: &lt;date&gt; - This date will be used for sorting when displaying a list of pages inside a collection.</li><li>
-description: &lt;string&gt; - An optional piece of metadata that may be used inside of a template.</li></ul>
+<code>collection: &lt;name&gt;</code> - Add this page to the collection named <code>&lt;name&gt;</code>.</li><li>
+<code>date: &lt;date&gt;</code> - This date will be used for sorting when displaying a list of pages inside a collection.</li><li>
+<code>description: &lt;string&gt;</code> - An optional piece of metadata that may be used inside of a template.</li></ul>
 <h3>
 Site root</h3>
 <p>
 If you want to publish your site as the subpath of some domain, you need to let Goku know where the root of the built site will live, in order for it to produce correct links among assets and pages.</p><p>
-To use this feature, you need to do two things. 1) You need to provide the url prefix while building your site; and 2) You need to use the {{site_root}} shortcode wherever you create links or assets. (Note that site_root is automatically taken into account in shortcodes such as collections.&lt;name&gt;.list.)</p><p>
-When building, you can specify the site root with the -p (or --prefix) argument:</p><pre><code>$ goku site -o build -p my-site
+To use this feature, you need to do two things. 1) You need to provide the url prefix while building your site; and 2) You need to use the <code>{{site_root}}</code> shortcode wherever you create links or assets. (Note that <code>site_root</code> is automatically taken into account in shortcodes such as <code>collections.&lt;name&gt;.list</code>.)</p><p>
+When building, you can specify the site root with the <code>-p</code> (or <code>--prefix</code>) argument:</p><pre><code>$ goku site -o build -p my-site
 </code></pre><p>
 Then, the site_root will be available to shortcodes, templates, and pages.</p><p>
 Note that all page slugs are always relative to the site root.</p><h3>
@@ -143,22 +193,22 @@ Improved error messages</h3>
 TODO</p><h3>
 Collections</h3>
 <p>
-You can add a Page to a Collection using the collection page parameter. This allows you to group pages for ordering and viewing. See the docs for more information.</p><h3>
+You can add a Page to a Collection using the <code>collection</code> page parameter. This allows you to group pages for ordering and viewing. See the docs for more information.</p><h3>
 Shortcodes</h3>
 <p>
 In an effort to use standard lingo to communicate about Goku's features, a Shortcode is an identifier or pattern that corresponds to some data retrieval/html rendering within a template.</p><p>
 Pre-0.0.3, these shortcodes were available:</p><ul>
 <li>
-{{& content}} - Render the page content (i.e. the HTML generated from the page markdown content).</li><li>
-{{title}} - Render the page title, specified by the page parameter title.</li><li>
-{{& lucide.&lt;icon name&gt;}} - Embed the SVG for the corresponding icon in the lucide icon library.</li></ul>
+<code>{{& content}}</code> - Render the page content (i.e. the HTML generated from the page markdown content).</li><li>
+<code>{{title}}</code> - Render the page title, specified by the page parameter <code>title</code>.</li><li>
+<code>{{& lucide.&lt;icon name&gt;}}</code> - Embed the SVG for the corresponding icon in the lucide icon library.</li></ul>
 <p>
 In this version, these shortcodes were added:</p><ul>
 <li>
-{{& meta}} - Render some of the page parameters as tags.</li><li>
-{{& collections.&lt;collection name&gt;.list}} - Render a list of links for all of the pages in the corresponding collection.</li><li>
-{{& collections.&lt;collection name&gt;.latest}} - Render a link to the page in the corresponding collection with the latest date (based on its frontmatter date parameter).</li><li>
-{{site_root}} - Use in conjunction with the --prefix command line argument to create links relative to your the site root.</li></ul>
+<code>{{& meta}}</code> - Render some of the page parameters as tags.</li><li>
+<code>{{& collections.&lt;collection name&gt;.list}}</code> - Render a list of links for all of the pages in the corresponding collection.</li><li>
+<code>{{& collections.&lt;collection name&gt;.latest}}</code> - Render a link to the page in the corresponding collection with the latest date (based on its frontmatter <code>date</code> parameter).</li><li>
+<code>{{site_root}}</code> - Use in conjunction with the <code>--prefix</code> command line argument to create links relative to your the site root.</li></ul>
 <h2>
 </h2>
 <h3>
@@ -166,7 +216,7 @@ Theming</h3>
 <h4>
 Added HTMX</h4>
 <p>
-Goku now includes htmx in addition to bulma to every built site.</p><h4>
+Goku now includes <code>htmx</code> in addition to <code>bulma</code> to every built site.</p><h4>
 Default theme</h4>
 <p>
 Note that Goku doesn't necessarily support the concept of "themes" yet. The "default theme" could be considered to be the combination of shortcodes, UI libraries (lucide, htmx, bulma), and templates that are used in a site. The choice of shortcodes and UI libraries aren't customizable at this stage. On the other hand, templates must be entirely user-defined. So, you can make use of the "default theme" by referencing the templates for Goku's own site (see the source code).</p><h2>
@@ -174,11 +224,11 @@ Note that Goku doesn't necessarily support the concept of "themes" yet. The "def
 <ul>
 <li>
 Mustache templates are now supported by Goku (using the <a href="https://github.com/RekGRpth/mustach">mustach</a> library)</li><li>
-A site folder must now contain a templates directory with at least one template</li><li>
-A page in site/pages must now contain a template: path/to/template.html frontmatter, which resolves to a path within the site's Templates directory (e.g. resolves to site/templates/path/to/template.html)</li><li>
-A page may optionally be parsed by the template engine itself by specifying the allow_html: true frontmatter.</li><li>
-<a href="https://bulma.io/">Bulma.css</a> is now added to a site's output directory automatically. You can reference it in your templates at the url /bulma.css.</li><li>
-<a href="https://lucide.dev/">Lucide</a> icons are available to use within your templates. For example, you can insert {{&lucide.sailboat}} to embed the icon in your template. Note that you can also use Lucide icons in your pages if you add allow_html: true.</li></ul>
+A <code>site</code> folder must now contain a <code>templates</code> directory with at least one template</li><li>
+A page in <code>site/pages</code> must now contain a <code>template: path/to/template.html</code> frontmatter, which resolves to a path within the site's Templates directory (e.g. resolves to <code>site/templates/path/to/template.html</code>)</li><li>
+A page may optionally be parsed by the template engine itself by specifying the <code>allow_html: true</code> frontmatter.</li><li>
+<a href="https://bulma.io/">Bulma.css</a> is now added to a site's output directory automatically. You can reference it in your templates at the url <code>/bulma.css</code>.</li><li>
+<a href="https://lucide.dev/">Lucide</a> icons are available to use within your templates. For example, you can insert <code>{{&lucide.sailboat}}</code> to embed the icon in your template. Note that you can also use Lucide icons in your pages if you add <code>allow_html: true</code>.</li></ul>
 <p>
 This release also includes some internal changes, like the use of SQLite to index the site before building.</p><h2>
 0.0.1</h2>
@@ -189,5 +239,6 @@ Initial release</li></ul>
         </section>
       </div>
     </section>
+    
   </body>
 </html>

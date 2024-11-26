@@ -2,22 +2,38 @@
 <html>
   <head>
     <title>Getting started</title>
-    <link rel="stylesheet" lang="text/css" href="/goku/bulma.css">
+    <link rel="stylesheet" type="text/css" href="/bulma.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>a[href^="https://"]::after {
         content: " [*]";
       }
       .navbar-menu {
         box-shadow: none;
-      }</style>
+      }
+      strong code {
+        font-weight: 700;
+        letter-spacing: 0;
+        animation: widen 2s infinite alternate ease-in-out;
+      }
+      @keyframes widen {
+        from {
+          letter-spacing: 0;
+        }
+        to {
+          letter-spacing: 0.3em;
+        }
+      }
+
+      .room-to-breathe::after { content: ""; display: block; height: 30vh; }
+    </style>
   </head>
-  <body>
+  <body class="room-to-breathe">
     <section class="section">
       <div class="container">
         <nav class="navbar mb-4" role="navigation">
           <div class="navbar-menu is-active">
             <div class="navbar-start">
-              <a href="/goku/" class="navbar-item">Back home</a>
+              <a href="/goku/" class="navbar-item">Home</a>
             </div>
             <div class="navbar-end">
               <a href="/goku/docs" class="navbar-item">Docs</a>
@@ -75,7 +91,7 @@ Create a minimal goku site (pages/index.md and templates/page.html)</li><li>
 Create a run step in your build.zig to use Goku to build your site</li></ol><h3>
 1. Create a Zig project</h3>
 <p>
-You can use zig init to create a Zig project if you wish, but all you really need to do is create minimal build.zig and build.zig.zon files.</p><h3>
+You can use <code>zig init</code> to create a Zig project if you wish, but all you really need to do is create minimal build.zig and build.zig.zon files.</p><h3>
 2. Add Goku to your dependencies</h3>
 <p>
 This will allow the Zig build system to locate Goku.</p><h3>
@@ -84,7 +100,7 @@ This will allow the Zig build system to locate Goku.</p><h3>
 Create these files.</p><h4>
 pages/index.md</h4>
 <p>
-pages/index.md</p><pre><code>---
+<strong>pages/index.md</strong></p><pre><code>---
 slug: /
 template: page.html
 title: Home page
@@ -94,7 +110,7 @@ This is the home page.
 </code></pre><h4>
 templates/page.html</h4>
 <p>
-templates/page.html</p><pre><code>&lt;!doctype html&gt;&lt;html&gt;&lt;head&gt;
+<strong>templates/page.html</strong></p><pre><code>&lt;!doctype html&gt;&lt;html&gt;&lt;head&gt;
 &lt;title&gt;{{title}}&lt;/title&gt;
 {{& theme.head}}
 &lt;/head&gt;
@@ -141,5 +157,6 @@ Getting started with Zig</h2>
         </section>
       </div>
     </section>
+    
   </body>
 </html>
