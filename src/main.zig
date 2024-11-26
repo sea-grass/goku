@@ -26,23 +26,68 @@ pub const std_options: std.Options = .{
 
 const size_of_alice_txt = 1189000;
 
-const SubCommands = enum {
+const standard_help =
+    \\Goku - A static site generator
+    \\----
+    \\Usage:
+    \\    goku -h
+    \\    goku init [<site_root>]
+    \\    goku build <site_root> -o <out_dir> [-p <url_prefix>]
+    \\
+;
+
+const SubCommand = enum {
     build,
     help,
     init,
+
+    const main_parsers = .{
+        .command = clap.parsers.enumeration(SubCommand),
+    };
+
+    const main_params = clap.parseParamsComptime(
+        \\-h, --help  Display this help text and exit.
+        \\<command> The subcommand - can be one of build, help, init
+        \\
+    );
+
+    const MainArgs = clap.ResultEx(clap.Help, &main_params, main_parsers);
+
+    pub fn parse(allocator: mem.Allocator, iter: *process.ArgIterator) !SubCommand {
+        var diag: clap.Diagnostic = .{};
+        var res = clap.parseEx(clap.Help, &main_params, main_parsers, iter, .{
+            .diagnostic = &diag,
+            .allocator = allocator,
+
+            // Terminate the parsing of arguments after the first positional,
+            // the subcommand. This will leave the rest of the iter args unconsumed,
+            // so the iter can be reused for parsing the subcommand arguments.
+            .terminating_positional = 0,
+        }) catch |err| {
+            diag.report(io.getStdErr().writer(), err) catch {};
+            return err;
+        };
+        defer res.deinit();
+
+        if (res.args.help != 0) {
+            printHelp();
+            process.exit(0);
+        }
+
+        return res.positionals[0] orelse return error.MissingCommand;
+    }
+
+    pub fn printHelp() void {
+        const stderr = io.getStdErr().writer();
+
+        stderr.print(
+            "{s}",
+            .{standard_help},
+        ) catch {};
+
+        clap.help(stderr, clap.Help, &main_params, .{}) catch {};
+    }
 };
-
-const main_parsers = .{
-    .command = clap.parsers.enumeration(SubCommands),
-};
-
-const main_params = clap.parseParamsComptime(
-    \\-h, --help  Display this help text and exit.
-    \\<command>
-    \\
-);
-
-const MainArgs = clap.ResultEx(clap.Help, &main_params, main_parsers);
 
 pub fn main() !void {
     var gpa: heap.GeneralPurposeAllocator(.{}) = .{};
@@ -64,31 +109,17 @@ pub fn main() !void {
     // skip exe name
     _ = iter.next();
 
-    var diag: clap.Diagnostic = .{};
-    var res = clap.parseEx(clap.Help, &main_params, main_parsers, &iter, .{
-        .diagnostic = &diag,
-        .allocator = unlimited_allocator,
-
-        // Terminate the parsing of arguments after the first positional,
-        // the subcommand. This will leave the rest of the iter args unconsumed,
-        // so the iter can be reused for parsing the subcommand arguments.
-        .terminating_positional = 0,
-    }) catch |err| {
-        diag.report(io.getStdErr().writer(), err) catch {};
-        return err;
+    const command = SubCommand.parse(unlimited_allocator, &iter) catch |err| switch (err) {
+        error.MissingCommand => {
+            SubCommand.printHelp();
+            process.exit(1);
+        },
+        else => return err,
     };
-    defer res.deinit();
-
-    if (res.args.help != 0) {
-        log.info("JHelp", .{});
-        process.exit(0);
-    }
-
-    const command = res.positionals[0] orelse return error.MissingCommand;
 
     switch (command) {
         .help => {
-            log.info("GHelp", .{});
+            SubCommand.printHelp();
             process.exit(0);
         },
         .init => {
@@ -499,16 +530,10 @@ const BuildCommand = struct {
         const stderr = io.getStdErr().writer();
 
         stderr.print(
-            \\Goku - A static site generator
-            \\----
-            \\Usage:
-            \\    goku -h
-            \\    goku <site_root> -o <out_dir>
-            \\
-        ,
-            .{},
-        ) catch @panic("Could not print help to stderr");
+            "{s}",
+            .{standard_help},
+        ) catch {};
 
-        clap.help(stderr, clap.Help, &params, .{}) catch @panic("Could not print help to stderr");
+        clap.help(stderr, clap.Help, &params, .{}) catch {};
     }
 };
