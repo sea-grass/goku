@@ -8,6 +8,7 @@ const mem = std.mem;
 const page = @import("page.zig");
 const process = std.process;
 const filesystem = @import("source/filesystem.zig");
+const scaffold = @import("scaffold.zig");
 const std = @import("std");
 const storage = @import("storage.zig");
 const testing = std.testing;
@@ -82,12 +83,50 @@ pub fn main() !void {
             process.exit(0);
         },
         .init => {
-            log.info("init", .{});
+            try initMain(unlimited_allocator, &iter);
         },
         .build => {
-            log.info("build", .{});
+            try buildMain(unlimited_allocator, &iter);
         },
     }
+}
+
+pub fn initMain(unlimited_allocator: mem.Allocator, iter: *process.ArgIterator) !void {
+    const params = comptime clap.parseParamsComptime(
+        \\-h, --help Display this help text and exit.
+        \\<str>  The directory to initialize (defaults to the current working directory).
+    );
+
+    var diag: clap.Diagnostic = .{};
+    var res = clap.parseEx(clap.Help, &params, clap.parsers.default, iter, .{
+        .diagnostic = &diag,
+        .allocator = unlimited_allocator,
+    }) catch |err| {
+        diag.report(io.getStdErr().writer(), err) catch {};
+        return err;
+    };
+    defer res.deinit();
+
+    const site_root = res.positionals[0] orelse ".";
+
+    if (res.args.help != 0) {
+        log.info("THelp", .{});
+        process.exit(0);
+    }
+
+    log.info("init ({s})", .{site_root});
+
+    var dir = try fs.cwd().makeOpenPath(site_root, .{});
+    defer dir.close();
+
+    try scaffold.check(&dir);
+    try scaffold.write(&dir);
+
+    log.info("Site scaffolded at ({s}).", .{site_root});
+}
+pub fn buildMain(unlimited_allocator: mem.Allocator, iter: *process.ArgIterator) !void {
+    _ = unlimited_allocator;
+    _ = iter;
 }
 
 const BuildCommand = struct {
