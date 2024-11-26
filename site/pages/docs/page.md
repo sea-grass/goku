@@ -58,10 +58,10 @@ Following is a table of all supported Parameters and their uses.
 
 - **`slug`** - The url where this page should be located.
 - **`title`** - The title of the page.
+- **`template`** - The location of the template (relative to the `site/templates/` directory) used to render this page.
 
 #### Optional Parameters
 
-- **`template`** - The location of the template (relative to the `site/templates/` directory) used to render this page.
 - **`collection`** - The name of the collection to which this page belongs.
 - **`date`** - A date which can be used to order page entries when rendering a collection.
 - **`allow_html`** - A flag to determine whether the contents of this page should be rendered using mustache templating.

@@ -4,11 +4,43 @@ title: Changelog
 template: page.html
 ---
 
-## 0.0.5 (in progress)
+## 0.0.5
 
-- Goku live preview with Zap and Web sockets - Live edit your Goku site on your local machine
-- Generate code coverage for tests
-- Generate a site graph using graphviz
+This PR contains many changes that are under the hood to support future features. User-facing changes include a more recent supported Zig version, updates to page parameters, more informative error messages, updates to shortcodes, and improvements to the markdown renderer.
+
+### Updated Zig version
+
+The officially supported Zig version is now Zig `0.14.0-dev.1911+3bf89f55c`. You must upgrade to at least this Zig version when you upgrade to Goku 0.0.5.
+
+### Page Parameters
+
+- `template` is now a required parameter
+
+### More informative error messages
+
+Prior to v0.0.5, Goku would print unhelpful errors, for example `FileNotFound` when a template that a page references is missing. Now Goku does a better job at anticipating these errors and suggesting some potential fixes in some cases.
+
+Error reporting was improved for these cases:
+
+- If pages dir is missing, suggests to create it
+- If templates dir is missing, suggests to create it
+- If required frontmatter fields slug, title, or template are missing,
+  prints specific message
+- If a page references a non-existent template, an informative error is
+  printed
+- If a template is empty, an informative error is printed
+
+### Shortcodes
+
+- `{{& collections.*.list}}` now sorts entries by date descending then by title ascending. If the entry has a date, it is printed alongside the title in the rendered html.
+
+### Markdown renderer
+
+Goku uses `md4c` for its markdown rendering, which provides a callback-style interface for customizing how the document is processed. Markdown features have been implemented as required for the goku site, which means that it doesn't yet fully render all possible markdown.
+
+In this PR, Goku now properly renders inline `code` and `strong` content in markdown content.
+
+If you need more support for other markdown features, feel free to open an issue in this repository. Better yet, check out `src/markdown.zig` and open a PR with your changes.
 
 ## 0.0.4
 
