@@ -47,7 +47,16 @@ const MainArgs = clap.ResultEx(clap.Help, &main_params, main_parsers);
 pub fn main() !void {
     var gpa: heap.GeneralPurposeAllocator(.{}) = .{};
     defer _ = gpa.deinit();
-    const unlimited_allocator = gpa.allocator();
+
+    tracy.startupProfiler();
+    defer tracy.shutdownProfiler();
+
+    tracy.setThreadName("main");
+    defer tracy.message("Graceful main thread exit");
+
+    var tracy_allocator = tracy.TracingAllocator.init(gpa.allocator());
+
+    const unlimited_allocator = tracy_allocator.allocator();
 
     var iter = try process.ArgIterator.initWithAllocator(unlimited_allocator);
     defer iter.deinit();
@@ -124,168 +133,16 @@ pub fn initMain(unlimited_allocator: mem.Allocator, iter: *process.ArgIterator) 
 
     log.info("Site scaffolded at ({s}).", .{site_root});
 }
+
 pub fn buildMain(unlimited_allocator: mem.Allocator, iter: *process.ArgIterator) !void {
-    _ = unlimited_allocator;
-    _ = iter;
-}
-
-const BuildCommand = struct {
-    site_root: []const u8,
-    out_dir: []const u8,
-    url_prefix: ?[]const u8,
-
-    arena: heap.ArenaAllocator,
-
-    const params = clap.parseParamsComptime(
-        \\-h, --help    Display this help text and exit.
-        \\<str>         The absolute or relative path to your site's source directory.
-        \\-o, --out <str>      The directory to place the generated site.
-        \\-p, --prefix <str>    The URL prefix to use when the site root will be published to a subpath. Default: none
-        ,
-    );
-
-    pub const ParseError = error{
-        Help,
-        MalformedUrlPrefix,
-        MemoryError,
-        MissingOutDir,
-        MissingSiteRoot,
-        ParseError,
-        SiteRootDoesNotExist,
-        TooManyParameters,
-    };
-    pub fn parse(allocator: mem.Allocator) ParseError!BuildCommand {
-        var arena = heap.ArenaAllocator.init(allocator);
-        errdefer arena.deinit();
-
-        var diag: clap.Diagnostic = .{};
-        var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
-            .diagnostic = &diag,
-            .allocator = allocator,
-        }) catch |err| {
-            // Report useful error on exit
-            diag.report(io.getStdErr().writer(), err) catch {};
-            return error.ParseError;
-        };
-        defer res.deinit();
-
-        if (res.args.help != 0) {
-            return error.Help;
-        }
-
-        var site_root_buf: [fs.max_path_bytes]u8 = undefined;
-        const site_root = absolutePath(
-            site_root: {
-                break :site_root if (res.positionals.len == 1) res.positionals[0] else {
-                    if (res.positionals.len < 1) {
-                        return error.MissingSiteRoot;
-                    }
-
-                    return error.TooManyParameters;
-                };
-            },
-            &site_root_buf,
-            .{},
-        ) catch return error.SiteRootDoesNotExist;
-
-        var out_dir_buf: [fs.max_path_bytes]u8 = undefined;
-        const out_dir_path = absolutePath(
-            if (res.args.out) |out| out else {
-                return error.MissingOutDir;
-            },
-            &out_dir_buf,
-            .{ .make = true },
-        ) catch return error.ParseError;
-
-        const url_prefix: ?[]const u8 = if (res.args.prefix) |prefix| prefix else null;
-
-        if (url_prefix != null) {
-            if (!mem.startsWith(u8, url_prefix.?, "/")) {
-                return error.MalformedUrlPrefix;
-            }
-        }
-
-        return .{
-            .site_root = arena.allocator().dupe(u8, site_root) catch return error.MemoryError,
-            .out_dir = arena.allocator().dupe(u8, out_dir_path) catch return error.MemoryError,
-            .url_prefix = if (url_prefix == null) null else arena.allocator().dupe(u8, url_prefix.?) catch return error.MemoryError,
-            .arena = arena,
-        };
-    }
-
-    pub fn deinit(self: BuildCommand) void {
-        self.arena.deinit();
-    }
-
-    const AbsolutePathOptions = struct {
-        // Make the directory if it does not exist
-        make: bool = false,
-    };
-    fn absolutePath(path: []const u8, buf: []u8, options: AbsolutePathOptions) ![]const u8 {
-        if (fs.path.isAbsolute(path)) {
-            if (options.make) {
-                fs.makeDirAbsolute(path) catch |err| switch (err) {
-                    error.PathAlreadyExists => {},
-                    else => return err,
-                };
-            }
-
-            return path;
-        }
-
-        const cwd = fs.cwd();
-
-        if (options.make) {
-            try cwd.makePath(path);
-        }
-
-        return try cwd.realpath(path, buf);
-    }
-
-    pub fn printHelp() void {
-        const stderr = io.getStdErr().writer();
-
-        stderr.print(
-            \\Goku - A static site generator
-            \\----
-            \\Usage:
-            \\    goku -h
-            \\    goku <site_root> -o <out_dir>
-            \\
-        ,
-            .{},
-        ) catch @panic("Could not print help to stderr");
-
-        clap.help(stderr, clap.Help, &params, .{}) catch @panic("Could not print help to stderr");
-    }
-};
-
-pub fn main2() !void {
     const start = time.milliTimestamp();
     log.info("mode {s}", .{@tagName(@import("builtin").mode)});
-
-    tracy.startupProfiler();
-    defer tracy.shutdownProfiler();
-
-    tracy.setThreadName("main");
-    defer tracy.message("Graceful main thread exit");
-
-    var gpa = heap.GeneralPurposeAllocator(.{}){};
-    defer switch (gpa.deinit()) {
-        .leak => {
-            log.err("Memory leak...", .{});
-        },
-        else => {},
-    };
-
-    var tracy_allocator = tracy.TracingAllocator.init(gpa.allocator());
-    const unlimited_allocator = tracy_allocator.allocator();
 
     //
     // PARSE CLI ARGUMENTS
     //
 
-    const build = BuildCommand.parse(unlimited_allocator) catch |err| switch (err) {
+    const build = BuildCommand.parse(unlimited_allocator, iter) catch |err| switch (err) {
         BuildCommand.ParseError.Help => {
             BuildCommand.printHelp();
             process.exit(0);
@@ -522,3 +379,136 @@ pub fn main2() !void {
     // const partials_dir = try root_dir.openDir("partials");
     // const themes_dir = try root_dir.openDir("themes");
 }
+
+const BuildCommand = struct {
+    site_root: []const u8,
+    out_dir: []const u8,
+    url_prefix: ?[]const u8,
+
+    arena: heap.ArenaAllocator,
+
+    const params = clap.parseParamsComptime(
+        \\-h, --help    Display this help text and exit.
+        \\<str>         The absolute or relative path to your site's source directory.
+        \\-o, --out <str>      The directory to place the generated site.
+        \\-p, --prefix <str>    The URL prefix to use when the site root will be published to a subpath. Default: none
+        ,
+    );
+
+    pub const ParseError = error{
+        Help,
+        MalformedUrlPrefix,
+        MemoryError,
+        MissingOutDir,
+        MissingSiteRoot,
+        ParseError,
+        SiteRootDoesNotExist,
+        TooManyParameters,
+    };
+    pub fn parse(allocator: mem.Allocator, iter: *process.ArgIterator) ParseError!BuildCommand {
+        var arena = heap.ArenaAllocator.init(allocator);
+        errdefer arena.deinit();
+
+        var diag: clap.Diagnostic = .{};
+        var res = clap.parseEx(clap.Help, &params, clap.parsers.default, iter, .{
+            .diagnostic = &diag,
+            .allocator = allocator,
+        }) catch |err| {
+            // Report useful error on exit
+            diag.report(io.getStdErr().writer(), err) catch {};
+            return error.ParseError;
+        };
+        defer res.deinit();
+
+        if (res.args.help != 0) {
+            return error.Help;
+        }
+
+        var site_root_buf: [fs.max_path_bytes]u8 = undefined;
+        const site_root = absolutePath(
+            site_root: {
+                break :site_root if (res.positionals.len == 1)
+                    res.positionals[0] orelse return error.MissingSiteRoot
+                else {
+                    if (res.positionals.len < 1) {
+                        return error.MissingSiteRoot;
+                    }
+
+                    return error.TooManyParameters;
+                };
+            },
+            &site_root_buf,
+            .{},
+        ) catch return error.SiteRootDoesNotExist;
+
+        var out_dir_buf: [fs.max_path_bytes]u8 = undefined;
+        const out_dir_path = absolutePath(
+            if (res.args.out) |out| out else {
+                return error.MissingOutDir;
+            },
+            &out_dir_buf,
+            .{ .make = true },
+        ) catch return error.ParseError;
+
+        const url_prefix: ?[]const u8 = if (res.args.prefix) |prefix| prefix else null;
+
+        if (url_prefix != null) {
+            if (!mem.startsWith(u8, url_prefix.?, "/")) {
+                return error.MalformedUrlPrefix;
+            }
+        }
+
+        return .{
+            .site_root = arena.allocator().dupe(u8, site_root) catch return error.MemoryError,
+            .out_dir = arena.allocator().dupe(u8, out_dir_path) catch return error.MemoryError,
+            .url_prefix = if (url_prefix == null) null else arena.allocator().dupe(u8, url_prefix.?) catch return error.MemoryError,
+            .arena = arena,
+        };
+    }
+
+    pub fn deinit(self: BuildCommand) void {
+        self.arena.deinit();
+    }
+
+    const AbsolutePathOptions = struct {
+        // Make the directory if it does not exist
+        make: bool = false,
+    };
+    fn absolutePath(path: []const u8, buf: []u8, options: AbsolutePathOptions) ![]const u8 {
+        if (fs.path.isAbsolute(path)) {
+            if (options.make) {
+                fs.makeDirAbsolute(path) catch |err| switch (err) {
+                    error.PathAlreadyExists => {},
+                    else => return err,
+                };
+            }
+
+            return path;
+        }
+
+        const cwd = fs.cwd();
+
+        if (options.make) {
+            try cwd.makePath(path);
+        }
+
+        return try cwd.realpath(path, buf);
+    }
+
+    pub fn printHelp() void {
+        const stderr = io.getStdErr().writer();
+
+        stderr.print(
+            \\Goku - A static site generator
+            \\----
+            \\Usage:
+            \\    goku -h
+            \\    goku <site_root> -o <out_dir>
+            \\
+        ,
+            .{},
+        ) catch @panic("Could not print help to stderr");
+
+        clap.help(stderr, clap.Help, &params, .{}) catch @panic("Could not print help to stderr");
+    }
+};
