@@ -9,83 +9,55 @@ To get started with Goku, you need to be able to run it. This page describes pos
 
 ## Run Goku with the Zig build system
 
-Prerequisites: A working Zig compiler (minimum version 0.13.0)
+Prerequisites: A working Zig compiler (minimum version 0.14.0)
 
-1. Create a Zig project
-2. Add Goku to your dependencies in build.zig.zon
-3. Create a minimal goku site (pages/index.md and templates/page.html)
-4. Create a run step in your build.zig to use Goku to build your site
+1. Use `goku init` to scaffold a new Goku site
+2. Run `zig build site` to build the site
+3. Run `zig build serve` to preview the site locally
 
-### 1. Create a Zig project
+```shell-session
+$ goku init my-site
+info(goku): init (my-site)
+info(goku): Site scaffolded at (my-site).
+$ tree my-site
+my-site
+├── build.zig
+├── build.zig.zon
+├── pages
+│   └── index.md
+└── templates
+    └── page.html
+$ cd my-site
+$ zig build site
+info(goku): mode Debug
+info(goku): Goku Build
+info(goku): Site Root: /home/user/code/my-site
+info(goku): Out Dir: /home/user/code/my-site/build
+debug(goku): Discovered template count 1
+debug(site): rendering (Home page)[/]
+info(goku): Elapsed: 3ms
+$ tree build
+build
+├── _sitemap.html
+├── bulma.css
+├── htmx.js
+└── index.html
 
-You can use `zig init` to create a Zig project if you wish, but all you really need to do is create minimal build.zig and build.zig.zon files.
-
-### 2. Add Goku to your dependencies
-
-This will allow the Zig build system to locate Goku.
-
-### 3. Create a minimal Goku site
-
-Create these files.
-
-#### pages/index.md
-
-**pages/index.md**
-
-```
----
-slug: /
-template: page.html
-title: Home page
----
-
-This is the home page.
-```
-
-#### templates/page.html
-
-**templates/page.html**
-
-```
-<!doctype html><html><head>
-<title>{{title}}</title>
-{{& theme.head}}
-</head>
-<body>
-<div class="container">
-<div class="section">
-<div class="title">{{title}}</div>
-<div class="content">{{& content}}</div>
-{{& theme.body}}
-</body>
-</html>
-```
-
-### 4. Create a run step in your build.zig
-
-Your build.zig should look like this:
-
-```
-const std = @import("std");
-const Goku = @import("goku").Goku;
-
-pub fn build(b: *std.Build) !void {
-  const target = b.standardTargetOptions(.{});
-  const optimize = b.standardOptimizeOption(.{});
-  const goku_dep = b.dependency("goku", .{ .target = target, .optimize = optimize });
-  
-  const site_source_path = b.path("site");
-  const site_dest_path = b.path("build");
-  
-  const build_site = Goku.build(b, goku_dep, site_source_path, site_dest_path);
-  const build_site_step = b.step("site", "Build the site");
-  build_site_step.dependOn(&build_site.step);
-  
-  const serve_site = Goku.serve(b, goku_dep, site_dest_path);
-  const serve_site_step = b.step("serve", "Serve the site");
-  serve_site_step.dependOn(&build_site.step);
-  serve_site_step.dependOn(&serve_site.step);
-}
+1 directory, 4 files
+$ zig build serve
+info(goku): mode Debug
+info(goku): Goku Build
+info(goku): Site Root: /home/user/code/my-site
+info(goku): Out Dir: /home/user/code/my-site/build
+debug(goku): Discovered template count 1
+debug(site): rendering (Home page)[/]
+info(goku): Elapsed: 3ms
+INFO: Listening on port 3000
+info(serve): Running at http://localhost:3000
+INFO: Server is running 1 worker X 1 thread with facil.io 0.7.4 (kqueue)
+* Detected capacity: 10224 open file limit
+* Root pid: 10488
+* Press ^C to stop
 ```
 
 ## Run Goku as a standalone binary
@@ -95,7 +67,4 @@ Binary releases are not currently available. The recommended way of using Goku a
 ## Other ways of running Goku
 
 Thinking of running Goku in some other way not listed here? Share your thoughts in the GitHub Issues in the Goku repo.
-
-
-## Getting started with Zig
 
