@@ -2,10 +2,12 @@ const c = @import("c");
 const debug = std.debug;
 const fmt = std.fmt;
 const fs = std.fs;
+const js = @import("js.zig");
 const heap = std.heap;
 const io = std.io;
 const log = std.log.scoped(.mustache);
 const lucide = @import("lucide");
+const math = std.math;
 const mem = std.mem;
 const std = @import("std");
 const storage = @import("storage.zig");
@@ -163,9 +165,9 @@ fn GetHandleType(comptime UserContext: type) type {
             if (num_items > 0) {
                 try list_buf.appendSlice("</ul>");
                 return try list_buf.toOwnedSlice();
-            } else {
-                return "";
             }
+
+            return "";
         }
 
         fn getCollectionsLatest(get_handle: *GetHandle, arena: mem.Allocator, collection: []const u8) ![]const u8 {
@@ -403,6 +405,47 @@ fn MustacheWriterType(comptime UserContext: type) type {
                 return "";
             }
 
+            if (mem.startsWith(u8, key, "component ")) {
+                const component_src = src: {
+                    var it = mem.tokenizeScalar(u8, key, ' ');
+
+                    // skip component keyword
+                    _ = it.next();
+
+                    break :src it.rest();
+                };
+
+                var stmt = try ctx.context.user_context.db.db.prepare(
+                    \\SELECT filepath FROM components WHERE name = ? LIMIT 1;
+                    ,
+                );
+                defer stmt.deinit();
+
+                const row = try stmt.oneAlloc(
+                    struct { filepath: []const u8 },
+                    ctx.arena,
+                    .{},
+                    .{ .name = component_src },
+                ) orelse return error.MissingComponent;
+
+                var file = try fs.openFileAbsolute(row.filepath, .{});
+                defer file.close();
+
+                const script = try file.reader().readAllAlloc(ctx.arena, math.maxInt(usize));
+
+                log.info(
+                    "render component ({s}) at src {s}: {s}",
+                    .{ component_src, row.filepath, script },
+                );
+
+                var buf = std.ArrayList(u8).init(ctx.arena);
+                errdefer buf.deinit();
+
+                try renderComponent(ctx.arena, script, buf.writer());
+
+                return try buf.toOwnedSlice();
+            }
+
             return null;
         }
 
@@ -431,7 +474,6 @@ fn MustacheWriterType(comptime UserContext: type) type {
         }
     };
 }
-
 fn mustachMem(template: []const u8, closure: ?*anyopaque, vtable: *const c.mustach_itf) !void {
     var result: [*c]const u8 = null;
     var result_len: usize = undefined;
@@ -480,4 +522,67 @@ fn getLucideIcon(key: []const u8) !?[]const u8 {
     }
 
     return null;
+}
+
+fn renderComponent(allocator: mem.Allocator, src: []const u8, writer: anytype) !void {
+    if (true) {
+        const todo = "[rendered component]";
+        try writer.print("{s}", .{todo});
+        return;
+    }
+
+    const rt = c.JS_NewRuntime();
+    defer c.JS_FreeRuntime(rt);
+
+    const ctx = c.JS_NewContext(rt) orelse return error.CannotAllocatorJSContext;
+    defer c.JS_FreeContext(ctx);
+
+    // Even though JS_Eval knows the length, it still expects the program to be null-terminated...
+    const prog = try fmt.allocPrintZ(allocator, "{s}", .{src});
+    defer allocator.free(prog);
+
+    const val = c.JS_Eval(ctx, @ptrCast(prog), prog.len, "<main>", c.JS_EVAL_TYPE_MODULE);
+    defer c.JS_FreeValue(ctx, val);
+
+    if (val.tag == c.JS_TAG_EXCEPTION) {
+        const exception = c.JS_GetException(ctx);
+        defer c.JS_FreeValue(ctx, exception);
+
+        const str = c.JS_ToCString(ctx, exception);
+        defer c.JS_FreeCString(ctx, str);
+
+        const error_message = mem.span(str);
+
+        log.err("JS Exception: {s}", .{error_message});
+        return error.JSException;
+    } else if (val.tag == c.JS_TAG_STRING) {
+        //
+    } else {
+        if (c.JS_IsObject(val) == 1) {
+            log.info("obj", .{});
+        }
+        if (c.JS_IsString(val) == 1) {
+            log.info("gotta string", .{});
+        }
+        log.info("tag({d})", .{val.tag});
+
+        const result = c.JS_GetPropertyStr(ctx, val, "foo");
+        defer c.JS_FreeValue(ctx, result);
+
+        log.info("result tag {d}", .{result.tag});
+
+        if (c.JS_IsException(result) == 1) {
+            log.info("exception oops...", .{});
+        }
+        if (c.JS_IsString(result) == 1) {
+            log.info("stringy", .{});
+        }
+
+        return error.UnexpectedJSValue;
+    }
+
+    //const ctx = c.JS_NewContext(rt) orelse return error.CannotAllocateJSContext;
+    //defer c.JS_FreeContext(ctx);
+
+    try writer.print("Foobie!!!", .{});
 }

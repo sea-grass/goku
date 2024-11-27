@@ -43,7 +43,19 @@ pub const Template = Database.Table(
     },
 );
 
-test "Page" {
+pub const Component = Database.Table(
+    "components",
+    .{
+        .create =
+        \\CREATE TABLE components(name TEXT, filepath TEXT);
+        ,
+        .insert =
+        \\INSERT INTO components(name, filepath) VALUES (?, ?);
+        ,
+    },
+);
+
+test Page {
     var db = try Database.init(testing.allocator);
     defer db.deinit();
 
@@ -74,7 +86,7 @@ test "Page" {
     try testing.expectEqual(null, try it.next());
 }
 
-test "Template" {
+test Template {
     var db = try Database.init(testing.allocator);
     defer db.deinit();
 
@@ -92,6 +104,28 @@ test "Template" {
     try testing.expect(entry != null);
 
     try testing.expectEqualStrings(entry.?.filepath, "/path/to/template.html");
+
+    try testing.expectEqual(null, try it.next());
+}
+
+test Component {
+    var db = try Database.init(testing.allocator);
+    defer db.deinit();
+
+    try Component.init(&db);
+    try Component.insert(&db, .{ .name = "component.js", .filepath = "/path/to/component.js" });
+
+    var it = try Component.iterate(
+        struct { filepath: []const u8 },
+        testing.allocator,
+        &db,
+    );
+    defer it.deinit();
+
+    const entry = try it.next();
+    try testing.expect(entry != null);
+
+    try testing.expectEqualStrings(entry.?.filepath, "/path/to/component.js");
 
     try testing.expectEqual(null, try it.next());
 }

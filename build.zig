@@ -276,7 +276,6 @@ pub fn build(b: *std.Build) void {
         build_site_cmd.addArgs(args);
     }
     build_steps.site.dependOn(&build_site_cmd.step);
-    build_steps.site.dependOn(b.getInstallStep());
 
     const run_serve_cmd = Goku.serve(&this_dep_hack, b.path("build"));
     build_steps.serve.dependOn(build_steps.site);

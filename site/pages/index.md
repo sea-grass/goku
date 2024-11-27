@@ -28,3 +28,4 @@ description: A static site generator written in Zig.
   
 </div>
 
+{{&component foo.js}}

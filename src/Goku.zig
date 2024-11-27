@@ -15,7 +15,6 @@ pub fn build(
 ) *std.Build.Step.Run {
     const b = goku_dep.builder;
     const run_goku = b.addRunArtifact(goku_dep.artifact("goku"));
-    run_goku.has_side_effects = true;
 
     run_goku.addArg("build");
     run_goku.addDirectoryArg(site_path);
@@ -31,6 +30,8 @@ pub fn serve(
 ) *std.Build.Step.Run {
     const b = goku_dep.builder;
     const serve_site = b.addRunArtifact(goku_dep.artifact("serve"));
+
     serve_site.addDirectoryArg(public_path);
+
     return serve_site;
 }

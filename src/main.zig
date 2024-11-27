@@ -206,6 +206,7 @@ pub fn buildMain(unlimited_allocator: mem.Allocator, iter: *process.ArgIterator)
 
     try storage.Page.init(&db);
     try storage.Template.init(&db);
+    try storage.Component.init(&db);
 
     //
     // INDEX SITE
@@ -308,9 +309,7 @@ pub fn buildMain(unlimited_allocator: mem.Allocator, iter: *process.ArgIterator)
 
             try storage.Template.insert(
                 &db,
-                .{
-                    .filepath = try entry.realpath(&filepath_buf),
-                },
+                .{ .filepath = try entry.realpath(&filepath_buf) },
             );
 
             template_count += 1;
@@ -319,6 +318,37 @@ pub fn buildMain(unlimited_allocator: mem.Allocator, iter: *process.ArgIterator)
 
         log.debug("Discovered template count {d}", .{template_count});
     }
+
+    var component_count: u32 = 0;
+
+    {
+        var component_it = filesystem.walker(build.site_root, "components");
+        while (component_it.next() catch |err| switch (err) {
+            error.CannotOpenDirectory => {
+                log.err("Cannot open components dir at {s}/{s}.", .{ component_it.root, component_it.subpath });
+                return error.CannotOpenComponentsDirectory;
+            },
+            else => return err,
+        }) |entry| {
+            const zone = tracy.initZone(@src(), .{ .name = "Scan for component files" });
+            defer zone.deinit();
+
+            var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
+
+            try storage.Component.insert(
+                &db,
+                .{
+                    .name = entry.subpath,
+                    .filepath = try entry.realpath(&filepath_buf),
+                },
+            );
+
+            component_count += 1;
+            tracy.plot(u32, "Discovered Component Count", component_count);
+        }
+    }
+
+    // SOME SITE VALIDATIONS
 
     {
         // Find all unique templates in pages
