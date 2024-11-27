@@ -17,6 +17,7 @@ pub fn build(
     const run_goku = b.addRunArtifact(goku_dep.artifact("goku"));
     run_goku.has_side_effects = true;
 
+    run_goku.addArg("build");
     run_goku.addDirectoryArg(site_path);
     run_goku.addArg("-o");
     run_goku.addDirectoryArg(out_path);
