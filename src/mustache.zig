@@ -64,6 +64,7 @@ fn MustacheWriterType(comptime Context: type) type {
 
         const UserError = enum(u8) {
             GetFailedForKey = 1,
+            EmitFailed = 2,
             _,
         };
 
@@ -103,7 +104,7 @@ fn MustacheWriterType(comptime Context: type) type {
                 if (escaping == 1) .escape else .raw,
             ) catch |err| {
                 log.err("{any}", .{err});
-                return -1;
+                return c.MUSTACH_ERROR_USER(@intFromEnum(UserError.EmitFailed));
             };
 
             return 0;
@@ -132,7 +133,7 @@ fn MustacheWriterType(comptime Context: type) type {
 
             if (getInner(
                 fromPtr(ptr),
-                mem.sliceTo(buf, 0),
+                key,
             ) catch null) |value| {
                 sbuf.* = .{
                     .value = @ptrCast(value),
@@ -164,140 +165,18 @@ fn MustacheWriterType(comptime Context: type) type {
                 mem.endsWith(u8, key, ".list"))
             {
                 const collection = key["collections.".len .. key.len - ".list".len];
-
-                // get db it for pages in collection
-                //
-                var list_buf = std.ArrayList(u8).init(ctx.arena);
-                defer list_buf.deinit();
-
-                const get_pages = .{
-                    .stmt =
-                    \\SELECT slug, date, title
-                    \\FROM pages
-                    \\WHERE collection = ?
-                    \\ORDER BY date DESC, title ASC
-                    ,
-                    .type = struct {
-                        slug: []const u8,
-                        date: []const u8,
-                        title: []const u8,
-                    },
-                };
-
-                var get_stmt = try ctx.context.db.db.prepare(get_pages.stmt);
-                defer get_stmt.deinit();
-
-                var it = try get_stmt.iterator(
-                    get_pages.type,
-                    .{ .collection = collection },
-                );
-
-                var arena = heap.ArenaAllocator.init(ctx.arena);
-                defer arena.deinit();
-
-                try list_buf.appendSlice("<ul>");
-
-                var num_items: u32 = 0;
-                while (try it.nextAlloc(arena.allocator(), .{})) |entry| {
-                    try list_buf.writer().print(
-                        \\<li>
-                        \\<a href="{[site_root]s}{[slug]s}">
-                        \\{[date]s} {[title]s}
-                        \\</a>
-                        \\</li>
-                    ,
-                        .{
-                            .site_root = ctx.context.site_root,
-                            .slug = entry.slug,
-                            .date = entry.date,
-                            .title = entry.title,
-                        },
-                    );
-
-                    num_items += 1;
-                }
-
-                if (num_items > 0) {
-                    try list_buf.appendSlice("</ul>");
-                    return try list_buf.toOwnedSlice();
-                } else {
-                    return "";
-                }
+                return try getCollectionsList(ctx.arena, &ctx.context, collection);
             }
 
             if (mem.startsWith(u8, key, "collections.") and
                 mem.endsWith(u8, key, ".latest"))
             {
                 const collection = key["collections.".len .. key.len - ".latest".len];
-
-                const get_page = .{
-                    .stmt =
-                    \\SELECT slug, title FROM pages WHERE collection = ?
-                    \\ORDER BY date DESC
-                    \\LIMIT 1
-                    ,
-                    .type = struct { slug: []const u8, title: []const u8 },
-                };
-
-                var get_stmt = try ctx.context.db.db.prepare(get_page.stmt);
-                defer get_stmt.deinit();
-
-                const row = try get_stmt.oneAlloc(
-                    get_page.type,
-                    ctx.arena,
-                    .{},
-                    .{
-                        .collection = collection,
-                    },
-                ) orelse return error.EmptyCollection;
-
-                // TODO is there a way to free this?
-                //defer row.deinit();
-
-                var arena = heap.ArenaAllocator.init(ctx.arena);
-                defer arena.deinit();
-
-                const value = try fmt.allocPrint(
-                    ctx.arena,
-                    \\<article>
-                    \\<a href="{s}{s}">{s}</a>
-                    \\</article>
-                ,
-                    .{
-                        ctx.context.site_root,
-                        row.slug,
-                        row.title,
-                    },
-                );
-                errdefer ctx.arena.free(value);
-
-                return value;
+                return try getCollectionsLatest(ctx.arena, &ctx.context, collection);
             }
 
             if (mem.eql(u8, key, "meta")) {
-                return try fmt.allocPrint(
-                    ctx.arena,
-                    \\<div class="field is-grouped is-grouped-multiline">
-                    \\<div class="control">
-                    \\<div class="tags has-addons">
-                    \\<span class="tag is-white">slug</span>
-                    \\<span class="tag is-light">{[slug]s}</span>
-                    \\</div>
-                    \\</div>
-                    \\
-                    \\<div class="control">
-                    \\<div class="tags has-addons">
-                    \\<span class="tag is-white">title</span>
-                    \\<span class="tag is-light">{[title]s}</span>
-                    \\</div>
-                    \\</div>
-                    \\</div>
-                ,
-                    .{
-                        .slug = ctx.context.data.slug,
-                        .title = if (@TypeOf(ctx.context.data.title) == ?[]const u8) ctx.context.data.title.? else ctx.context.data.title,
-                    },
-                );
+                return try getMeta(ctx.arena, &ctx.context);
             }
 
             if (mem.eql(u8, key, "theme.head")) {
@@ -400,6 +279,130 @@ fn MustacheWriterType(comptime Context: type) type {
             }
 
             return null;
+        }
+
+        fn getCollectionsList(arena: mem.Allocator, context: *const Context, collection: []const u8) ![]const u8 {
+            var list_buf = std.ArrayList(u8).init(arena);
+            defer list_buf.deinit();
+
+            const get_pages = .{
+                .stmt =
+                \\SELECT slug, date, title
+                \\FROM pages
+                \\WHERE collection = ?
+                \\ORDER BY date DESC, title ASC
+                ,
+                .type = struct {
+                    slug: []const u8,
+                    date: []const u8,
+                    title: []const u8,
+                },
+            };
+
+            var get_stmt = try context.db.db.prepare(get_pages.stmt);
+            defer get_stmt.deinit();
+
+            var it = try get_stmt.iterator(
+                get_pages.type,
+                .{ .collection = collection },
+            );
+
+            try list_buf.appendSlice("<ul>");
+
+            var num_items: u32 = 0;
+            while (try it.nextAlloc(arena, .{})) |entry| {
+                try list_buf.writer().print(
+                    \\<li>
+                    \\<a href="{[site_root]s}{[slug]s}">
+                    \\{[date]s} {[title]s}
+                    \\</a>
+                    \\</li>
+                ,
+                    .{
+                        .site_root = context.site_root,
+                        .slug = entry.slug,
+                        .date = entry.date,
+                        .title = entry.title,
+                    },
+                );
+
+                num_items += 1;
+            }
+
+            if (num_items > 0) {
+                try list_buf.appendSlice("</ul>");
+                return try list_buf.toOwnedSlice();
+            } else {
+                return "";
+            }
+        }
+
+        fn getCollectionsLatest(arena: mem.Allocator, context: *Context, collection: []const u8) ![]const u8 {
+            const get_page = .{
+                .stmt =
+                \\SELECT slug, title FROM pages WHERE collection = ?
+                \\ORDER BY date DESC
+                \\LIMIT 1
+                ,
+                .type = struct { slug: []const u8, title: []const u8 },
+            };
+
+            var get_stmt = try context.db.db.prepare(get_page.stmt);
+            defer get_stmt.deinit();
+
+            const row = try get_stmt.oneAlloc(
+                get_page.type,
+                arena,
+                .{},
+                .{
+                    .collection = collection,
+                },
+            ) orelse return error.EmptyCollection;
+
+            // TODO is there a way to free this?
+            //defer row.deinit();
+
+            const value = try fmt.allocPrint(
+                arena,
+                \\<article>
+                \\<a href="{s}{s}">{s}</a>
+                \\</article>
+            ,
+                .{
+                    context.site_root,
+                    row.slug,
+                    row.title,
+                },
+            );
+            errdefer arena.free(value);
+
+            return value;
+        }
+
+        fn getMeta(arena: mem.Allocator, context: *Context) ![]const u8 {
+            return try fmt.allocPrint(
+                arena,
+                \\<div class="field is-grouped is-grouped-multiline">
+                \\<div class="control">
+                \\<div class="tags has-addons">
+                \\<span class="tag is-white">slug</span>
+                \\<span class="tag is-light">{[slug]s}</span>
+                \\</div>
+                \\</div>
+                \\
+                \\<div class="control">
+                \\<div class="tags has-addons">
+                \\<span class="tag is-white">title</span>
+                \\<span class="tag is-light">{[title]s}</span>
+                \\</div>
+                \\</div>
+                \\</div>
+            ,
+                .{
+                    .slug = context.data.slug,
+                    .title = if (@TypeOf(context.data.title) == ?[]const u8) context.data.title.? else context.data.title,
+                },
+            );
         }
 
         fn fromPtr(ptr: ?*anyopaque) *MustacheWriter {
