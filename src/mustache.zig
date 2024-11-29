@@ -15,13 +15,11 @@ pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: any
     var arena = heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    var mustache_writer: MustacheWriterType(
-        @TypeOf(context),
-    ) = .{
-        .arena = arena.allocator(),
-        .context = context,
-        .writer = writer.any(),
-    };
+    var mustache_writer = MustacheWriterType(@TypeOf(context)).init(
+        arena.allocator(),
+        context,
+        writer.any(),
+    );
 
     try mustache_writer.write(template);
 }
@@ -54,13 +52,32 @@ test renderStream {
     try testing.expectEqualStrings("foo", buf.items);
 }
 
-fn MustacheWriterType(comptime Context: type) type {
+fn GetHandleType(comptime UserContext: type) type {
+    return struct {
+        user_context: UserContext,
+    };
+}
+
+fn MustacheWriterType(comptime UserContext: type) type {
     return struct {
         arena: mem.Allocator,
-        context: Context,
+        context: GetHandle,
         writer: io.AnyWriter,
 
+        pub fn init(
+            arena: mem.Allocator,
+            user_context: UserContext,
+            writer: io.AnyWriter,
+        ) MustacheWriter {
+            return .{
+                .arena = arena,
+                .context = .{ .user_context = user_context },
+                .writer = writer,
+            };
+        }
+
         const MustacheWriter = @This();
+        const GetHandle = GetHandleType(UserContext);
 
         const UserError = enum(u8) {
             GetFailedForKey = 1,
@@ -149,11 +166,11 @@ fn MustacheWriterType(comptime Context: type) type {
         }
 
         fn getInner(ctx: *MustacheWriter, key: []const u8) !?[]const u8 {
-            if (try getKnownFromContext(ctx.arena, &ctx.context, key)) |value| {
+            if (try getKnownFromContext(ctx.arena, ctx.context, key)) |value| {
                 return value;
             }
 
-            if (try getFromContextData(ctx.arena, &ctx.context, key)) |value| {
+            if (try getFromContextData(ctx.arena, ctx.context, key)) |value| {
                 return value;
             }
 
@@ -165,22 +182,22 @@ fn MustacheWriterType(comptime Context: type) type {
                 mem.endsWith(u8, key, ".list"))
             {
                 const collection = key["collections.".len .. key.len - ".list".len];
-                return try getCollectionsList(ctx.arena, &ctx.context, collection);
+                return try getCollectionsList(ctx.arena, ctx.context, collection);
             }
 
             if (mem.startsWith(u8, key, "collections.") and
                 mem.endsWith(u8, key, ".latest"))
             {
                 const collection = key["collections.".len .. key.len - ".latest".len];
-                return try getCollectionsLatest(ctx.arena, &ctx.context, collection);
+                return try getCollectionsLatest(ctx.arena, ctx.context, collection);
             }
 
             if (mem.eql(u8, key, "meta")) {
-                return try getMeta(ctx.arena, &ctx.context);
+                return try getMeta(ctx.arena, ctx.context);
             }
 
             if (mem.eql(u8, key, "theme.head")) {
-                return if (ctx.context.site_root.len == 0)
+                return if (ctx.context.user_context.site_root.len == 0)
                     try fmt.allocPrint(
                         ctx.arena,
                         \\<link rel="stylesheet" type="text/css" href="/bulma.css" />
@@ -192,7 +209,7 @@ fn MustacheWriterType(comptime Context: type) type {
                         ctx.arena,
                         \\<link rel="stylesheet" type="text/css" href="{[site_root]s}/bulma.css" />
                     ,
-                        .{ .site_root = ctx.context.site_root },
+                        .{ .site_root = ctx.context.user_context.site_root },
                     );
             } else if (mem.eql(u8, key, "theme.body")) {
                 // theme.body can be used by themes to inject e.g. scripts.
@@ -226,7 +243,7 @@ fn MustacheWriterType(comptime Context: type) type {
             return 0;
         }
 
-        fn getKnownFromContext(arena: mem.Allocator, context: *const Context, key: []const u8) !?[]const u8 {
+        fn getKnownFromContext(arena: mem.Allocator, context: GetHandle, key: []const u8) !?[]const u8 {
 
             // These are known goku constants that are expected to be available during page rendering.
             const context_keys = &.{ "content", "site_root" };
@@ -243,21 +260,21 @@ fn MustacheWriterType(comptime Context: type) type {
             // in two separate places
             inline for (context_keys) |context_key| {
                 if (mem.eql(u8, key, context_key)) {
-                    if (!@hasField(Context, context_key)) return error.ContextMissingRequestedKey;
+                    if (!@hasField(UserContext, context_key)) return error.ContextMissingRequestedKey;
 
-                    return try arena.dupeZ(u8, @field(context, context_key));
+                    return try arena.dupeZ(u8, @field(context.user_context, context_key));
                 }
             }
 
             return null;
         }
 
-        fn getFromContextData(arena: mem.Allocator, context: *const Context, key: []const u8) !?[]const u8 {
-            inline for (@typeInfo(@TypeOf(context.data)).@"struct".fields) |f| {
+        fn getFromContextData(arena: mem.Allocator, context: GetHandle, key: []const u8) !?[]const u8 {
+            inline for (@typeInfo(@TypeOf(context.user_context.data)).@"struct".fields) |f| {
                 if (mem.eql(u8, key, f.name)) {
                     switch (@typeInfo(f.type)) {
                         .optional => {
-                            const value = @field(context.data, f.name);
+                            const value = @field(context.user_context.data, f.name);
 
                             if (value) |v| {
                                 return try arena.dupeZ(u8, v);
@@ -266,12 +283,12 @@ fn MustacheWriterType(comptime Context: type) type {
                             return "";
                         },
                         .bool => {
-                            return if (@field(context.data, f.name)) "true" else "false";
+                            return if (@field(context.user_context.data, f.name)) "true" else "false";
                         },
                         else => {
                             return try arena.dupeZ(
                                 u8,
-                                @field(context.data, f.name),
+                                @field(context.user_context.data, f.name),
                             );
                         },
                     }
@@ -281,7 +298,7 @@ fn MustacheWriterType(comptime Context: type) type {
             return null;
         }
 
-        fn getCollectionsList(arena: mem.Allocator, context: *const Context, collection: []const u8) ![]const u8 {
+        fn getCollectionsList(arena: mem.Allocator, context: GetHandle, collection: []const u8) ![]const u8 {
             var list_buf = std.ArrayList(u8).init(arena);
             defer list_buf.deinit();
 
@@ -299,7 +316,7 @@ fn MustacheWriterType(comptime Context: type) type {
                 },
             };
 
-            var get_stmt = try context.db.db.prepare(get_pages.stmt);
+            var get_stmt = try context.user_context.db.db.prepare(get_pages.stmt);
             defer get_stmt.deinit();
 
             var it = try get_stmt.iterator(
@@ -319,7 +336,7 @@ fn MustacheWriterType(comptime Context: type) type {
                     \\</li>
                 ,
                     .{
-                        .site_root = context.site_root,
+                        .site_root = context.user_context.site_root,
                         .slug = entry.slug,
                         .date = entry.date,
                         .title = entry.title,
@@ -337,7 +354,7 @@ fn MustacheWriterType(comptime Context: type) type {
             }
         }
 
-        fn getCollectionsLatest(arena: mem.Allocator, context: *Context, collection: []const u8) ![]const u8 {
+        fn getCollectionsLatest(arena: mem.Allocator, context: GetHandle, collection: []const u8) ![]const u8 {
             const get_page = .{
                 .stmt =
                 \\SELECT slug, title FROM pages WHERE collection = ?
@@ -347,7 +364,7 @@ fn MustacheWriterType(comptime Context: type) type {
                 .type = struct { slug: []const u8, title: []const u8 },
             };
 
-            var get_stmt = try context.db.db.prepare(get_page.stmt);
+            var get_stmt = try context.user_context.db.db.prepare(get_page.stmt);
             defer get_stmt.deinit();
 
             const row = try get_stmt.oneAlloc(
@@ -369,7 +386,7 @@ fn MustacheWriterType(comptime Context: type) type {
                 \\</article>
             ,
                 .{
-                    context.site_root,
+                    context.user_context.site_root,
                     row.slug,
                     row.title,
                 },
@@ -379,7 +396,7 @@ fn MustacheWriterType(comptime Context: type) type {
             return value;
         }
 
-        fn getMeta(arena: mem.Allocator, context: *Context) ![]const u8 {
+        fn getMeta(arena: mem.Allocator, context: GetHandle) ![]const u8 {
             return try fmt.allocPrint(
                 arena,
                 \\<div class="field is-grouped is-grouped-multiline">
@@ -399,8 +416,8 @@ fn MustacheWriterType(comptime Context: type) type {
                 \\</div>
             ,
                 .{
-                    .slug = context.data.slug,
-                    .title = if (@TypeOf(context.data.title) == ?[]const u8) context.data.title.? else context.data.title,
+                    .slug = context.user_context.data.slug,
+                    .title = if (@TypeOf(context.user_context.data.title) == ?[]const u8) context.user_context.data.title.? else context.user_context.data.title,
                 },
             );
         }
