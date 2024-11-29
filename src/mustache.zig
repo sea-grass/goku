@@ -104,23 +104,18 @@ fn MustacheWriterType(comptime Context: type) type {
         }
 
         /// Will write the contents of `buf` to an internal buffer.
-        /// If `is_escaped` is true, it will escape the contents as
-        /// it streams them.
+        /// `emit_mode` determines whether the buf is written as-is or escaped.
         fn emitInner(self: *MustacheWriter, buf: []const u8, emit_mode: enum { raw, escape }) !void {
             switch (emit_mode) {
                 .raw => try self.writer.writeAll(buf),
                 .escape => {
-                    var escaped = std.ArrayList(u8).init(self.arena);
-                    defer escaped.deinit();
                     for (buf) |char| {
                         switch (char) {
-                            '<' => try escaped.appendSlice("&lt;"),
-                            '>' => try escaped.appendSlice("&gt;"),
-                            else => try escaped.append(char),
+                            '<' => try self.writer.writeAll("&lt;"),
+                            '>' => try self.writer.writeAll("&gt;"),
+                            else => try self.writer.writeByte(char),
                         }
                     }
-
-                    try self.writer.writeAll(escaped.items);
                 },
             }
         }
