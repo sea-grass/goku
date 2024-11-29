@@ -62,6 +62,13 @@ fn MustacheWriterType(comptime Context: type) type {
 
         const MustacheWriter = @This();
 
+        const UserError = enum(u8) {
+            GetFailedForKey = 1,
+            _,
+        };
+
+        pub const Error = error{ UnexpectedBehaviour, CouldNotRenderTemplate };
+
         const vtable: c.mustach_itf = .{
             .emit = emit,
             .get = get,
@@ -71,7 +78,6 @@ fn MustacheWriterType(comptime Context: type) type {
             .partial = partial,
         };
 
-        pub const Error = error{ UnexpectedBehaviour, CouldNotRenderTemplate };
         pub fn write(ctx: *MustacheWriter, template: []const u8) Error!void {
             mustachMem(
                 template,
@@ -124,22 +130,21 @@ fn MustacheWriterType(comptime Context: type) type {
         fn get(ptr: ?*anyopaque, buf: [*c]const u8, sbuf: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
             const key = mem.sliceTo(buf, 0);
 
-            const result = getInner(
-                @ptrCast(@alignCast(ptr)),
-                key,
-            ) catch null;
-
-            if (result) |value| {
+            if (getInner(
+                fromPtr(ptr),
+                mem.sliceTo(buf, 0),
+            ) catch null) |value| {
                 sbuf.* = .{
                     .value = @ptrCast(value),
                     .length = value.len,
                     .closure = null,
                 };
+
                 return 0;
             }
 
             log.err("get failed for key ({s})", .{key});
-            return -1;
+            return c.MUSTACH_ERROR_USER(@intFromEnum(UserError.GetFailedForKey));
         }
 
         fn getInner(ctx: *MustacheWriter, key: []const u8) !?[]const u8 {
@@ -395,6 +400,10 @@ fn MustacheWriterType(comptime Context: type) type {
             }
 
             return null;
+        }
+
+        fn fromPtr(ptr: ?*anyopaque) *MustacheWriter {
+            return @ptrCast(@alignCast(ptr));
         }
     };
 }
