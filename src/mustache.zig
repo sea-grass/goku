@@ -71,8 +71,8 @@ fn MustacheWriterType(comptime Context: type) type {
             .partial = partial,
         };
 
-        const WriteError = error{ UnexpectedBehaviour, CouldNotRenderTemplate };
-        pub fn write(ctx: *MustacheWriter, template: []const u8) WriteError!void {
+        pub const Error = error{ UnexpectedBehaviour, CouldNotRenderTemplate };
+        pub fn write(ctx: *MustacheWriter, template: []const u8) Error!void {
             mustachMem(
                 template,
                 @ptrCast(ctx),
@@ -86,62 +86,68 @@ fn MustacheWriterType(comptime Context: type) type {
             };
         }
 
-        fn getKnownFromContext(arena: mem.Allocator, context: *const Context, key: []const u8) !?[]const u8 {
+        fn emit(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, escaping: c_int, _: ?*c.FILE) callconv(.C) c_int {
+            debug.assert(ptr != null);
+            // Trying to emit a value we could not get?
+            debug.assert(buf != null);
 
-            // These are known goku constants that are expected to be available during page rendering.
-            const context_keys = &.{ "content", "site_root" };
+            emitInner(
+                @ptrCast(@alignCast(ptr)),
+                buf[0..len],
+                if (escaping == 1) .escape else .raw,
+            ) catch |err| {
+                log.err("{any}", .{err});
+                return -1;
+            };
 
-            // At runtime, if a template tries to get one of these keys, we look for it in Context.
-            // If the key is found, we populate the buf with a copy.
-            // Otherwise, we return a runtime error.
-            // ---
-            // Really, in the application there are two kinds of rendering
-            // the preprocess pass on the content and the final rendering pass
-            // where the content is known.
-            // In the first, these context keys are not present - ideally
-            // we encode that logic where this is being called, rather than
-            // in two separate places
-            inline for (context_keys) |context_key| {
-                if (mem.eql(u8, key, context_key)) {
-                    if (!@hasField(Context, context_key)) return error.ContextMissingRequestedKey;
-
-                    return try arena.dupeZ(u8, @field(context, context_key));
-                }
-            }
-
-            return null;
+            return 0;
         }
 
-        fn getFromContextData(self: *MustacheWriter, key: []const u8) !?[]const u8 {
-            inline for (@typeInfo(@TypeOf(self.context.data)).@"struct".fields) |f| {
-                if (mem.eql(u8, key, f.name)) {
-                    switch (@typeInfo(f.type)) {
-                        .optional => {
-                            const value = @field(self.context.data, f.name);
-
-                            if (value) |v| {
-                                return try self.arena.dupeZ(u8, v);
-                            }
-
-                            return "";
-                        },
-                        .bool => {
-                            return if (@field(self.context.data, f.name)) "true" else "false";
-                        },
-                        else => {
-                            return try self.arena.dupeZ(
-                                u8,
-                                @field(self.context.data, f.name),
-                            );
-                        },
+        /// Will write the contents of `buf` to an internal buffer.
+        /// If `is_escaped` is true, it will escape the contents as
+        /// it streams them.
+        fn emitInner(self: *MustacheWriter, buf: []const u8, emit_mode: enum { raw, escape }) !void {
+            switch (emit_mode) {
+                .raw => try self.writer.writeAll(buf),
+                .escape => {
+                    var escaped = std.ArrayList(u8).init(self.arena);
+                    defer escaped.deinit();
+                    for (buf) |char| {
+                        switch (char) {
+                            '<' => try escaped.appendSlice("&lt;"),
+                            '>' => try escaped.appendSlice("&gt;"),
+                            else => try escaped.append(char),
+                        }
                     }
-                }
-            }
 
-            return null;
+                    try self.writer.writeAll(escaped.items);
+                },
+            }
         }
 
-        fn gget(ctx: *MustacheWriter, key: []const u8) !?[]const u8 {
+        // Calls the internal get implementation
+        fn get(ptr: ?*anyopaque, buf: [*c]const u8, sbuf: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
+            const key = mem.sliceTo(buf, 0);
+
+            const result = getInner(
+                @ptrCast(@alignCast(ptr)),
+                key,
+            ) catch null;
+
+            if (result) |value| {
+                sbuf.* = .{
+                    .value = @ptrCast(value),
+                    .length = value.len,
+                    .closure = null,
+                };
+                return 0;
+            }
+
+            log.err("get failed for key ({s})", .{key});
+            return -1;
+        }
+
+        fn getInner(ctx: *MustacheWriter, key: []const u8) !?[]const u8 {
             if (try getKnownFromContext(ctx.arena, &ctx.context, key)) |value| {
                 return value;
             }
@@ -321,67 +327,6 @@ fn MustacheWriterType(comptime Context: type) type {
             return null;
         }
 
-        // Will write the contents of `buf` to an internal buffer.
-        // If `is_escaped` is true, it will escape the contents as
-        // it streams them.
-        fn eemit(self: *MustacheWriter, buf: []const u8, is_escaped: bool) !void {
-            if (is_escaped) {
-                var escaped = std.ArrayList(u8).init(self.arena);
-                defer escaped.deinit();
-                for (buf) |char| {
-                    switch (char) {
-                        '<' => try escaped.appendSlice("&lt;"),
-                        '>' => try escaped.appendSlice("&gt;"),
-                        else => try escaped.append(char),
-                    }
-                }
-
-                try self.writer.writeAll(escaped.items);
-            } else {
-                try self.writer.writeAll(buf);
-            }
-        }
-
-        // Calls the internal emit implementation
-        fn emit(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, escaping: c_int, _: ?*c.FILE) callconv(.C) c_int {
-            debug.assert(ptr != null);
-            // Trying to emit a value we could not get?
-            debug.assert(buf != null);
-
-            eemit(
-                @ptrCast(@alignCast(ptr)),
-                buf[0..len],
-                escaping == 1,
-            ) catch |err| {
-                log.err("{any}", .{err});
-                return -1;
-            };
-
-            return 0;
-        }
-
-        // Calls the internal get implementation
-        fn get(ptr: ?*anyopaque, buf: [*c]const u8, sbuf: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
-            const key = mem.sliceTo(buf, 0);
-
-            const result = gget(
-                @ptrCast(@alignCast(ptr)),
-                key,
-            ) catch null;
-
-            if (result) |value| {
-                sbuf.* = .{
-                    .value = @ptrCast(value),
-                    .length = value.len,
-                    .closure = null,
-                };
-                return 0;
-            }
-
-            log.err("get failed for key ({s})", .{key});
-            return -1;
-        }
-
         fn enter(_: ?*anyopaque, buf: [*c]const u8) callconv(.C) c_int {
             const key = mem.sliceTo(buf, 0);
             _ = key;
@@ -400,6 +345,61 @@ fn MustacheWriterType(comptime Context: type) type {
 
         fn partial(_: ?*anyopaque, _: [*c]const u8, _: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
             return 0;
+        }
+
+        fn getKnownFromContext(arena: mem.Allocator, context: *const Context, key: []const u8) !?[]const u8 {
+
+            // These are known goku constants that are expected to be available during page rendering.
+            const context_keys = &.{ "content", "site_root" };
+
+            // At runtime, if a template tries to get one of these keys, we look for it in Context.
+            // If the key is found, we populate the buf with a copy.
+            // Otherwise, we return a runtime error.
+            // ---
+            // Really, in the application there are two kinds of rendering
+            // the preprocess pass on the content and the final rendering pass
+            // where the content is known.
+            // In the first, these context keys are not present - ideally
+            // we encode that logic where this is being called, rather than
+            // in two separate places
+            inline for (context_keys) |context_key| {
+                if (mem.eql(u8, key, context_key)) {
+                    if (!@hasField(Context, context_key)) return error.ContextMissingRequestedKey;
+
+                    return try arena.dupeZ(u8, @field(context, context_key));
+                }
+            }
+
+            return null;
+        }
+
+        fn getFromContextData(self: *MustacheWriter, key: []const u8) !?[]const u8 {
+            inline for (@typeInfo(@TypeOf(self.context.data)).@"struct".fields) |f| {
+                if (mem.eql(u8, key, f.name)) {
+                    switch (@typeInfo(f.type)) {
+                        .optional => {
+                            const value = @field(self.context.data, f.name);
+
+                            if (value) |v| {
+                                return try self.arena.dupeZ(u8, v);
+                            }
+
+                            return "";
+                        },
+                        .bool => {
+                            return if (@field(self.context.data, f.name)) "true" else "false";
+                        },
+                        else => {
+                            return try self.arena.dupeZ(
+                                u8,
+                                @field(self.context.data, f.name),
+                            );
+                        },
+                    }
+                }
+            }
+
+            return null;
         }
     };
 }
