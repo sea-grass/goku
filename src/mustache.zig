@@ -86,7 +86,7 @@ fn MustacheWriterType(comptime Context: type) type {
             };
         }
 
-        fn getKnownFromContext(self: *MustacheWriter, key: []const u8) !?[]const u8 {
+        fn getKnownFromContext(arena: mem.Allocator, context: *const Context, key: []const u8) !?[]const u8 {
 
             // These are known goku constants that are expected to be available during page rendering.
             const context_keys = &.{ "content", "site_root" };
@@ -105,7 +105,7 @@ fn MustacheWriterType(comptime Context: type) type {
                 if (mem.eql(u8, key, context_key)) {
                     if (!@hasField(Context, context_key)) return error.ContextMissingRequestedKey;
 
-                    return try self.arena.dupeZ(u8, @field(self.context, context_key));
+                    return try arena.dupeZ(u8, @field(context, context_key));
                 }
             }
 
@@ -142,7 +142,7 @@ fn MustacheWriterType(comptime Context: type) type {
         }
 
         fn gget(ctx: *MustacheWriter, key: []const u8) !?[]const u8 {
-            if (try ctx.getKnownFromContext(key)) |value| {
+            if (try getKnownFromContext(ctx.arena, &ctx.context, key)) |value| {
                 return value;
             }
 
