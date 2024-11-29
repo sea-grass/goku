@@ -60,6 +60,8 @@ fn MustacheWriterType(comptime Context: type) type {
         context: Context,
         writer: io.AnyWriter,
 
+        const MustacheWriter = @This();
+
         const vtable: c.mustach_itf = .{
             .emit = emit,
             .get = get,
@@ -71,48 +73,18 @@ fn MustacheWriterType(comptime Context: type) type {
 
         const WriteError = error{ UnexpectedBehaviour, CouldNotRenderTemplate };
         pub fn write(ctx: *MustacheWriter, template: []const u8) WriteError!void {
-            var result: [*c]const u8 = null;
-            var result_len: usize = undefined;
-
-            const return_val = c.mustach_mem(
-                @ptrCast(template),
-                template.len,
+            mustachMem(
+                template,
+                @ptrCast(ctx),
                 &vtable,
-                ctx,
-                0,
-                @ptrCast(&result),
-                &result_len,
-            );
-
-            switch (return_val) {
-                c.MUSTACH_OK => {
-                    // We provide our own emit callback so any result written
-                    // by mustach is undefined behaviour
-                    if (result_len != 0) return error.UnexpectedBehaviour;
-                    // We don't expect mustach to write anything to result, but it does
-                    // modify the address in result for some reason? In any case, here
-                    // we make sure that it's the empty string if it is set.
-                    if (result != null and result[0] != 0) return error.UnexpectedBehaviour;
-                },
-                c.MUSTACH_ERROR_SYSTEM,
-                c.MUSTACH_ERROR_INVALID_ITF,
-                c.MUSTACH_ERROR_UNEXPECTED_END,
-                c.MUSTACH_ERROR_BAD_UNESCAPE_TAG,
-                c.MUSTACH_ERROR_EMPTY_TAG,
-                c.MUSTACH_ERROR_BAD_DELIMITER,
-                c.MUSTACH_ERROR_TOO_DEEP,
-                c.MUSTACH_ERROR_CLOSING,
-                c.MUSTACH_ERROR_TOO_MUCH_NESTING,
-                => |err| {
-                    log.debug("Uh oh! Error {any}\n", .{err});
-                    return error.CouldNotRenderTemplate;
-                },
-                // We've handled all other known mustach return codes
-                else => unreachable,
-            }
+            ) catch |err| {
+                switch (err) {
+                    error.UnexpectedBehaviour,
+                    error.CouldNotRenderTemplate,
+                    => |e| return e,
+                }
+            };
         }
-
-        const MustacheWriter = @This();
 
         fn getKnownFromContext(self: *MustacheWriter, key: []const u8) !?[]const u8 {
 
@@ -122,6 +94,13 @@ fn MustacheWriterType(comptime Context: type) type {
             // At runtime, if a template tries to get one of these keys, we look for it in Context.
             // If the key is found, we populate the buf with a copy.
             // Otherwise, we return a runtime error.
+            // ---
+            // Really, in the application there are two kinds of rendering
+            // the preprocess pass on the content and the final rendering pass
+            // where the content is known.
+            // In the first, these context keys are not present - ideally
+            // we encode that logic where this is being called, rather than
+            // in two separate places
             inline for (context_keys) |context_key| {
                 if (mem.eql(u8, key, context_key)) {
                     if (!@hasField(Context, context_key)) return error.ContextMissingRequestedKey;
@@ -162,14 +141,6 @@ fn MustacheWriterType(comptime Context: type) type {
             return null;
         }
 
-        fn getLucideIcon(_: *MustacheWriter, key: []const u8) !?[]const u8 {
-            if (mem.startsWith(u8, key, "lucide.")) {
-                return lucide.icon(key["lucide.".len..]);
-            }
-
-            return null;
-        }
-
         fn gget(ctx: *MustacheWriter, key: []const u8) !?[]const u8 {
             if (try ctx.getKnownFromContext(key)) |value| {
                 return value;
@@ -179,118 +150,122 @@ fn MustacheWriterType(comptime Context: type) type {
                 return value;
             }
 
-            if (try ctx.getLucideIcon(key)) |value| {
+            if (try getLucideIcon(key)) |value| {
                 return value;
             }
 
-            if (mem.startsWith(u8, key, "collections.")) {
-                if (mem.endsWith(u8, key, ".list")) {
-                    const collection = key["collections.".len .. key.len - ".list".len];
+            if (mem.startsWith(u8, key, "collections.") and
+                mem.endsWith(u8, key, ".list"))
+            {
+                const collection = key["collections.".len .. key.len - ".list".len];
 
-                    // get db it for pages in collection
-                    //
-                    var list_buf = std.ArrayList(u8).init(ctx.arena);
-                    defer list_buf.deinit();
+                // get db it for pages in collection
+                //
+                var list_buf = std.ArrayList(u8).init(ctx.arena);
+                defer list_buf.deinit();
 
-                    const get_pages = .{
-                        .stmt =
-                        \\SELECT slug, date, title
-                        \\FROM pages
-                        \\WHERE collection = ?
-                        \\ORDER BY date DESC, title ASC
-                        ,
-                        .type = struct {
-                            slug: []const u8,
-                            date: []const u8,
-                            title: []const u8,
-                        },
-                    };
+                const get_pages = .{
+                    .stmt =
+                    \\SELECT slug, date, title
+                    \\FROM pages
+                    \\WHERE collection = ?
+                    \\ORDER BY date DESC, title ASC
+                    ,
+                    .type = struct {
+                        slug: []const u8,
+                        date: []const u8,
+                        title: []const u8,
+                    },
+                };
 
-                    var get_stmt = try ctx.context.db.db.prepare(get_pages.stmt);
-                    defer get_stmt.deinit();
+                var get_stmt = try ctx.context.db.db.prepare(get_pages.stmt);
+                defer get_stmt.deinit();
 
-                    var it = try get_stmt.iterator(
-                        get_pages.type,
-                        .{ .collection = collection },
-                    );
+                var it = try get_stmt.iterator(
+                    get_pages.type,
+                    .{ .collection = collection },
+                );
 
-                    var arena = heap.ArenaAllocator.init(ctx.arena);
-                    defer arena.deinit();
+                var arena = heap.ArenaAllocator.init(ctx.arena);
+                defer arena.deinit();
 
-                    try list_buf.appendSlice("<ul>");
+                try list_buf.appendSlice("<ul>");
 
-                    var num_items: u32 = 0;
-                    while (try it.nextAlloc(arena.allocator(), .{})) |entry| {
-                        try list_buf.writer().print(
-                            \\<li>
-                            \\<a href="{[site_root]s}{[slug]s}">
-                            \\{[date]s} {[title]s}
-                            \\</a>
-                            \\</li>
-                        ,
-                            .{
-                                .site_root = ctx.context.site_root,
-                                .slug = entry.slug,
-                                .date = entry.date,
-                                .title = entry.title,
-                            },
-                        );
-
-                        num_items += 1;
-                    }
-
-                    if (num_items > 0) {
-                        try list_buf.appendSlice("</ul>");
-                        return try list_buf.toOwnedSlice();
-                    } else {
-                        return "";
-                    }
-                } else if (mem.endsWith(u8, key, ".latest")) {
-                    const collection = key["collections.".len .. key.len - ".latest".len];
-
-                    const get_page = .{
-                        .stmt =
-                        \\SELECT slug, title FROM pages WHERE collection = ?
-                        \\ORDER BY date DESC
-                        \\LIMIT 1
-                        ,
-                        .type = struct { slug: []const u8, title: []const u8 },
-                    };
-
-                    var get_stmt = try ctx.context.db.db.prepare(get_page.stmt);
-                    defer get_stmt.deinit();
-
-                    const row = try get_stmt.oneAlloc(
-                        get_page.type,
-                        ctx.arena,
-                        .{},
-                        .{
-                            .collection = collection,
-                        },
-                    ) orelse return error.EmptyCollection;
-
-                    // TODO is there a way to free this?
-                    //defer row.deinit();
-
-                    var arena = heap.ArenaAllocator.init(ctx.arena);
-                    defer arena.deinit();
-
-                    const value = try fmt.allocPrint(
-                        ctx.arena,
-                        \\<article>
-                        \\<a href="{s}{s}">{s}</a>
-                        \\</article>
+                var num_items: u32 = 0;
+                while (try it.nextAlloc(arena.allocator(), .{})) |entry| {
+                    try list_buf.writer().print(
+                        \\<li>
+                        \\<a href="{[site_root]s}{[slug]s}">
+                        \\{[date]s} {[title]s}
+                        \\</a>
+                        \\</li>
                     ,
                         .{
-                            ctx.context.site_root,
-                            row.slug,
-                            row.title,
+                            .site_root = ctx.context.site_root,
+                            .slug = entry.slug,
+                            .date = entry.date,
+                            .title = entry.title,
                         },
                     );
-                    errdefer ctx.arena.free(value);
 
-                    return value;
+                    num_items += 1;
                 }
+
+                if (num_items > 0) {
+                    try list_buf.appendSlice("</ul>");
+                    return try list_buf.toOwnedSlice();
+                } else {
+                    return "";
+                }
+            }
+
+            if (mem.startsWith(u8, key, "collections.") and
+                mem.endsWith(u8, key, ".latest"))
+            {
+                const collection = key["collections.".len .. key.len - ".latest".len];
+
+                const get_page = .{
+                    .stmt =
+                    \\SELECT slug, title FROM pages WHERE collection = ?
+                    \\ORDER BY date DESC
+                    \\LIMIT 1
+                    ,
+                    .type = struct { slug: []const u8, title: []const u8 },
+                };
+
+                var get_stmt = try ctx.context.db.db.prepare(get_page.stmt);
+                defer get_stmt.deinit();
+
+                const row = try get_stmt.oneAlloc(
+                    get_page.type,
+                    ctx.arena,
+                    .{},
+                    .{
+                        .collection = collection,
+                    },
+                ) orelse return error.EmptyCollection;
+
+                // TODO is there a way to free this?
+                //defer row.deinit();
+
+                var arena = heap.ArenaAllocator.init(ctx.arena);
+                defer arena.deinit();
+
+                const value = try fmt.allocPrint(
+                    ctx.arena,
+                    \\<article>
+                    \\<a href="{s}{s}">{s}</a>
+                    \\</article>
+                ,
+                    .{
+                        ctx.context.site_root,
+                        row.slug,
+                        row.title,
+                    },
+                );
+                errdefer ctx.arena.free(value);
+
+                return value;
             }
 
             if (mem.eql(u8, key, "meta")) {
@@ -300,21 +275,21 @@ fn MustacheWriterType(comptime Context: type) type {
                     \\<div class="control">
                     \\<div class="tags has-addons">
                     \\<span class="tag is-white">slug</span>
-                    \\<span class="tag is-light">{s}</span>
+                    \\<span class="tag is-light">{[slug]s}</span>
                     \\</div>
                     \\</div>
                     \\
                     \\<div class="control">
                     \\<div class="tags has-addons">
                     \\<span class="tag is-white">title</span>
-                    \\<span class="tag is-light">{s}</span>
+                    \\<span class="tag is-light">{[title]s}</span>
                     \\</div>
                     \\</div>
                     \\</div>
                 ,
                     .{
-                        ctx.context.data.slug,
-                        if (@TypeOf(ctx.context.data.title) == ?[]const u8) ctx.context.data.title.? else ctx.context.data.title,
+                        .slug = ctx.context.data.slug,
+                        .title = if (@TypeOf(ctx.context.data.title) == ?[]const u8) ctx.context.data.title.? else ctx.context.data.title,
                     },
                 );
             }
@@ -427,4 +402,54 @@ fn MustacheWriterType(comptime Context: type) type {
             return 0;
         }
     };
+}
+
+fn mustachMem(template: []const u8, closure: ?*anyopaque, vtable: *const c.mustach_itf) !void {
+    var result: [*c]const u8 = null;
+    var result_len: usize = undefined;
+
+    const return_val = c.mustach_mem(
+        @ptrCast(template),
+        template.len,
+        vtable,
+        closure,
+        0,
+        @ptrCast(&result),
+        &result_len,
+    );
+
+    switch (return_val) {
+        c.MUSTACH_OK => {
+            // We provide our own emit callback so any result written
+            // by mustach is undefined behaviour
+            if (result_len != 0) return error.UnexpectedBehaviour;
+            // We don't expect mustach to write anything to result, but it does
+            // modify the address in result for some reason? In any case, here
+            // we make sure that it's the empty string if it is set.
+            if (result != null and result[0] != 0) return error.UnexpectedBehaviour;
+        },
+        c.MUSTACH_ERROR_SYSTEM,
+        c.MUSTACH_ERROR_INVALID_ITF,
+        c.MUSTACH_ERROR_UNEXPECTED_END,
+        c.MUSTACH_ERROR_BAD_UNESCAPE_TAG,
+        c.MUSTACH_ERROR_EMPTY_TAG,
+        c.MUSTACH_ERROR_BAD_DELIMITER,
+        c.MUSTACH_ERROR_TOO_DEEP,
+        c.MUSTACH_ERROR_CLOSING,
+        c.MUSTACH_ERROR_TOO_MUCH_NESTING,
+        => |err| {
+            log.debug("Uh oh! Error {any}\n", .{err});
+            return error.CouldNotRenderTemplate;
+        },
+        // We've handled all other known mustach return codes
+        else => unreachable,
+    }
+}
+
+fn getLucideIcon(key: []const u8) !?[]const u8 {
+    if (mem.startsWith(u8, key, "lucide.")) {
+        return lucide.icon(key["lucide.".len..]);
+    }
+
+    return null;
 }
