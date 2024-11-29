@@ -153,7 +153,7 @@ fn MustacheWriterType(comptime Context: type) type {
                 return value;
             }
 
-            if (try ctx.getFromContextData(key)) |value| {
+            if (try getFromContextData(ctx.arena, &ctx.context, key)) |value| {
                 return value;
             }
 
@@ -252,26 +252,26 @@ fn MustacheWriterType(comptime Context: type) type {
             return null;
         }
 
-        fn getFromContextData(self: *MustacheWriter, key: []const u8) !?[]const u8 {
-            inline for (@typeInfo(@TypeOf(self.context.data)).@"struct".fields) |f| {
+        fn getFromContextData(arena: mem.Allocator, context: *const Context, key: []const u8) !?[]const u8 {
+            inline for (@typeInfo(@TypeOf(context.data)).@"struct".fields) |f| {
                 if (mem.eql(u8, key, f.name)) {
                     switch (@typeInfo(f.type)) {
                         .optional => {
-                            const value = @field(self.context.data, f.name);
+                            const value = @field(context.data, f.name);
 
                             if (value) |v| {
-                                return try self.arena.dupeZ(u8, v);
+                                return try arena.dupeZ(u8, v);
                             }
 
                             return "";
                         },
                         .bool => {
-                            return if (@field(self.context.data, f.name)) "true" else "false";
+                            return if (@field(context.data, f.name)) "true" else "false";
                         },
                         else => {
-                            return try self.arena.dupeZ(
+                            return try arena.dupeZ(
                                 u8,
-                                @field(self.context.data, f.name),
+                                @field(context.data, f.name),
                             );
                         },
                     }
