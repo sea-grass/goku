@@ -3,6 +3,7 @@ const debug = std.debug;
 const fmt = std.fmt;
 const fs = std.fs;
 const heap = std.heap;
+const io = std.io;
 const log = std.log.scoped(.mustache);
 const lucide = @import("lucide");
 const mem = std.mem;
@@ -16,11 +17,10 @@ pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: any
 
     var mustache_writer: MustacheWriterType(
         @TypeOf(context),
-        @TypeOf(writer),
     ) = .{
         .arena = arena.allocator(),
         .context = context,
-        .writer = writer,
+        .writer = writer.any(),
     };
 
     try mustache_writer.write(template);
@@ -54,11 +54,11 @@ test renderStream {
     try testing.expectEqualStrings("foo", buf.items);
 }
 
-fn MustacheWriterType(comptime Context: type, comptime Writer: type) type {
+fn MustacheWriterType(comptime Context: type) type {
     return struct {
         arena: mem.Allocator,
         context: Context,
-        writer: Writer,
+        writer: io.AnyWriter,
 
         const vtable: c.mustach_itf = .{
             .emit = emit,
