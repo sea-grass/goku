@@ -531,17 +531,22 @@ fn renderComponent(allocator: mem.Allocator, src: []const u8, writer: anytype) !
         return;
     }
 
+    _ = allocator;
+    _ = src;
+
     const rt = c.JS_NewRuntime();
     defer c.JS_FreeRuntime(rt);
 
     const ctx = c.JS_NewContext(rt) orelse return error.CannotAllocatorJSContext;
     defer c.JS_FreeContext(ctx);
 
-    // Even though JS_Eval knows the length, it still expects the program to be null-terminated...
-    const prog = try fmt.allocPrintZ(allocator, "{s}", .{src});
-    defer allocator.free(prog);
-
-    const val = c.JS_Eval(ctx, @ptrCast(prog), prog.len, "<main>", c.JS_EVAL_TYPE_MODULE);
+    const call_fn_program =
+        \\import { print } from 'goku';
+        \\print("Hello, world!");
+        \\print("<br>");
+        \\print("<b>Ok!</b>");
+    ;
+    const val = c.JS_Eval(ctx, call_fn_program, call_fn_program.len, "<main>", c.JS_EVAL_TYPE_MODULE);
     defer c.JS_FreeValue(ctx, val);
 
     if (val.tag == c.JS_TAG_EXCEPTION) {
