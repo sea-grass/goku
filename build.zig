@@ -19,6 +19,7 @@ const BuildSteps = struct {
     run_benchmark: *std.Build.Step,
     site: *std.Build.Step,
     serve: *std.Build.Step,
+    wasm_module: *std.Build.Step,
     @"test": *std.Build.Step,
 
     pub fn init(b: *std.Build) BuildSteps {
@@ -54,6 +55,10 @@ const BuildSteps = struct {
             .serve = b.step(
                 "serve",
                 "Serve the Goku site (for local previewing)",
+            ),
+            .wasm_module = b.step(
+                "wasm-module",
+                "Build the wasm module",
             ),
             .@"test" = b.step(
                 "test",
@@ -283,6 +288,34 @@ pub fn build(b: *std.Build) void {
 
     const docs = Docs.fromTests(exe_unit_tests);
     build_steps.docs.dependOn(&docs.serve.step);
+
+    const wasm_module = b.addStaticLibrary(.{
+        .name = "goku.wasm",
+        .root_source_file = b.path("src/wasm_root.zig"),
+        .target = b.resolveTargetQuery(.{
+            .cpu_arch = .wasm32,
+            .os_tag = .wasi,
+        }),
+        .optimize = optimize,
+    });
+
+    //wasm_module.global_base = 6560;
+    wasm_module.entry = .disabled;
+    wasm_module.rdynamic = true;
+    wasm_module.import_memory = true;
+    wasm_module.initial_memory = std.wasm.page_size * 2;
+    wasm_module.max_memory = std.wasm.page_size * 2;
+
+    const install_wasm_module = b.addInstallArtifact(wasm_module, .{});
+    build_steps.wasm_module.dependOn(&install_wasm_module.step);
+
+    const copy_static = b.addExecutable(.{
+        .name = "copy_static",
+        .root_source_file = b.path("src/copy_static.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    b.installArtifact(copy_static);
 }
 
 const BuildCModuleOptions = struct {
