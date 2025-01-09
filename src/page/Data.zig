@@ -255,6 +255,7 @@ test fromReader {
         \\---
         \\slug: /
         \\title: Home page
+        \\template: foo.html
         \\---
     ;
 
@@ -318,6 +319,7 @@ test fromYamlString {
     const input =
         \\slug: /
         \\title: Home page
+        \\template: foo.html
     ;
 
     const yaml = try fromYamlString(

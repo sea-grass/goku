@@ -382,6 +382,7 @@ const @"test" = struct {
                 \\---
                 \\slug: /
                 \\title: Hello, world!
+                \\template: foo.html
                 \\---
                 ,
             },
