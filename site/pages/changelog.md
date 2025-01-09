@@ -7,6 +7,7 @@ template: page.html
 ## 0.0.7 (in progress)
 
 - Goku CLI subcommands `goku init`, `goku build`
+- Updated to zig `0.14.0-dev.2628+5b5c60f43`
 
 ## 0.0.6
 
