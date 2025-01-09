@@ -55,6 +55,189 @@ test renderStream {
 fn GetHandleType(comptime UserContext: type) type {
     return struct {
         user_context: UserContext,
+
+        const GetHandle = @This();
+
+        pub fn getKnown(get_handle: *GetHandle, arena: mem.Allocator, key: []const u8) !?[]const u8 {
+            // These are known goku constants that are expected to be available during page rendering.
+            const context_keys = &.{ "content", "site_root" };
+
+            // At runtime, if a template tries to get one of these keys, we look for it in Context.
+            // If the key is found, we populate the buf with a copy.
+            // Otherwise, we return a runtime error.
+            // ---
+            // Really, in the application there are two kinds of rendering
+            // the preprocess pass on the content and the final rendering pass
+            // where the content is known.
+            // In the first, these context keys are not present - ideally
+            // we encode that logic where this is being called, rather than
+            // in two separate places
+            inline for (context_keys) |context_key| {
+                if (mem.eql(u8, key, context_key)) {
+                    if (!@hasField(UserContext, context_key)) return error.ContextMissingRequestedKey;
+
+                    return try arena.dupeZ(u8, @field(get_handle.user_context, context_key));
+                }
+            }
+
+            return null;
+        }
+
+        fn getData(get_handle: *GetHandle, arena: mem.Allocator, key: []const u8) !?[]const u8 {
+            inline for (@typeInfo(@TypeOf(get_handle.user_context.data)).@"struct".fields) |f| {
+                if (mem.eql(u8, key, f.name)) {
+                    switch (@typeInfo(f.type)) {
+                        .optional => {
+                            const value = @field(get_handle.user_context.data, f.name);
+
+                            if (value) |v| {
+                                return try arena.dupeZ(u8, v);
+                            }
+
+                            return "";
+                        },
+                        .bool => {
+                            return if (@field(get_handle.user_context.data, f.name)) "true" else "false";
+                        },
+                        else => {
+                            return try arena.dupeZ(
+                                u8,
+                                @field(get_handle.user_context.data, f.name),
+                            );
+                        },
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        fn getCollectionsList(get_handle: *GetHandle, arena: mem.Allocator, collection: []const u8) ![]const u8 {
+            var list_buf = std.ArrayList(u8).init(arena);
+            defer list_buf.deinit();
+
+            const get_pages = .{
+                .stmt =
+                \\SELECT slug, date, title
+                \\FROM pages
+                \\WHERE collection = ?
+                \\ORDER BY date DESC, title ASC
+                ,
+                .type = struct {
+                    slug: []const u8,
+                    date: []const u8,
+                    title: []const u8,
+                },
+            };
+
+            var get_stmt = try get_handle.user_context.db.db.prepare(get_pages.stmt);
+            defer get_stmt.deinit();
+
+            var it = try get_stmt.iterator(
+                get_pages.type,
+                .{ .collection = collection },
+            );
+
+            try list_buf.appendSlice("<ul>");
+
+            var num_items: u32 = 0;
+            while (try it.nextAlloc(arena, .{})) |entry| {
+                try list_buf.writer().print(
+                    \\<li>
+                    \\<a href="{[site_root]s}{[slug]s}">
+                    \\{[date]s} {[title]s}
+                    \\</a>
+                    \\</li>
+                ,
+                    .{
+                        .site_root = get_handle.user_context.site_root,
+                        .slug = entry.slug,
+                        .date = entry.date,
+                        .title = entry.title,
+                    },
+                );
+
+                num_items += 1;
+            }
+
+            if (num_items > 0) {
+                try list_buf.appendSlice("</ul>");
+                return try list_buf.toOwnedSlice();
+            } else {
+                return "";
+            }
+        }
+
+        fn getCollectionsLatest(get_handle: *GetHandle, arena: mem.Allocator, collection: []const u8) ![]const u8 {
+            const get_page = .{
+                .stmt =
+                \\SELECT slug, title FROM pages WHERE collection = ?
+                \\ORDER BY date DESC
+                \\LIMIT 1
+                ,
+                .type = struct { slug: []const u8, title: []const u8 },
+            };
+
+            var get_stmt = try get_handle.user_context.db.db.prepare(get_page.stmt);
+            defer get_stmt.deinit();
+
+            const row = try get_stmt.oneAlloc(
+                get_page.type,
+                arena,
+                .{},
+                .{
+                    .collection = collection,
+                },
+            ) orelse return error.EmptyCollection;
+
+            // TODO is there a way to free this?
+            //defer row.deinit();
+
+            const value = try fmt.allocPrint(
+                arena,
+                \\<article>
+                \\<a href="{s}{s}">{s}</a>
+                \\</article>
+            ,
+                .{
+                    get_handle.user_context.site_root,
+                    row.slug,
+                    row.title,
+                },
+            );
+            errdefer arena.free(value);
+
+            return value;
+        }
+
+        fn getMeta(get_handle: *GetHandle, arena: mem.Allocator) ![]const u8 {
+            return try fmt.allocPrint(
+                arena,
+                \\<div class="field is-grouped is-grouped-multiline">
+                \\<div class="control">
+                \\<div class="tags has-addons">
+                \\<span class="tag is-white">slug</span>
+                \\<span class="tag is-light">{[slug]s}</span>
+                \\</div>
+                \\</div>
+                \\
+                \\<div class="control">
+                \\<div class="tags has-addons">
+                \\<span class="tag is-white">title</span>
+                \\<span class="tag is-light">{[title]s}</span>
+                \\</div>
+                \\</div>
+                \\</div>
+            ,
+                .{
+                    .slug = get_handle.user_context.data.slug,
+                    .title = if (@TypeOf(get_handle.user_context.data.title) == ?[]const u8)
+                        get_handle.user_context.data.title.?
+                    else
+                        get_handle.user_context.data.title,
+                },
+            );
+        }
     };
 }
 
@@ -166,11 +349,11 @@ fn MustacheWriterType(comptime UserContext: type) type {
         }
 
         fn getInner(ctx: *MustacheWriter, key: []const u8) !?[]const u8 {
-            if (try getKnownFromContext(ctx.arena, ctx.context, key)) |value| {
+            if (try ctx.context.getKnown(ctx.arena, key)) |value| {
                 return value;
             }
 
-            if (try getFromContextData(ctx.arena, ctx.context, key)) |value| {
+            if (try ctx.context.getData(ctx.arena, key)) |value| {
                 return value;
             }
 
@@ -182,18 +365,18 @@ fn MustacheWriterType(comptime UserContext: type) type {
                 mem.endsWith(u8, key, ".list"))
             {
                 const collection = key["collections.".len .. key.len - ".list".len];
-                return try getCollectionsList(ctx.arena, ctx.context, collection);
+                return try ctx.context.getCollectionsList(ctx.arena, collection);
             }
 
             if (mem.startsWith(u8, key, "collections.") and
                 mem.endsWith(u8, key, ".latest"))
             {
                 const collection = key["collections.".len .. key.len - ".latest".len];
-                return try getCollectionsLatest(ctx.arena, ctx.context, collection);
+                return try ctx.context.getCollectionsLatest(ctx.arena, collection);
             }
 
             if (mem.eql(u8, key, "meta")) {
-                return try getMeta(ctx.arena, ctx.context);
+                return try ctx.context.getMeta(ctx.arena);
             }
 
             if (mem.eql(u8, key, "theme.head")) {
@@ -241,185 +424,6 @@ fn MustacheWriterType(comptime UserContext: type) type {
 
         fn partial(_: ?*anyopaque, _: [*c]const u8, _: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
             return 0;
-        }
-
-        fn getKnownFromContext(arena: mem.Allocator, context: GetHandle, key: []const u8) !?[]const u8 {
-
-            // These are known goku constants that are expected to be available during page rendering.
-            const context_keys = &.{ "content", "site_root" };
-
-            // At runtime, if a template tries to get one of these keys, we look for it in Context.
-            // If the key is found, we populate the buf with a copy.
-            // Otherwise, we return a runtime error.
-            // ---
-            // Really, in the application there are two kinds of rendering
-            // the preprocess pass on the content and the final rendering pass
-            // where the content is known.
-            // In the first, these context keys are not present - ideally
-            // we encode that logic where this is being called, rather than
-            // in two separate places
-            inline for (context_keys) |context_key| {
-                if (mem.eql(u8, key, context_key)) {
-                    if (!@hasField(UserContext, context_key)) return error.ContextMissingRequestedKey;
-
-                    return try arena.dupeZ(u8, @field(context.user_context, context_key));
-                }
-            }
-
-            return null;
-        }
-
-        fn getFromContextData(arena: mem.Allocator, context: GetHandle, key: []const u8) !?[]const u8 {
-            inline for (@typeInfo(@TypeOf(context.user_context.data)).@"struct".fields) |f| {
-                if (mem.eql(u8, key, f.name)) {
-                    switch (@typeInfo(f.type)) {
-                        .optional => {
-                            const value = @field(context.user_context.data, f.name);
-
-                            if (value) |v| {
-                                return try arena.dupeZ(u8, v);
-                            }
-
-                            return "";
-                        },
-                        .bool => {
-                            return if (@field(context.user_context.data, f.name)) "true" else "false";
-                        },
-                        else => {
-                            return try arena.dupeZ(
-                                u8,
-                                @field(context.user_context.data, f.name),
-                            );
-                        },
-                    }
-                }
-            }
-
-            return null;
-        }
-
-        fn getCollectionsList(arena: mem.Allocator, context: GetHandle, collection: []const u8) ![]const u8 {
-            var list_buf = std.ArrayList(u8).init(arena);
-            defer list_buf.deinit();
-
-            const get_pages = .{
-                .stmt =
-                \\SELECT slug, date, title
-                \\FROM pages
-                \\WHERE collection = ?
-                \\ORDER BY date DESC, title ASC
-                ,
-                .type = struct {
-                    slug: []const u8,
-                    date: []const u8,
-                    title: []const u8,
-                },
-            };
-
-            var get_stmt = try context.user_context.db.db.prepare(get_pages.stmt);
-            defer get_stmt.deinit();
-
-            var it = try get_stmt.iterator(
-                get_pages.type,
-                .{ .collection = collection },
-            );
-
-            try list_buf.appendSlice("<ul>");
-
-            var num_items: u32 = 0;
-            while (try it.nextAlloc(arena, .{})) |entry| {
-                try list_buf.writer().print(
-                    \\<li>
-                    \\<a href="{[site_root]s}{[slug]s}">
-                    \\{[date]s} {[title]s}
-                    \\</a>
-                    \\</li>
-                ,
-                    .{
-                        .site_root = context.user_context.site_root,
-                        .slug = entry.slug,
-                        .date = entry.date,
-                        .title = entry.title,
-                    },
-                );
-
-                num_items += 1;
-            }
-
-            if (num_items > 0) {
-                try list_buf.appendSlice("</ul>");
-                return try list_buf.toOwnedSlice();
-            } else {
-                return "";
-            }
-        }
-
-        fn getCollectionsLatest(arena: mem.Allocator, context: GetHandle, collection: []const u8) ![]const u8 {
-            const get_page = .{
-                .stmt =
-                \\SELECT slug, title FROM pages WHERE collection = ?
-                \\ORDER BY date DESC
-                \\LIMIT 1
-                ,
-                .type = struct { slug: []const u8, title: []const u8 },
-            };
-
-            var get_stmt = try context.user_context.db.db.prepare(get_page.stmt);
-            defer get_stmt.deinit();
-
-            const row = try get_stmt.oneAlloc(
-                get_page.type,
-                arena,
-                .{},
-                .{
-                    .collection = collection,
-                },
-            ) orelse return error.EmptyCollection;
-
-            // TODO is there a way to free this?
-            //defer row.deinit();
-
-            const value = try fmt.allocPrint(
-                arena,
-                \\<article>
-                \\<a href="{s}{s}">{s}</a>
-                \\</article>
-            ,
-                .{
-                    context.user_context.site_root,
-                    row.slug,
-                    row.title,
-                },
-            );
-            errdefer arena.free(value);
-
-            return value;
-        }
-
-        fn getMeta(arena: mem.Allocator, context: GetHandle) ![]const u8 {
-            return try fmt.allocPrint(
-                arena,
-                \\<div class="field is-grouped is-grouped-multiline">
-                \\<div class="control">
-                \\<div class="tags has-addons">
-                \\<span class="tag is-white">slug</span>
-                \\<span class="tag is-light">{[slug]s}</span>
-                \\</div>
-                \\</div>
-                \\
-                \\<div class="control">
-                \\<div class="tags has-addons">
-                \\<span class="tag is-white">title</span>
-                \\<span class="tag is-light">{[title]s}</span>
-                \\</div>
-                \\</div>
-                \\</div>
-            ,
-                .{
-                    .slug = context.user_context.data.slug,
-                    .title = if (@TypeOf(context.user_context.data.title) == ?[]const u8) context.user_context.data.title.? else context.user_context.data.title,
-                },
-            );
         }
 
         fn fromPtr(ptr: ?*anyopaque) *MustacheWriter {
