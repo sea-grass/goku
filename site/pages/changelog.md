@@ -6,8 +6,10 @@ template: page.html
 
 ## 0.0.7 (in progress)
 
-- Goku CLI subcommands `goku init`, `goku build`
+- Goku CLI subcommands `goku init`, `goku build`, `goku preview`
 - Updated to zig `0.14.0-dev.2628+5b5c60f43`
+- Load `htmx.js` in the `{{& theme.body }}` shortcode
+- Added server-rendered components
 
 ## 0.0.6
 

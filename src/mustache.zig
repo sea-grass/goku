@@ -436,7 +436,11 @@ fn MustacheWriterType(comptime UserContext: type) type {
                 var file = try fs.openFileAbsolute(row.filepath, .{});
                 defer file.close();
 
-                const script = try file.reader().readAllAlloc(ctx.arena, math.maxInt(usize));
+                var script_buf = std.ArrayList(u8).init(ctx.arena);
+                defer script_buf.deinit();
+                try file.reader().readAllArrayList(&script_buf, math.maxInt(usize));
+                const script = try script_buf.toOwnedSliceSentinel(0);
+                defer ctx.arena.free(script);
 
                 log.info(
                     "render component ({s}) at src {s}: {s}",
@@ -529,70 +533,63 @@ fn getLucideIcon(key: []const u8) !?[]const u8 {
     return null;
 }
 
-fn renderComponent(allocator: mem.Allocator, src: []const u8, writer: anytype) !void {
-    if (true) {
-        const todo = "[rendered component]";
-        try writer.print("{s}", .{todo});
-        return;
-    }
+fn handleException(ctx: *c.JSContext) !noreturn {
+    const exception = c.JS_GetException(ctx);
+    defer c.JS_FreeValue(ctx, exception);
+    const prop_atom = c.JS_NewAtom(ctx, "stack");
+    const stack = c.JS_GetProperty(ctx, exception, prop_atom);
+    defer c.JS_FreeValue(ctx, stack);
+    const str = c.JS_ToCString(ctx, exception);
+    defer c.JS_FreeCString(ctx, str);
+    const stack_str = c.JS_ToCString(ctx, stack);
+    defer c.JS_FreeCString(ctx, stack_str);
+    const error_message = mem.span(str);
+    const stack_message = mem.span(stack_str);
 
+    log.err("JS Exception: {s} {s}", .{ error_message, stack_message });
+
+    return error.JSException;
+}
+
+// renderComponent MUST write to the writer.
+//
+// Will:
+// - initialize a quickjs runtime and context,
+// - execute the module source,
+// - Read a string property from the global object,
+// - Write the value of the property to the writer
+fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype) !void {
     _ = allocator;
-    _ = src;
-
     const rt = c.JS_NewRuntime();
     defer c.JS_FreeRuntime(rt);
 
-    const ctx = c.JS_NewContext(rt) orelse return error.CannotAllocatorJSContext;
+    const ctx = c.JS_NewContext(rt) orelse return error.CannotAllocateJSContext;
     defer c.JS_FreeContext(ctx);
 
-    const call_fn_program =
-        \\import { print } from 'goku';
-        \\print("Hello, world!");
-        \\print("<br>");
-        \\print("<b>Ok!</b>");
-    ;
-    const val = c.JS_Eval(ctx, call_fn_program, call_fn_program.len, "<main>", c.JS_EVAL_TYPE_MODULE);
+    const module = c.JS_Eval(ctx, src, src.len, "<main>", c.JS_EVAL_TYPE_MODULE);
+    defer c.JS_FreeValue(ctx, module);
+
+    const val = c.JS_Eval(ctx, src, src.len, "<main>", c.JS_EVAL_TYPE_MODULE);
     defer c.JS_FreeValue(ctx, val);
-
-    if (val.tag == c.JS_TAG_EXCEPTION) {
-        const exception = c.JS_GetException(ctx);
-        defer c.JS_FreeValue(ctx, exception);
-
-        const str = c.JS_ToCString(ctx, exception);
-        defer c.JS_FreeCString(ctx, str);
-
-        const error_message = mem.span(str);
-
-        log.err("JS Exception: {s}", .{error_message});
-        return error.JSException;
-    } else if (val.tag == c.JS_TAG_STRING) {
-        //
-    } else {
-        if (c.JS_IsObject(val) == 1) {
-            log.info("obj", .{});
-        }
-        if (c.JS_IsString(val) == 1) {
-            log.info("gotta string", .{});
-        }
-        log.info("tag({d})", .{val.tag});
-
-        const result = c.JS_GetPropertyStr(ctx, val, "foo");
-        defer c.JS_FreeValue(ctx, result);
-
-        log.info("result tag {d}", .{result.tag});
-
-        if (c.JS_IsException(result) == 1) {
-            log.info("exception oops...", .{});
-        }
-        if (c.JS_IsString(result) == 1) {
-            log.info("stringy", .{});
-        }
-
-        return error.UnexpectedJSValue;
+    switch (val.tag) {
+        c.JS_TAG_EXCEPTION => try handleException(ctx),
+        c.JS_TAG_OBJECT => log.info("obj", .{}),
+        else => return error.Huh,
     }
 
-    //const ctx = c.JS_NewContext(rt) orelse return error.CannotAllocateJSContext;
-    //defer c.JS_FreeContext(ctx);
+    const global_object = c.JS_GetGlobalObject(ctx);
+    defer c.JS_FreeValue(ctx, global_object);
 
-    try writer.print("Foobie!!!", .{});
+    const foo = c.JS_GetPropertyStr(ctx, global_object, "foo");
+    defer c.JS_FreeValue(ctx, foo);
+
+    switch (foo.tag) {
+        c.JS_TAG_EXCEPTION => try handleException(ctx),
+        c.JS_TAG_STRING => {},
+        else => return error.Huh,
+    }
+
+    const str = c.JS_ToCString(ctx, foo);
+    defer c.JS_FreeCString(ctx, str);
+    try writer.print("{s}", .{str});
 }
