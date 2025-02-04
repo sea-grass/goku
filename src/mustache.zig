@@ -402,7 +402,12 @@ fn MustacheWriterType(comptime UserContext: type) type {
                 // to include it in their templates to allow a more seamless upgrade
                 // once themes do make use of it.
 
-                return "";
+                return try fmt.allocPrint(
+                    ctx.arena,
+                    \\<script src="{[site_root]s}/htmx.js"></script>
+                ,
+                    .{ .site_root = ctx.context.user_context.site_root },
+                );
             }
 
             if (mem.startsWith(u8, key, "component ")) {
