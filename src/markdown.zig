@@ -252,7 +252,17 @@ fn ParserType(comptime Writer: type) type {
                 c.MD_SPAN_CODE => writer.writeAll("<code>") catch return -1,
                 c.MD_SPAN_DEL => {},
                 c.MD_SPAN_EM => {},
-                c.MD_SPAN_IMG => {},
+                c.MD_SPAN_IMG => {
+                    const detail: *c.MD_SPAN_IMG_DETAIL = @ptrCast(@alignCast(detail_ptr));
+
+                    const title: ?[]const u8 = if (detail.title.text == null) null else detail.title.text[0..detail.title.size];
+                    const src: ?[]const u8 = if (detail.src.text == null) null else detail.src.text[0..detail.src.size];
+
+                    writer.print("<img ", .{}) catch return -1;
+                    if (title) |t| writer.print("title=\"{s}\" ", .{t}) catch return -1;
+                    if (src) |s| writer.print("src=\"{s}\" ", .{s}) catch return -1;
+                    writer.print("/>", .{}) catch return -1;
+                },
                 c.MD_SPAN_STRONG => writer.writeAll("<strong>") catch return -1,
                 c.MD_SPAN_U => {},
 
@@ -278,7 +288,9 @@ fn ParserType(comptime Writer: type) type {
                 c.MD_SPAN_CODE => writer.writeAll("</code>") catch return -1,
                 c.MD_SPAN_DEL => {},
                 c.MD_SPAN_EM => {},
-                c.MD_SPAN_IMG => {},
+                c.MD_SPAN_IMG => {
+                    std.log.info("why leave an image...", .{});
+                },
                 c.MD_SPAN_STRONG => writer.writeAll("</strong>") catch return -1,
                 c.MD_SPAN_U => {},
 
