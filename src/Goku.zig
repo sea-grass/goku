@@ -51,3 +51,19 @@ pub fn copyStatic(
 
     return copy_static;
 }
+
+pub fn preview(
+    goku_dep: *std.Build.Dependency,
+    site_path: std.Build.LazyPath,
+    out_path: std.Build.LazyPath,
+) *std.Build.Step.Run {
+    const b = goku_dep.builder;
+    const run_goku = b.addRunArtifact(goku_dep.artifact("goku"));
+
+    run_goku.addArg("preview");
+    run_goku.addDirectoryArg(site_path);
+    run_goku.addArg("-o");
+    run_goku.addDirectoryArg(out_path);
+
+    return run_goku;
+}

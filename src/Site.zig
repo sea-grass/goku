@@ -314,6 +314,92 @@ pub const TemplateOption = union(enum) {
     bytes: []const u8,
 };
 
+const DispatchError = error{ NotFound, DbError, ReadError, RenderError, OOM };
+pub fn dispatch(site: *Site, slug: []const u8, writer: anytype) DispatchError!void {
+    var stmt = site.db.db.prepare(
+        \\SELECT filepath, template FROM pages WHERE slug = ?;
+        ,
+    ) catch return error.DbError;
+    defer stmt.deinit();
+
+    if (stmt.oneAlloc(struct { filepath: []const u8, template: []const u8 }, site.allocator, .{}, .{ .slug = slug }) catch return DispatchError.DbError) |row| {
+        var arena = heap.ArenaAllocator.init(site.allocator);
+        defer arena.deinit();
+        const ally = arena.allocator();
+
+        const filepath = row.filepath;
+        const site_root = site.site_root;
+        const db = site.db;
+        const url_prefix = site.url_prefix orelse "";
+
+        // Read the file contents
+        const contents = contents: {
+            const in_file = fs.openFileAbsolute(
+                filepath,
+                .{},
+            ) catch return DispatchError.ReadError;
+            defer in_file.close();
+
+            break :contents in_file.readToEndAlloc(
+                ally,
+                math.maxInt(u32),
+            ) catch return DispatchError.OOM;
+        };
+
+        // Parse the Page metadata
+        const result = page.CodeFence.parse(contents) orelse
+            return error.RenderError;
+
+        const p: page.Page = .{
+            .markdown = .{
+                .frontmatter = result.within,
+                .content = result.after,
+            },
+        };
+
+        const data = p.data(ally) catch return DispatchError.RenderError;
+
+        var html_buffer = io.bufferedWriter(writer);
+
+        // Load the template from the filesystem
+        const template = template: {
+            if (data.template) |t| {
+                const template_path = fs.path.join(
+                    ally,
+                    &.{ site_root, "templates", t },
+                ) catch return DispatchError.OOM;
+
+                var template_file = fs.openFileAbsolute(
+                    template_path,
+                    .{},
+                ) catch return DispatchError.ReadError;
+                defer template_file.close();
+
+                const template = template_file.readToEndAlloc(
+                    ally,
+                    math.maxInt(u32),
+                ) catch return DispatchError.OOM;
+                break :template template;
+            }
+
+            break :template fallback_template;
+        };
+
+        renderPage(
+            ally,
+            p,
+            .{ .bytes = template },
+            db,
+            url_prefix,
+            html_buffer.writer(),
+        ) catch return DispatchError.RenderError;
+
+        html_buffer.flush() catch {};
+    } else {
+        return DispatchError.NotFound;
+    }
+}
+
 // Write `page` as an html document to the `writer`.
 fn renderPage(
     allocator: mem.Allocator,

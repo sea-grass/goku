@@ -2,6 +2,10 @@
     .name = "goku",
     .version = "0.0.3",
     .dependencies = .{
+        .httpz = .{
+            .url = "git+https://github.com/karlseguin/http.zig#7000f03ad3b328277c70e84d9d9e58076af0a91a",
+            .hash = "1220c4c8ea5cf4575ce7effde670cfa52e7773e62a92558361eb2636f68e57d53b90",
+        },
         .clap = .{
             .url = "git+https://github.com/Hejsil/zig-clap#560c8dd72ab25d556123846254040c5bf9ad3ba4",
             .hash = "12200abadc141099ff2ba5098f7eca9bf84d548dd92ec5827ef323d813d59b049780",

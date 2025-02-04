@@ -15,6 +15,7 @@ const BuildSteps = struct {
     coverage: *std.Build.Step,
     docs: *std.Build.Step,
     generate_benchmark_site: *std.Build.Step,
+    preview: *std.Build.Step,
     run: *std.Build.Step,
     run_benchmark: *std.Build.Step,
     site: *std.Build.Step,
@@ -39,6 +40,10 @@ const BuildSteps = struct {
             .generate_benchmark_site = b.step(
                 "generate-benchmark",
                 "Generate a site dir used to benchmark goku",
+            ),
+            .preview = b.step(
+                "preview",
+                "Preview the site locally in dev mode",
             ),
             .run = b.step(
                 "run",
@@ -141,6 +146,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const httpz = b.dependency("httpz", .{ .target = target, .optimize = optimize });
     const sqlite = b.dependency("sqlite", .{
         .target = target,
         .optimize = optimize,
@@ -174,6 +180,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("lucide", lucide.module("lucide"));
     exe.root_module.addImport("bulma", bulma.module("bulma"));
     exe.root_module.addImport("htmx", htmx.module("htmx"));
+    exe.root_module.addImport("httpz", httpz.module("httpz"));
     exe.linkLibrary(sqlite.artifact("sqlite"));
     if (tracy_enable) {
         exe.linkLibrary(tracy.artifact("tracy"));
@@ -288,6 +295,9 @@ pub fn build(b: *std.Build) void {
 
     const docs = Docs.fromTests(exe_unit_tests);
     build_steps.docs.dependOn(&docs.serve.step);
+
+    const run_preview_cmd = Goku.preview(&this_dep_hack, b.path("site"), b.path("build"));
+    build_steps.preview.dependOn(&run_preview_cmd.step);
 
     const wasm_module = b.addStaticLibrary(.{
         .name = "goku.wasm",
