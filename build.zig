@@ -212,6 +212,7 @@ pub fn build(b: *std.Build) void {
     exe_unit_tests.root_module.addImport("sqlite", sqlite.module("sqlite"));
     exe_unit_tests.root_module.addImport("tracy", tracy.module("tracy"));
     exe_unit_tests.root_module.addImport("zap", zap.module("zap"));
+    exe_unit_tests.root_module.addImport("httpz", httpz.module("httpz"));
     exe_unit_tests.linkLibrary(sqlite.artifact("sqlite"));
     if (tracy_enable) {
         exe_unit_tests.linkLibrary(tracy.artifact("tracy"));

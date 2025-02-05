@@ -1,5 +1,6 @@
 const clap = @import("clap");
 const debug = std.debug;
+const fmt = std.fmt;
 const fs = std.fs;
 const heap = std.heap;
 const io = std.io;
@@ -404,22 +405,6 @@ const PreviewCommand = struct {
         var site = Site.init(unlimited_allocator, &db, build.site_root, build.url_prefix);
         defer site.deinit();
 
-        //
-        // BUILD SITE
-        //
-
-        {
-            const write_output_zone = tracy.initZone(@src(), .{ .name = "Write Site to Output Dir" });
-            defer write_output_zone.deinit();
-
-            var out_dir = try fs.openDirAbsolute(build.out_dir, .{});
-            defer out_dir.close();
-
-            try site.write(.sitemap, out_dir);
-            try site.write(.assets, out_dir);
-            try site.write(.pages, out_dir);
-        }
-
         log.info("Elapsed: {d}ms", .{time.milliTimestamp() - start});
 
         //
@@ -427,11 +412,18 @@ const PreviewCommand = struct {
         //
 
         // Start the http server
-        var server = try httpz.Server(*const Context).init(unlimited_allocator, .{ .port = 8552 }, &.{ .site = &site, .out_dir = build.out_dir });
+        const context: Context = .{ .site = &site, .out_dir = build.out_dir };
+        const config: httpz.Config = .{ .port = 8552, .request = .{ .max_form_count = 1 } };
+        var server = try httpz.Server(*const Context).init(
+            unlimited_allocator,
+            config,
+            &context,
+        );
         defer server.deinit();
 
         var router = server.router(.{});
-        router.get("*", handleRequest, .{});
+        router.get("*", handleGet, .{});
+        router.post("*", handlePost, .{});
 
         log.info("Listening on http://localhost:8552", .{});
         try server.listen();
@@ -441,10 +433,34 @@ const PreviewCommand = struct {
         // const themes_dir = try root_dir.openDir("themes");
     }
 
+    fn respond(status_code: u16, body: ?[]const u8, res: *httpz.Response) void {
+        res.status = status_code;
+        if (body) |b| res.body = b;
+    }
+
+    fn redirect(status_code: u16, url: []const u8, res: *httpz.Response) void {
+        res.status = status_code;
+        res.header("Location", url);
+    }
     const Context = struct { site: *Site, out_dir: []const u8 };
-    fn handleRequest(context: *const Context, req: *httpz.Request, res: *httpz.Response) !void {
+
+    fn handleGet(context: *const Context, req: *httpz.Request, res: *httpz.Response) !void {
         res.status = 200;
-        context.site.dispatch(req.url.path, res.writer()) catch |err| {
+
+        const query = try req.query();
+        log.info("{d}", .{query.len});
+        const config: Site.DispatchWants = wants: {
+            for (query.keys) |query_key| {
+                if (mem.eql(u8, query_key, "editor")) {
+                    break :wants .wants_editor;
+                } else if (mem.eql(u8, query_key, "raw")) {
+                    break :wants .wants_raw;
+                }
+            }
+            break :wants .wants_content;
+        };
+
+        context.site.dispatch(req.url.path, res.writer(), .{ .wants = config }) catch |err| {
             switch (err) {
                 else => {
                     res.status = 500;
@@ -478,9 +494,70 @@ const PreviewCommand = struct {
                         error.EndOfStream => {},
                         else => return err2,
                     };
+
+                    res.header("Cache-Control", "max-age=10");
                 },
             }
         };
+    }
+
+    fn handlePost(context: *const Context, req: *httpz.Request, res: *httpz.Response) !void {
+        const query = try req.query();
+        log.info("{d}", .{query.len});
+        const editor = from_editor: {
+            for (query.keys) |query_key| {
+                if (mem.eql(u8, query_key, "editor")) {
+                    break :from_editor true;
+                }
+            }
+            break :from_editor false;
+        };
+
+        if (!editor) {
+            respond(400, "Bad request hehe", res);
+            return;
+        }
+
+        const content_type = req.header("content-type") orelse return respond(400, "Bad request", res);
+        if (!mem.eql(u8, content_type, "application/x-www-form-urlencoded")) return respond(400, "Bad request", res);
+
+        const source_abs_path = try context.site.getDispatchSourceFile(req.arena, req.url.path) orelse return respond(400, "Bad request", res);
+
+        const content: []const u8 = content: {
+            const fd = try req.formData();
+            var it = fd.iterator();
+            while (it.next()) |entry| {
+                if (mem.eql(u8, entry.key, "content")) {
+                    break :content entry.value;
+                }
+            }
+            break :content null;
+        } orelse return respond(400, "Bad request", res);
+
+        var buf = std.ArrayList(u8).init(req.arena);
+        defer buf.deinit();
+        for (content) |c| {
+            if (c == '\r') {
+                continue;
+            } else {
+                try buf.append(c);
+            }
+        }
+        const @"without \r" = buf.items;
+
+        // Now that I have the updated content, set the file contents.
+        // Here be dragons.
+        // Suggest guard rails on overwriting files.
+        // Yeesh!
+        var file = try fs.openFileAbsolute(source_abs_path, .{ .mode = .write_only });
+        defer file.close();
+        try file.seekTo(0);
+        try file.writeAll(@"without \r");
+
+        // Now that I've set the file contents, serve a redirect so the user loads the page.
+        redirect(302, try fmt.allocPrint(req.arena, "{s}?editor", .{req.url.path}), res);
+
+        log.info("coontent({s})", .{content});
     }
 
     pub const ParseError = error{

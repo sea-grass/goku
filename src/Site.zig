@@ -186,6 +186,7 @@ fn writePages(self: Site, out_dir: fs.Dir) !void {
             self.site_root,
             entry.filepath,
             entry.slug,
+            .wants_content,
             out_dir,
         );
     }
@@ -201,8 +202,14 @@ fn _render(
     site_root: []const u8,
     filepath: []const u8,
     slug: []const u8,
+    wants: DispatchWants,
     out_dir: fs.Dir,
 ) !void {
+    switch (wants) {
+        .wants_raw => unreachable,
+        else => {},
+    }
+
     // Read the file contents
     const contents = contents: {
         const in_file = try fs.openFileAbsolute(
@@ -302,6 +309,7 @@ fn _render(
         .{ .bytes = template },
         db,
         url_prefix,
+        wants,
         html_buffer.writer(),
     );
 
@@ -314,8 +322,25 @@ pub const TemplateOption = union(enum) {
     bytes: []const u8,
 };
 
+pub fn getDispatchSourceFile(site: *Site, arena: mem.Allocator, slug: []const u8) !?[]const u8 {
+    var stmt = try site.db.db.prepare(
+        \\SELECT filepath FROM pages WHERE slug = ?;
+    );
+    defer stmt.deinit();
+
+    if (try stmt.oneAlloc(struct { filepath: []const u8 }, arena, .{}, .{ .slug = slug })) |row| {
+        return row.filepath;
+    }
+
+    return null;
+}
+
 const DispatchError = error{ NotFound, DbError, ReadError, RenderError, OOM };
-pub fn dispatch(site: *Site, slug: []const u8, writer: anytype) DispatchError!void {
+pub const DispatchWants = enum { wants_editor, wants_raw, wants_content };
+const DispatchOptions = struct {
+    wants: DispatchWants = .wants_content,
+};
+pub fn dispatch(site: *Site, slug: []const u8, writer: anytype, options: DispatchOptions) DispatchError!void {
     var stmt = site.db.db.prepare(
         \\SELECT filepath, template FROM pages WHERE slug = ?;
         ,
@@ -385,14 +410,22 @@ pub fn dispatch(site: *Site, slug: []const u8, writer: anytype) DispatchError!vo
             break :template fallback_template;
         };
 
-        renderPage(
-            ally,
-            p,
-            .{ .bytes = template },
-            db,
-            url_prefix,
-            html_buffer.writer(),
-        ) catch return DispatchError.RenderError;
+        switch (options.wants) {
+            .wants_raw => {
+                html_buffer.writer().print("---\n{s}\n---\n{s}\n", .{ p.markdown.frontmatter, p.markdown.content }) catch {};
+            },
+            else => {
+                renderPage(
+                    ally,
+                    p,
+                    .{ .bytes = template },
+                    db,
+                    url_prefix,
+                    options.wants,
+                    html_buffer.writer(),
+                ) catch return DispatchError.RenderError;
+            },
+        }
 
         html_buffer.flush() catch {};
     } else {
@@ -400,15 +433,23 @@ pub fn dispatch(site: *Site, slug: []const u8, writer: anytype) DispatchError!vo
     }
 }
 
-// Write `page` as an html document to the `writer`.
+/// Write `page` as an html document to the `writer`.
+///
+/// TODO Assuming that the allocator is an arena.
 fn renderPage(
     allocator: mem.Allocator,
     p: page.Page,
     tmpl: TemplateOption,
     db: *Database,
     url_prefix: ?[]const u8,
+    wants: DispatchWants,
     writer: anytype,
 ) !void {
+    const wants2 = e: switch (wants) {
+        .wants_raw => unreachable,
+        else => |e| break :e e,
+    };
+
     const meta = try p.data(allocator);
     defer meta.deinit(allocator);
 
@@ -417,9 +458,9 @@ fn renderPage(
         .{ meta.title.?, meta.slug },
     );
 
-    var buf = std.ArrayList(u8).init(allocator);
-    defer buf.deinit();
     const content = if (meta.allow_html) content: {
+        var buf = std.ArrayList(u8).init(allocator);
+        defer buf.deinit();
         try mustache.renderStream(
             allocator,
             p.markdown.content,
@@ -430,7 +471,7 @@ fn renderPage(
             },
             buf.writer(),
         );
-        break :content buf.items;
+        break :content try buf.toOwnedSlice();
     } else p.markdown.content;
 
     const template = tmpl.bytes;
@@ -443,6 +484,17 @@ fn renderPage(
         .{ .url_prefix = url_prefix },
         content_buf.writer(),
     );
+
+    switch (wants2) {
+        .wants_editor => {
+            const editor_inline_script = "<script>" ++ @embedFile("editor_inline_script.js") ++ "</script>";
+            try content_buf.appendSlice(editor_inline_script);
+            const editor_inline_styles = "<style>" ++ @embedFile("editor_inline_styles.css") ++ "</style>";
+            try content_buf.appendSlice(editor_inline_styles);
+        },
+        .wants_content => {},
+        .wants_raw => unreachable,
+    }
 
     try mustache.renderStream(
         allocator,
@@ -497,6 +549,7 @@ const @"test" = struct {
             .{ .bytes = template },
             &db,
             null,
+            .wants_content,
             writer,
         );
 

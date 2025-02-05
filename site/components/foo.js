@@ -25,3 +25,4 @@ function render() {
 
 
 globalThis.foo = render();
+globalThis.render = render;

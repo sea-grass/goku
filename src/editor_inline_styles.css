@@ -1,0 +1,37 @@
+#editor {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  width: 100vw;
+  height: 400px;
+
+  display: flex;
+  gap: 32px;
+  padding: 32px;
+  background: #262b28;
+}
+
+#editor form {
+  flex: 1;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  grid-template-columns: 1fr auto auto;
+}
+
+#editor form h2 {
+  grid-column: 1 / 4;
+}
+
+#editor form textarea {
+  grid-column: 1 / 4;
+}
+
+#editor form input[type="submit"] {
+  grid-column: 2 / 3;
+}
+
+#editor form button.close {
+  grid-column: 3 / 4;
+}
+

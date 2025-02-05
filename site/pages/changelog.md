@@ -9,7 +9,60 @@ template: page.html
 - Goku CLI subcommands `goku init`, `goku build`, `goku preview`
 - Updated to zig `0.14.0-dev.2628+5b5c60f43`
 - Load `htmx.js` in the `{{& theme.body }}` shortcode
-- Added server-rendered components
+- Components! Added server-rendered components
+- Goku js unified interface
+
+
+
+The Goku CLI has become more useful to more fully capture the site creation and editing workflows.
+
+### Goku CLI
+
+Learn more about the changes to the Goku CLI interface.
+
+#### goku init
+
+Getting a Goku site set up is only a few files, but that work can still be a hurdle for creating your first website or your tenth. So, the `goku init` subcommand was added to speed up working on a Goku site by scaffolding a blank site directory.
+
+#### goku build
+
+#### goku preview
+
+### Goku build 
+
+### Updated Zig version
+
+The officially supported Zig version is now Zig `0.14.0-dev.2628+5b5c60f43`. You must upgrade to at least this Zig version when you upgrade to Goku 0.0.7.
+
+### Goku JS unified interface
+
+I want the entirety of a Goku site available to components at build time, which means providing a binding in Zig for the JS to read a Site. Since I now have a need to provide details to both Zig and JS, it makes sense to have one unified interface to access it more valuable. Additionally, are there other lessons in Zig<->JS binding that we can gain from designing this?
+
+I had to start by defining a site:
+
+>#### Site
+>
+>- pages
+>- templates
+>- components
+>- collections
+
+I first want to index the Site from some source(s). Currently, Goku only supports the local filesystem as a source.
+
+I thought about how I could optimize reading the site from the filesystem. Is it most efficient to just read all files and recurse into all directories as you find them, or to discover all of them and then access all of them, as two separate steps?
+
+If you discover and access files as separate steps, you're freeing the two operations from their previous colocation. In our case, we do want an index of all pages, templates, components, and collections, so either approach is applicable to us. The question is, do we gain some additional benefit from pursuing either approach?
+
+### `?editor`
+
+When you run `goku preview`, you can view your site, edit it, and refresh to view your changes, all without restarting Goku. A WIP method of editing your content has been added in pair, the web editor.
+
+When you include the `?editor` query in the URL, you will be able to edit the file content, save it, and view the changes right away!
+
+Currently, this goes client-to-server and saves updates to your local filesystem in order to read them again. In the future, it would be nice to have a version of Goku in the browser to allow you to iterate on a page, saving intermediate steps, all without overwriting the initial file. There are a lot of potential goals inside that statement and I'm not attached to all of them.
+
+
+
 
 ## 0.0.6
 

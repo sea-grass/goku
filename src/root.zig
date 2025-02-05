@@ -9,6 +9,7 @@ pub const page = @import("page.zig");
 pub const Site = @import("Site.zig");
 pub const @"source/filesystem" = @import("source/filesystem.zig");
 pub const storage = @import("storage.zig");
+pub const httpz = @import("httpz");
 
 test {
     @import("std").testing.refAllDecls(@This());
