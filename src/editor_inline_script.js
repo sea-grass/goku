@@ -23,11 +23,11 @@
     textarea.setAttribute("name", "content");
     textarea.value = raw;
 
-    const submitButton = cel("input");
+    const submitButton = cel("input", null, ["button"]);
     submitButton.type = "submit";
     submitButton.value = "submit";
 
-    const closeButton = cel("button", null, ["close"], ["Close"]);
+    const closeButton = cel("button", null, ["button", "close"], ["Close"]);
 
     const form = cel("form", null, [], [title, textarea, submitButton, closeButton]);
     form.setAttribute("method", "POST");

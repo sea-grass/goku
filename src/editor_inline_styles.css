@@ -25,6 +25,7 @@
 
 #editor form textarea {
   grid-column: 1 / 4;
+  margin: 8px;
 }
 
 #editor form input[type="submit"] {
@@ -34,4 +35,26 @@
 #editor form button.close {
   grid-column: 3 / 4;
 }
+
+#editor .button {
+  margin: 8px;
+}
+
+.button {
+  width: fit-content;
+  padding: 4px 12px;
+  min-width: 48px;
+  display: flex;
+  align-items: center;
+  max-height: 32px;
+
+  background: #eee;
+  color: #aaa;
+}
+
+input[type="submit"].button {
+  color: #1e1919;
+  background: #fff00a;
+}
+
 
