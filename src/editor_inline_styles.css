@@ -4,14 +4,18 @@
   left: 0;
   right: 0;
   width: 100vw;
-  height: fit-content;
   padding: 32px;
 
+  max-height: 475px;
+  transition: max-height .3s;
+
+  background: var(--bulma-text-soft);
+  color: var(--bulma-text-bold);
   border-top: 6px dashed #fff00d;
-  background: white;
 }
+
 #root.loading {
-  background: linear-gradient(to bottom, white, gray);
+  max-height: 0;
 }
 
 #editor {
@@ -44,13 +48,3 @@
 #editor form button.close {
   grid-column: 3 / 4;
 }
-
-
-/*
-input[type="submit"].button {
-  color: #1e1919;
-  background: #fff00a;
-}
-*/
-
-
