@@ -248,6 +248,11 @@ fn MustacheWriterType(comptime UserContext: type) type {
         arena: mem.Allocator,
         context: GetHandle,
         writer: io.AnyWriter,
+        /// When rendering components, a component may provide a CSS string
+        /// that should be included on the page. We keep a hash map of
+        /// component name to CSS string and then write them all to the page
+        /// once we process all of the content.
+        style_buf: std.StringHashMap([]const u8),
 
         pub fn init(
             arena: mem.Allocator,
@@ -258,6 +263,7 @@ fn MustacheWriterType(comptime UserContext: type) type {
                 .arena = arena,
                 .context = .{ .user_context = user_context },
                 .writer = writer,
+                .style_buf = std.StringHashMap([]const u8).init(arena),
             };
         }
 
@@ -293,6 +299,16 @@ fn MustacheWriterType(comptime UserContext: type) type {
                     => |e| return e,
                 }
             };
+
+            if (ctx.style_buf.count() > 0) {
+                ctx.writer.print("{s}", .{"<style>"}) catch {};
+                var it = ctx.style_buf.valueIterator();
+                while (it.next()) |value_ptr| {
+                    const chunk = value_ptr.*;
+                    ctx.writer.print("{s}", .{chunk}) catch {};
+                }
+                ctx.writer.print("{s}", .{"</style>"}) catch {};
+            }
         }
 
         fn emit(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, escaping: c_int, _: ?*c.FILE) callconv(.C) c_int {
@@ -450,7 +466,7 @@ fn MustacheWriterType(comptime UserContext: type) type {
                 var buf = std.ArrayList(u8).init(ctx.arena);
                 errdefer buf.deinit();
 
-                try renderComponent(ctx.arena, script, buf.writer());
+                try renderComponent(ctx.arena, script, buf.writer(), &ctx.style_buf);
 
                 return try buf.toOwnedSlice();
             }
@@ -558,8 +574,7 @@ fn handleException(ctx: *c.JSContext) !noreturn {
 // - execute the module source,
 // - Read a string property from the global object,
 // - Write the value of the property to the writer
-fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype) !void {
-    _ = allocator;
+fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype, style_buf: *std.StringHashMap([]const u8)) !void {
     const rt = c.JS_NewRuntime();
     defer c.JS_FreeRuntime(rt);
 
@@ -580,16 +595,30 @@ fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype)
     const global_object = c.JS_GetGlobalObject(ctx);
     defer c.JS_FreeValue(ctx, global_object);
 
-    const foo = c.JS_GetPropertyStr(ctx, global_object, "foo");
-    defer c.JS_FreeValue(ctx, foo);
-
-    switch (foo.tag) {
+    const html = c.JS_GetPropertyStr(ctx, global_object, "html");
+    defer c.JS_FreeValue(ctx, html);
+    switch (html.tag) {
         c.JS_TAG_EXCEPTION => try handleException(ctx),
-        c.JS_TAG_STRING => {},
         else => return error.Huh,
+        c.JS_TAG_STRING => {
+            const str = c.JS_ToCString(ctx, html);
+            defer c.JS_FreeCString(ctx, str);
+            try writer.print("{s}", .{str});
+        },
     }
 
-    const str = c.JS_ToCString(ctx, foo);
-    defer c.JS_FreeCString(ctx, str);
-    try writer.print("{s}", .{str});
+    const style = c.JS_GetPropertyStr(ctx, global_object, "style");
+    defer c.JS_FreeValue(ctx, style);
+    switch (style.tag) {
+        c.JS_TAG_EXCEPTION => try handleException(ctx),
+        c.JS_TAG_STRING => {
+            const result = try style_buf.getOrPut(src);
+            if (!result.found_existing) {
+                const str = c.JS_ToCString(ctx, style);
+                defer c.JS_FreeCString(ctx, str);
+                result.value_ptr.* = try allocator.dupe(u8, mem.span(str));
+            }
+        },
+        else => {},
+    }
 }

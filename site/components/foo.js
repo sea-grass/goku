@@ -24,5 +24,4 @@ function render() {
 }
 
 
-globalThis.foo = render();
-globalThis.render = render;
+globalThis.html = render();
