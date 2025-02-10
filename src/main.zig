@@ -35,6 +35,7 @@ const standard_help =
     \\    goku -h
     \\    goku init [<site_root>]
     \\    goku build <site_root> -o <out_dir> [-p <url_prefix>]
+    \\    goku preview <site_root> -o <out_dir> [-p <url_prefix>]
     \\
 ;
 
