@@ -87,6 +87,7 @@ const CModule = struct {
         \\#include <md4c-html.h>
         \\#include <mustach.h>
         \\#include <quickjs.h>
+        \\#include <quickjs-libc.h>
         \\#include <yaml.h>
     ;
 
@@ -163,6 +164,8 @@ pub fn build(b: *std.Build) void {
     const sqlite = b.dependency("sqlite", .{ .target = target, .optimize = optimize });
     const lucide = b.dependency("lucide", .{ .icons = bundled_lucide_icons });
     const bulma = b.dependency("bulma", .{});
+    const htm = b.dependency("htm", .{});
+    const vhtml = b.dependency("vhtml", .{});
     const htmx = b.dependency("htmx", .{});
     const zap = b.dependency("zap", .{ .target = target, .optimize = optimize });
 
@@ -189,6 +192,8 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("bulma", bulma.module("bulma"));
     exe.root_module.addImport("htmx", htmx.module("htmx"));
     exe.root_module.addImport("httpz", httpz.module("httpz"));
+    exe.root_module.addImport("htm", htm.module("htm"));
+    exe.root_module.addImport("vhtml", vhtml.module("vhtml"));
     exe.linkLibrary(sqlite.artifact("sqlite"));
     if (tracy_enable) {
         exe.linkLibrary(tracy.artifact("tracy"));

@@ -12,6 +12,7 @@
         },
         .@"custom-test-runner" = .{ .path = "./modules/custom-test-runner" },
         .bulma = .{ .path = "./modules/bulma" },
+        .htm = .{ .path = "./modules/htm" },
         .htmx = .{ .path = "./modules/htmx" },
         .lucide = .{ .path = "./modules/lucide" },
         .md4c = .{ .path = "./modules/md4c" },
@@ -26,6 +27,7 @@
             .url = "git+https://github.com/sea-grass/zig-tracy?ref=zig-0.14.0-dev.2628+5b5c60f43#fb29d4997bb8dada9f02296278c78dcfc296ff0e",
             .hash = "122090abd8d145508ff7f47a3269562939fe6105029c6a12237c54393eefc0f7359d",
         },
+        .vhtml = .{ .path = "./modules/vhtml" },
         .yaml = .{ .path = "./modules/yaml" },
         .zap = .{
             .url = "git+https://github.com/zigzap/zap#29b923f96ee09d855b603866d2e149d506f72679",

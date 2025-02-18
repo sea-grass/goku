@@ -20,12 +20,37 @@ const tracy = @import("tracy");
 const Database = @import("Database.zig");
 const Site = @import("Site.zig");
 
-pub const std_options: std.Options = .{
-    .log_level = switch (@import("builtin").mode) {
-        .Debug => .debug,
-        else => .info,
-    },
-};
+pub fn main(unlimited_allocator: mem.Allocator) !void {
+    var iter = try process.ArgIterator.initWithAllocator(unlimited_allocator);
+    defer iter.deinit();
+
+    // skip exe name
+    _ = iter.next();
+
+    const command = SubCommand.parse(unlimited_allocator, &iter) catch |err| switch (err) {
+        error.MissingCommand => {
+            SubCommand.printHelp();
+            process.exit(1);
+        },
+        else => return err,
+    };
+
+    switch (command) {
+        .build => {
+            try BuildCommand.main(unlimited_allocator, &iter);
+        },
+        .help => {
+            SubCommand.printHelp();
+            process.exit(0);
+        },
+        .init => {
+            try initMain(unlimited_allocator, &iter);
+        },
+        .preview => {
+            try PreviewCommand.main(unlimited_allocator, &iter);
+        },
+    }
+}
 
 const size_of_alice_txt = 1189000;
 
@@ -93,38 +118,6 @@ const SubCommand = enum {
         clap.help(stderr, clap.Help, &main_params, .{}) catch {};
     }
 };
-
-pub fn main(unlimited_allocator: mem.Allocator) !void {
-    var iter = try process.ArgIterator.initWithAllocator(unlimited_allocator);
-    defer iter.deinit();
-
-    // skip exe name
-    _ = iter.next();
-
-    const command = SubCommand.parse(unlimited_allocator, &iter) catch |err| switch (err) {
-        error.MissingCommand => {
-            SubCommand.printHelp();
-            process.exit(1);
-        },
-        else => return err,
-    };
-
-    switch (command) {
-        .build => {
-            try BuildCommand.main(unlimited_allocator, &iter);
-        },
-        .help => {
-            SubCommand.printHelp();
-            process.exit(0);
-        },
-        .init => {
-            try initMain(unlimited_allocator, &iter);
-        },
-        .preview => {
-            try PreviewCommand.main(unlimited_allocator, &iter);
-        },
-    }
-}
 
 const PreviewCommand = struct {
     site_root: []const u8,

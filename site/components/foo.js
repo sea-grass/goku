@@ -1,4 +1,13 @@
-const bulmaReferenceSection = () => `
+import htm from 'htm';
+const t = htm.bind(globalThis.vhtml);
+
+export const style = "a { font-size: 3rem; color: #eabdec; }";
+export function render() {
+  return t`<${BulmaReferenceSection} />`;
+}
+
+function BulmaReferenceSection() {
+  return t`
 <section class="section">
   <div class="container">
     <h1 class="title">Bulma Reference</h1>
@@ -12,16 +21,5 @@ const bulmaReferenceSection = () => `
 <a href="/bulma-reference" class="button">See more</a>
   </div>
 </section>
-
-`;
-
-function render() {
-  return `
-  <a href="/">Home</a>
-  <b>This is a rendered component.</b>
-  ${bulmaReferenceSection()}
   `;
 }
-
-
-globalThis.html = render();

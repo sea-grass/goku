@@ -6,6 +6,8 @@ const js = @import("js.zig");
 const heap = std.heap;
 const io = std.io;
 const log = std.log.scoped(.mustache);
+const htm = @import("htm");
+const vhtml = @import("vhtml");
 const lucide = @import("lucide");
 const math = std.math;
 const mem = std.mem;
@@ -243,6 +245,12 @@ fn GetHandleType(comptime UserContext: type) type {
     };
 }
 
+const UserError = enum(u8) {
+    GetFailedForKey = 1,
+    EmitFailed = 2,
+    _,
+};
+
 fn MustacheWriterType(comptime UserContext: type) type {
     return struct {
         arena: mem.Allocator,
@@ -269,12 +277,6 @@ fn MustacheWriterType(comptime UserContext: type) type {
 
         const MustacheWriter = @This();
         const GetHandle = GetHandleType(UserContext);
-
-        const UserError = enum(u8) {
-            GetFailedForKey = 1,
-            EmitFailed = 2,
-            _,
-        };
 
         pub const Error = error{ UnexpectedBehaviour, CouldNotRenderTemplate };
 
@@ -458,7 +460,7 @@ fn MustacheWriterType(comptime UserContext: type) type {
                 const script = try script_buf.toOwnedSliceSentinel(0);
                 defer ctx.arena.free(script);
 
-                log.info(
+                log.debug(
                     "render component ({s}) at src {s}: {s}",
                     .{ component_src, row.filepath, script },
                 );
@@ -466,7 +468,10 @@ fn MustacheWriterType(comptime UserContext: type) type {
                 var buf = std.ArrayList(u8).init(ctx.arena);
                 errdefer buf.deinit();
 
-                try renderComponent(ctx.arena, script, buf.writer(), &ctx.style_buf);
+                renderComponent(ctx.arena, script, buf.writer(), &ctx.style_buf) catch |err| {
+                    log.err("Failed to render component: {any}", .{err});
+                    return err;
+                };
 
                 return try buf.toOwnedSlice();
             }
@@ -536,8 +541,14 @@ fn mustachMem(template: []const u8, closure: ?*anyopaque, vtable: *const c.musta
             log.debug("Uh oh! Error {any}\n", .{err});
             return error.CouldNotRenderTemplate;
         },
+        c.MUSTACH_ERROR_USER(@intFromEnum(UserError.GetFailedForKey)) => {
+            return error.CouldNotRenderTemplate;
+        },
         // We've handled all other known mustach return codes
-        else => unreachable,
+        else => {
+            log.debug("{d}", .{return_val});
+            unreachable;
+        },
     }
 }
 
@@ -552,14 +563,16 @@ fn getLucideIcon(key: []const u8) !?[]const u8 {
 fn handleException(ctx: *c.JSContext) !noreturn {
     const exception = c.JS_GetException(ctx);
     defer c.JS_FreeValue(ctx, exception);
-    const prop_atom = c.JS_NewAtom(ctx, "stack");
-    const stack = c.JS_GetProperty(ctx, exception, prop_atom);
-    defer c.JS_FreeValue(ctx, stack);
+
     const str = c.JS_ToCString(ctx, exception);
     defer c.JS_FreeCString(ctx, str);
+    const error_message = mem.span(str);
+
+    const stack = c.JS_GetPropertyStr(ctx, exception, "stack");
+    defer c.JS_FreeValue(ctx, stack);
+
     const stack_str = c.JS_ToCString(ctx, stack);
     defer c.JS_FreeCString(ctx, stack_str);
-    const error_message = mem.span(str);
     const stack_message = mem.span(stack_str);
 
     log.err("JS Exception: {s} {s}", .{ error_message, stack_message });
@@ -567,58 +580,105 @@ fn handleException(ctx: *c.JSContext) !noreturn {
     return error.JSException;
 }
 
-// renderComponent MUST write to the writer.
-//
-// Will:
-// - initialize a quickjs runtime and context,
-// - execute the module source,
-// - Read a string property from the global object,
-// - Write the value of the property to the writer
+/// renderComponent will spin up a one-off QuickJS runtime and register some modules in a brand new context:
+/// - htm
+/// - vhtml
+/// Then, it will load and execute the component source as a module, expecting it to export the following:
+/// - render(): string
+/// - style?: string
+/// The render function will be called to produce the component html.
+/// The style string, if present, will be stored in a hash map, keyed by the component source.
+///
+/// NOTE: renderComponent MUST write to the writer.
 fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype, style_buf: *std.StringHashMap([]const u8)) !void {
-    const rt = c.JS_NewRuntime();
+    const rt = c.JS_NewRuntime() orelse return error.CannotAllocateJSRuntime;
     defer c.JS_FreeRuntime(rt);
+    c.JS_SetMemoryLimit(rt, 0x100000);
+    c.JS_SetMaxStackSize(rt, 0x100000);
 
     const ctx = c.JS_NewContext(rt) orelse return error.CannotAllocateJSContext;
     defer c.JS_FreeContext(ctx);
 
-    const module = c.JS_Eval(ctx, src, src.len, "<main>", c.JS_EVAL_TYPE_MODULE);
-    defer c.JS_FreeValue(ctx, module);
+    // TODO register htm.js as a module so the script can do
+    // import htm from 'htm';
+    // function h(type, props, ...children) { return { type, props, children }; }
+    // const t = htm.bind(h);
+    //
+    // const html = t`<h1>Hello world</h1>`;
 
-    const val = c.JS_Eval(ctx, src, src.len, "<main>", c.JS_EVAL_TYPE_MODULE);
-    defer c.JS_FreeValue(ctx, val);
-    switch (val.tag) {
+    // m = js_new_module_def(ctx, module_name_atom);
+    // The module source is treated as the contents of an async function body, but return is not allowed.
+
+    const htm_mod = c.JS_Eval(ctx, htm.mjs, htm.mjs.len, "htm", c.JS_EVAL_TYPE_MODULE);
+    defer c.JS_FreeValue(ctx, htm_mod);
+    switch (htm_mod.tag) {
         c.JS_TAG_EXCEPTION => try handleException(ctx),
-        c.JS_TAG_OBJECT => log.info("obj", .{}),
-        else => return error.Huh,
+        else => {},
+    }
+
+    const vhtml_mod = c.JS_Eval(ctx, vhtml.js, vhtml.js.len, "vhtml", c.JS_EVAL_TYPE_GLOBAL);
+    defer c.JS_FreeValue(ctx, vhtml_mod);
+    switch (vhtml_mod.tag) {
+        c.JS_TAG_EXCEPTION => try handleException(ctx),
+        else => {},
+    }
+
+    const user_component_mod = c.JS_Eval(ctx, src, src.len, "component", c.JS_EVAL_TYPE_MODULE);
+    defer c.JS_FreeValue(ctx, user_component_mod);
+    switch (user_component_mod.tag) {
+        c.JS_TAG_EXCEPTION => try handleException(ctx),
+        else => {},
+    }
+
+    const t =
+        \\import { render, style } from 'component';
+        \\try {
+        \\globalThis.html = render();
+        \\} catch (e) {
+        \\globalThis.html = e.message || 'Failed to render the component.';
+        \\}
+        \\globalThis.style = style;
+    ;
+    const eval_result = c.JS_Eval(ctx, t, t.len, "<input>", c.JS_EVAL_TYPE_MODULE);
+    defer c.JS_FreeValue(ctx, eval_result);
+    switch (eval_result.tag) {
+        c.JS_TAG_EXCEPTION => try handleException(ctx),
+        else => {},
     }
 
     const global_object = c.JS_GetGlobalObject(ctx);
     defer c.JS_FreeValue(ctx, global_object);
 
-    const html = c.JS_GetPropertyStr(ctx, global_object, "html");
-    defer c.JS_FreeValue(ctx, html);
-    switch (html.tag) {
-        c.JS_TAG_EXCEPTION => try handleException(ctx),
-        else => return error.Huh,
-        c.JS_TAG_STRING => {
-            const str = c.JS_ToCString(ctx, html);
-            defer c.JS_FreeCString(ctx, str);
-            try writer.print("{s}", .{str});
-        },
+    {
+        const html = c.JS_GetPropertyStr(ctx, global_object, "html");
+        defer c.JS_FreeValue(ctx, html);
+
+        switch (html.tag) {
+            c.JS_TAG_EXCEPTION => try handleException(ctx),
+            else => return error.Huh,
+            c.JS_TAG_STRING => {
+                const str = c.JS_ToCString(ctx, html);
+                defer c.JS_FreeCString(ctx, str);
+
+                try writer.print("{s}", .{str});
+            },
+        }
     }
 
-    const style = c.JS_GetPropertyStr(ctx, global_object, "style");
-    defer c.JS_FreeValue(ctx, style);
-    switch (style.tag) {
-        c.JS_TAG_EXCEPTION => try handleException(ctx),
-        c.JS_TAG_STRING => {
-            const result = try style_buf.getOrPut(src);
-            if (!result.found_existing) {
-                const str = c.JS_ToCString(ctx, style);
-                defer c.JS_FreeCString(ctx, str);
-                result.value_ptr.* = try allocator.dupe(u8, mem.span(str));
-            }
-        },
-        else => {},
+    {
+        const style = c.JS_GetPropertyStr(ctx, global_object, "style");
+        defer c.JS_FreeValue(ctx, style);
+        switch (style.tag) {
+            c.JS_TAG_EXCEPTION => try handleException(ctx),
+            c.JS_TAG_STRING => {
+                const result = try style_buf.getOrPut(src);
+                if (!result.found_existing) {
+                    const str = c.JS_ToCString(ctx, style);
+                    defer c.JS_FreeCString(ctx, str);
+                    result.value_ptr.* = try allocator.dupe(u8, mem.span(str));
+                }
+            },
+            else => {},
+        }
     }
 }

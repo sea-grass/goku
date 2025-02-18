@@ -41,6 +41,7 @@ const source_files = &.{
     "libregexp.c",
     "libunicode.c",
     "quickjs.c",
+    "quickjs-libc.c",
 };
 
 const compile_flags = &.{
