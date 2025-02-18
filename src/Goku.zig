@@ -1,5 +1,4 @@
 //! The public, build-time API for goku.
-
 const std = @import("std");
 
 pub fn build(

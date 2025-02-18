@@ -25,52 +25,20 @@ const BuildSteps = struct {
 
     pub fn init(b: *std.Build) BuildSteps {
         return .{
-            .check = b.step(
-                "check",
-                "Check the Zig code",
-            ),
-            .coverage = b.step(
-                "coverage",
-                "Analyze code coverage",
-            ),
-            .docs = b.step(
-                "docs",
-                "Generate source code docs",
-            ),
-            .generate_benchmark_site = b.step(
-                "generate-benchmark",
-                "Generate a site dir used to benchmark goku",
-            ),
-            .preview = b.step(
-                "preview",
-                "Preview the site locally in dev mode",
-            ),
-            .run = b.step(
-                "run",
-                "Run the app",
-            ),
-            .run_benchmark = b.step(
-                "run-benchmark",
-                "Run the benchmark",
-            ),
-            .site = b.step(
-                "site",
-                "Build the Goku site",
-            ),
-            .serve = b.step(
-                "serve",
-                "Serve the Goku site (for local previewing)",
-            ),
-            .wasm_module = b.step(
-                "wasm-module",
-                "Build the wasm module",
-            ),
-            .@"test" = b.step(
-                "test",
-                "Run unit tests",
-            ),
+            .check = b.step("check", "Check the Zig code"),
+            .coverage = b.step("coverage", "Analyze code coverage"),
+            .docs = b.step("docs", "Generate source code docs"),
+            .generate_benchmark_site = b.step("generate-benchmark", "Generate a site dir used to benchmark goku"),
+            .preview = b.step("preview", "Preview the site locally in dev mode"),
+            .run = b.step("run", "Run the app"),
+            .run_benchmark = b.step("run-benchmark", "Run the benchmark"),
+            .site = b.step("site", "Build the Goku site"),
+            .serve = b.step("serve", "Serve the Goku site (for local previewing)"),
+            .wasm_module = b.step("wasm-module", "Build the wasm module"),
+            .@"test" = b.step("test", "Run unit tests"),
         };
     }
+
     pub fn deinit(self: @This()) void {
         inline for (@typeInfo(@This()).@"struct".fields) |f| {
             const step = @field(self, f.name);
@@ -114,6 +82,54 @@ pub const Docs = struct {
     }
 };
 
+const CModule = struct {
+    const header_bytes =
+        \\#include <md4c-html.h>
+        \\#include <mustach.h>
+        \\#include <quickjs.h>
+        \\#include <yaml.h>
+    ;
+
+    pub const Options = struct {
+        md4c: *std.Build.Dependency,
+        mustach: *std.Build.Dependency,
+        quickjs: *std.Build.Dependency,
+        yaml: *std.Build.Dependency,
+        target: std.Build.ResolvedTarget,
+        optimize: std.builtin.OptimizeMode,
+    };
+
+    pub fn build(b: *std.Build, opts: Options) *std.Build.Module {
+        const c = translateC(b, opts);
+        const mod = createModule(c, opts);
+        return mod;
+    }
+
+    fn translateC(b: *std.Build, opts: Options) *std.Build.Step.TranslateC {
+        const header_file = b.addWriteFiles().add("c.h", header_bytes);
+        const c = b.addTranslateC(.{
+            .root_source_file = header_file,
+            .target = opts.target,
+            .optimize = opts.optimize,
+            .link_libc = true,
+        });
+        c.addIncludePath(opts.md4c.artifact("md4c").getEmittedIncludeTree());
+        c.addIncludePath(opts.mustach.artifact("mustach").getEmittedIncludeTree());
+        c.addIncludePath(opts.quickjs.artifact("quickjs").getEmittedIncludeTree());
+        c.addIncludePath(opts.yaml.artifact("yaml").getEmittedIncludeTree());
+        return c;
+    }
+
+    fn createModule(c: *std.Build.Step.TranslateC, opts: Options) *std.Build.Module {
+        const mod = c.createModule();
+        mod.linkLibrary(opts.md4c.artifact("md4c"));
+        mod.linkLibrary(opts.mustach.artifact("mustach"));
+        mod.linkLibrary(opts.quickjs.artifact("quickjs"));
+        mod.linkLibrary(opts.yaml.artifact("yaml"));
+        return mod;
+    }
+};
+
 pub fn build(b: *std.Build) void {
     const build_steps = BuildSteps.init(b);
     defer build_steps.deinit();
@@ -142,23 +158,15 @@ pub fn build(b: *std.Build) void {
         .tracy_no_exit = true,
         .tracy_manual_lifetime = true,
     });
-    const clap = b.dependency("clap", .{
-        .target = target,
-        .optimize = optimize,
-    });
+    const clap = b.dependency("clap", .{ .target = target, .optimize = optimize });
     const httpz = b.dependency("httpz", .{ .target = target, .optimize = optimize });
-    const sqlite = b.dependency("sqlite", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    const lucide = b.dependency("lucide", .{
-        .icons = bundled_lucide_icons,
-    });
+    const sqlite = b.dependency("sqlite", .{ .target = target, .optimize = optimize });
+    const lucide = b.dependency("lucide", .{ .icons = bundled_lucide_icons });
     const bulma = b.dependency("bulma", .{});
     const htmx = b.dependency("htmx", .{});
     const zap = b.dependency("zap", .{ .target = target, .optimize = optimize });
 
-    const c_mod = buildCModule(b, .{
+    const c_mod = CModule.build(b, .{
         .md4c = b.dependency("md4c", .{}),
         .mustach = b.dependency("mustach", .{}),
         .quickjs = b.dependency("quickjs", .{}),
@@ -327,52 +335,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     b.installArtifact(copy_static);
-}
-
-const BuildCModuleOptions = struct {
-    md4c: *std.Build.Dependency,
-    mustach: *std.Build.Dependency,
-    quickjs: *std.Build.Dependency,
-    yaml: *std.Build.Dependency,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-};
-
-pub fn buildCModule(b: *std.Build, opts: BuildCModuleOptions) *std.Build.Module {
-    const md4c = opts.md4c;
-    const mustach = opts.mustach;
-    const quickjs = opts.quickjs;
-    const yaml = opts.yaml;
-    const target = opts.target;
-    const optimize = opts.optimize;
-
-    const c = b.addTranslateC(.{
-        .root_source_file = b.addWriteFiles().add("c.h",
-            \\#include <yaml.h>
-            \\#include <md4c-html.h>
-            \\#include <mustach.h>
-            \\#include <quickjs.h>
-        ),
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-    });
-
-    const mod = c.createModule();
-
-    c.addIncludePath(md4c.artifact("md4c").getEmittedIncludeTree());
-    mod.linkLibrary(md4c.artifact("md4c"));
-
-    c.addIncludePath(mustach.artifact("mustach").getEmittedIncludeTree());
-    mod.linkLibrary(mustach.artifact("mustach"));
-
-    c.addIncludePath(quickjs.artifact("quickjs").getEmittedIncludeTree());
-    mod.linkLibrary(quickjs.artifact("quickjs"));
-
-    c.addIncludePath(yaml.artifact("yaml").getEmittedIncludeTree());
-    mod.linkLibrary(yaml.artifact("yaml"));
-
-    return mod;
 }
 
 pub fn buildBenchmarkSite(b: *std.Build) std.Build.LazyPath {
