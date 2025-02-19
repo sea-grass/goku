@@ -351,21 +351,20 @@ fn MustacheWriterType(comptime UserContext: type) type {
         fn get(ptr: ?*anyopaque, buf: [*c]const u8, sbuf: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
             const key = mem.sliceTo(buf, 0);
 
-            if (getInner(
-                fromPtr(ptr),
-                key,
-            ) catch null) |value| {
-                sbuf.* = .{
-                    .value = @ptrCast(value),
-                    .length = value.len,
-                    .closure = null,
-                };
+            const value = getInner(fromPtr(ptr), key) catch |err| {
+                log.err("getInner {any}", .{err});
+                return c.MUSTACH_ERROR_USER(@intFromEnum(UserError.GetFailedForKey));
+            } orelse {
+                log.err("get failed for key ({s})", .{key});
+                return c.MUSTACH_ERROR_USER(@intFromEnum(UserError.GetFailedForKey));
+            };
 
-                return 0;
-            }
-
-            log.err("get failed for key ({s})", .{key});
-            return c.MUSTACH_ERROR_USER(@intFromEnum(UserError.GetFailedForKey));
+            sbuf.* = .{
+                .value = @ptrCast(value),
+                .length = value.len,
+                .closure = null,
+            };
+            return 0;
         }
 
         fn getInner(ctx: *MustacheWriter, key: []const u8) !?[]const u8 {
@@ -461,17 +460,27 @@ fn MustacheWriterType(comptime UserContext: type) type {
                 defer ctx.arena.free(script);
 
                 log.debug(
-                    "render component ({s}) at src {s}: {s}",
-                    .{ component_src, row.filepath, script },
+                    "render component ({s}) at src {s}",
+                    .{ component_src, row.filepath },
                 );
 
                 var buf = std.ArrayList(u8).init(ctx.arena);
                 errdefer buf.deinit();
 
-                renderComponent(ctx.arena, script, buf.writer(), &ctx.style_buf) catch |err| {
-                    log.err("Failed to render component: {any}", .{err});
+                renderComponent(
+                    ctx.arena,
+                    script,
+                    buf.writer(),
+                    &ctx.style_buf,
+                ) catch |err| {
+                    log.err("Failure while rendering component: {any}", .{err});
                     return err;
                 };
+
+                if (buf.items.len == 0) {
+                    log.err("Component ({s}) did not render.", .{component_src});
+                    return error.ComponentMustRender;
+                }
 
                 return try buf.toOwnedSlice();
             }
