@@ -5,6 +5,30 @@ const math = std.math;
 const mem = std.mem;
 const std = @import("std");
 
+const MdBlockType = enum(c.MD_BLOCKTYPE) {
+    doc = 0,
+    quote = 1,
+    ul = 2,
+    ol = 3,
+    li = 4,
+    hr = 5,
+    h = 6,
+    code = 7,
+    html = 8,
+    p = 9,
+    table = 10,
+    thead = 11,
+    tbody = 12,
+    tr = 13,
+    th = 14,
+    td = 15,
+    _,
+
+    pub fn from(t: c.MD_BLOCKTYPE) MdBlockType {
+        return @enumFromInt(t);
+    }
+};
+
 pub const RenderStreamConfig = struct {
     /// If url_prefix is not null, it will be prepended
     /// to the href attribute of all emitted A spans.
@@ -116,27 +140,30 @@ fn ParserType(comptime Writer: type) type {
         }
 
         fn enter_block(@"type": c.MD_BLOCKTYPE, detail_ptr: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
+            const md_block_type = MdBlockType.from(@"type");
             const self = fromPtr(userdata);
             const writer = self.writer;
 
-            switch (@"type") {
-                c.MD_BLOCK_DOC => {},
-                c.MD_BLOCK_QUOTE => writer.writeAll("<blockquote>\n") catch return -1,
-                c.MD_BLOCK_UL => writer.writeAll("<ul>\n") catch return -1,
-                c.MD_BLOCK_OL => {
+            log.debug("Enter block {s}", .{@tagName(md_block_type)});
+
+            switch (md_block_type) {
+                .doc => {},
+                .quote => writer.writeAll("<blockquote>\n") catch return -1,
+                .ul => writer.writeAll("<ul>\n") catch return -1,
+                .ol => {
                     const detail: *c.MD_BLOCK_OL_DETAIL = @ptrCast(@alignCast(detail_ptr));
                     _ = detail;
                     writer.writeAll("<ol>\n") catch return -1;
                 },
-                c.MD_BLOCK_LI => {
+                .li => {
                     const detail: *c.MD_BLOCK_LI_DETAIL = @ptrCast(@alignCast(detail_ptr));
                     _ = detail;
                     writer.writeAll("<li>\n") catch return -1;
                 },
-                c.MD_BLOCK_HR => {
+                .hr => {
                     writer.writeAll("<hr>\n") catch return -1;
                 },
-                c.MD_BLOCK_H => {
+                .h => {
                     const detail: *c.MD_BLOCK_H_DETAIL = @ptrCast(@alignCast(detail_ptr));
 
                     // The template is expected to print the page title.
@@ -144,23 +171,23 @@ fn ParserType(comptime Writer: type) type {
 
                     writer.print("<h{d}>\n", .{detail.level}) catch return -1;
                 },
-                c.MD_BLOCK_CODE => {
+                .code => {
                     const detail: *c.MD_BLOCK_CODE_DETAIL = @ptrCast(@alignCast(detail_ptr));
                     _ = detail;
                     writer.print("<pre><code>", .{}) catch return -1;
                 },
-                c.MD_BLOCK_HTML => {},
-                c.MD_BLOCK_P => writer.writeAll("<p>\n") catch return -1,
-                c.MD_BLOCK_TABLE => writer.writeAll("<table>\n") catch return -1,
-                c.MD_BLOCK_THEAD => writer.writeAll("<thead>\n") catch return -1,
-                c.MD_BLOCK_TBODY => writer.writeAll("<tbody>\n") catch return -1,
-                c.MD_BLOCK_TR => writer.writeAll("<tr>\n") catch return -1,
-                c.MD_BLOCK_TH => {
+                .html => {},
+                .p => writer.writeAll("<p>\n") catch return -1,
+                .table => writer.writeAll("<table>\n") catch return -1,
+                .thead => writer.writeAll("<thead>\n") catch return -1,
+                .tbody => writer.writeAll("<tbody>\n") catch return -1,
+                .tr => writer.writeAll("<tr>\n") catch return -1,
+                .th => {
                     const detail: *c.MD_BLOCK_TD_DETAIL = @ptrCast(@alignCast(detail_ptr));
                     _ = detail;
                     writer.print("<th>\n", .{}) catch return -1;
                 },
-                c.MD_BLOCK_TD => {
+                .td => {
                     const detail: *c.MD_BLOCK_TD_DETAIL = @ptrCast(@alignCast(detail_ptr));
                     _ = detail;
                     writer.print("<td>\n", .{}) catch return -1;
@@ -172,45 +199,48 @@ fn ParserType(comptime Writer: type) type {
         }
 
         fn leave_block(@"type": c.MD_BLOCKTYPE, detail_ptr: ?*anyopaque, userdata: ?*anyopaque) callconv(.C) c_int {
+            const md_block_type = MdBlockType.from(@"type");
             const self = fromPtr(userdata);
             const writer = self.writer;
 
-            switch (@"type") {
-                c.MD_BLOCK_DOC => {},
-                c.MD_BLOCK_QUOTE => writer.writeAll("</blockquote>\n") catch return -1,
-                c.MD_BLOCK_UL => writer.writeAll("</ul>\n") catch return -1,
-                c.MD_BLOCK_OL => {
+            log.debug("Leave block {s}", .{@tagName(md_block_type)});
+
+            switch (md_block_type) {
+                .doc => {},
+                .quote => writer.writeAll("</blockquote>\n") catch return -1,
+                .ul => writer.writeAll("</ul>\n") catch return -1,
+                .ol => {
                     const detail: *c.MD_BLOCK_OL_DETAIL = @ptrCast(@alignCast(detail_ptr));
                     _ = detail;
                     writer.writeAll("</ol>") catch return -1;
                 },
-                c.MD_BLOCK_LI => {
+                .li => {
                     const detail: *c.MD_BLOCK_LI_DETAIL = @ptrCast(@alignCast(detail_ptr));
                     _ = detail;
                     writer.writeAll("</li>") catch return -1;
                 },
-                c.MD_BLOCK_HR => {},
-                c.MD_BLOCK_H => {
+                .hr => {},
+                .h => {
                     const detail: *c.MD_BLOCK_H_DETAIL = @ptrCast(@alignCast(detail_ptr));
                     writer.print("</h{d}>\n", .{detail.level}) catch return -1;
                 },
-                c.MD_BLOCK_CODE => {
+                .code => {
                     const detail: *c.MD_BLOCK_CODE_DETAIL = @ptrCast(@alignCast(detail_ptr));
                     _ = detail;
                     writer.print("</code></pre>", .{}) catch return -1;
                 },
-                c.MD_BLOCK_HTML => {},
-                c.MD_BLOCK_P => writer.writeAll("</p>") catch return -1,
-                c.MD_BLOCK_TABLE => writer.writeAll("</table>") catch return -1,
-                c.MD_BLOCK_THEAD => writer.writeAll("</thead>") catch return -1,
-                c.MD_BLOCK_TBODY => writer.writeAll("</tbody>") catch return -1,
-                c.MD_BLOCK_TR => writer.writeAll("</tr>") catch return -1,
-                c.MD_BLOCK_TH => {
+                .html => {},
+                .p => writer.writeAll("</p>") catch return -1,
+                .table => writer.writeAll("</table>") catch return -1,
+                .thead => writer.writeAll("</thead>") catch return -1,
+                .tbody => writer.writeAll("</tbody>") catch return -1,
+                .tr => writer.writeAll("</tr>") catch return -1,
+                .th => {
                     const detail: *c.MD_BLOCK_TD_DETAIL = @ptrCast(@alignCast(detail_ptr));
                     _ = detail;
                     writer.print("</th>", .{}) catch return -1;
                 },
-                c.MD_BLOCK_TD => {
+                .td => {
                     const detail: *c.MD_BLOCK_TD_DETAIL = @ptrCast(@alignCast(detail_ptr));
                     _ = detail;
                     writer.print("</td>", .{}) catch return -1;
