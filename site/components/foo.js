@@ -1,7 +1,7 @@
 import htm from 'htm';
 const t = htm.bind(globalThis.vhtml);
 
-export const style = "a { font-size: 3rem; color: #eabdec; }";
+export const style = "";
 export function render() {
   return t`<${BulmaReferenceSection} />`;
 }

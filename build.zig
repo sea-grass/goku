@@ -222,6 +222,8 @@ pub fn build(b: *std.Build) void {
     exe_unit_tests.root_module.addImport("clap", clap.module("clap"));
     exe_unit_tests.root_module.addImport("htmx", htmx.module("htmx"));
     exe_unit_tests.root_module.addImport("lucide", lucide.module("lucide"));
+    exe_unit_tests.root_module.addImport("htm", htm.module("htm"));
+    exe_unit_tests.root_module.addImport("vhtml", vhtml.module("vhtml"));
     exe_unit_tests.root_module.addImport("sqlite", sqlite.module("sqlite"));
     exe_unit_tests.root_module.addImport("tracy", tracy.module("tracy"));
     exe_unit_tests.root_module.addImport("zap", zap.module("zap"));
