@@ -442,7 +442,10 @@ const PreviewCommand = struct {
             break :wants .wants_content;
         };
 
-        context.site.dispatch(req.url.path, res.writer(), .{ .wants = config }) catch |err| {
+        var styles_buf = std.ArrayList(u8).init(req.arena);
+        defer styles_buf.deinit();
+
+        context.site.dispatch(req.url.path, res.writer(), styles_buf.writer(), .{ .wants = config }) catch |err| {
             switch (err) {
                 else => {
                     res.status = 500;
@@ -481,6 +484,16 @@ const PreviewCommand = struct {
                 },
             }
         };
+
+        if (styles_buf.items.len > 0) {
+            var dir = try fs.openDirAbsolute(context.out_dir, .{});
+            defer dir.close();
+
+            const component_css_file = try dir.createFile("component.css", .{});
+            defer component_css_file.close();
+
+            try component_css_file.writeAll(styles_buf.items);
+        }
     }
 
     fn handlePost(context: *const Context, req: *httpz.Request, res: *httpz.Response) !void {

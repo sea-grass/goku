@@ -15,7 +15,7 @@ const std = @import("std");
 const storage = @import("storage.zig");
 const testing = std.testing;
 
-pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: anytype, writer: anytype) !void {
+pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: anytype, writer: anytype, styles_writer: anytype) !void {
     var arena = heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
@@ -23,6 +23,7 @@ pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: any
         arena.allocator(),
         context,
         writer.any(),
+        styles_writer.any(),
     );
 
     try mustache_writer.write(template);
@@ -31,6 +32,9 @@ pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: any
 test renderStream {
     var buf = std.ArrayList(u8).init(testing.allocator);
     defer buf.deinit();
+
+    var styles_buf = std.ArrayList(u8).init(testing.allocator);
+    defer styles_buf.deinit();
 
     const template = "{{title}}";
 
@@ -51,6 +55,7 @@ test renderStream {
             },
         },
         buf.writer(),
+        styles_buf.writer(),
     );
 
     try testing.expectEqualStrings("foo", buf.items);
@@ -256,9 +261,11 @@ fn MustacheWriterType(comptime UserContext: type) type {
         arena: mem.Allocator,
         context: GetHandle,
         writer: io.AnyWriter,
+        /// The writer to which all component styles get written.
+        styles_writer: io.AnyWriter,
         /// When rendering components, a component may provide a CSS string
         /// that should be included on the page. We keep a hash map of
-        /// component name to CSS string and then write them all to the page
+        /// component name to CSS string and then write them all
         /// once we process all of the content.
         style_buf: std.StringHashMap([]const u8),
 
@@ -266,11 +273,13 @@ fn MustacheWriterType(comptime UserContext: type) type {
             arena: mem.Allocator,
             user_context: UserContext,
             writer: io.AnyWriter,
+            styles_writer: io.AnyWriter,
         ) MustacheWriter {
             return .{
                 .arena = arena,
                 .context = .{ .user_context = user_context },
                 .writer = writer,
+                .styles_writer = styles_writer,
                 .style_buf = std.StringHashMap([]const u8).init(arena),
             };
         }
@@ -279,15 +288,6 @@ fn MustacheWriterType(comptime UserContext: type) type {
         const GetHandle = GetHandleType(UserContext);
 
         pub const Error = error{ UnexpectedBehaviour, CouldNotRenderTemplate };
-
-        const vtable: c.mustach_itf = .{
-            .emit = emit,
-            .get = get,
-            .enter = enter,
-            .next = next,
-            .leave = leave,
-            .partial = partial,
-        };
 
         pub fn write(ctx: *MustacheWriter, template: []const u8) Error!void {
             mustachMem(
@@ -303,22 +303,29 @@ fn MustacheWriterType(comptime UserContext: type) type {
             };
 
             if (ctx.style_buf.count() > 0) {
-                ctx.writer.print("{s}", .{"<style>"}) catch {};
                 var it = ctx.style_buf.valueIterator();
                 while (it.next()) |value_ptr| {
                     const chunk = value_ptr.*;
-                    ctx.writer.print("{s}", .{chunk}) catch {};
+                    ctx.styles_writer.print("{s}", .{chunk}) catch {};
                 }
-                ctx.writer.print("{s}", .{"</style>"}) catch {};
             }
         }
+
+        const vtable: c.mustach_itf = .{
+            .emit = emit,
+            .get = get,
+            .enter = enter,
+            .next = next,
+            .leave = leave,
+            .partial = partial,
+        };
 
         fn emit(ptr: ?*anyopaque, buf: [*c]const u8, len: usize, escaping: c_int, _: ?*c.FILE) callconv(.C) c_int {
             debug.assert(ptr != null);
             // Trying to emit a value we could not get?
             debug.assert(buf != null);
 
-            emitInner(
+            Inner.emit(
                 @ptrCast(@alignCast(ptr)),
                 buf[0..len],
                 if (escaping == 1) .escape else .raw,
@@ -330,28 +337,11 @@ fn MustacheWriterType(comptime UserContext: type) type {
             return 0;
         }
 
-        /// Will write the contents of `buf` to an internal buffer.
-        /// `emit_mode` determines whether the buf is written as-is or escaped.
-        fn emitInner(self: *MustacheWriter, buf: []const u8, emit_mode: enum { raw, escape }) !void {
-            switch (emit_mode) {
-                .raw => try self.writer.writeAll(buf),
-                .escape => {
-                    for (buf) |char| {
-                        switch (char) {
-                            '<' => try self.writer.writeAll("&lt;"),
-                            '>' => try self.writer.writeAll("&gt;"),
-                            else => try self.writer.writeByte(char),
-                        }
-                    }
-                },
-            }
-        }
-
         // Calls the internal get implementation
         fn get(ptr: ?*anyopaque, buf: [*c]const u8, sbuf: [*c]c.struct_mustach_sbuf) callconv(.C) c_int {
             const key = mem.sliceTo(buf, 0);
 
-            const value = getInner(fromPtr(ptr), key) catch |err| {
+            const value = Inner.get(fromPtr(ptr), key) catch |err| {
                 log.err("getInner {any}", .{err});
                 return c.MUSTACH_ERROR_USER(@intFromEnum(UserError.GetFailedForKey));
             } orelse {
@@ -365,127 +355,6 @@ fn MustacheWriterType(comptime UserContext: type) type {
                 .closure = null,
             };
             return 0;
-        }
-
-        fn getInner(ctx: *MustacheWriter, key: []const u8) !?[]const u8 {
-            if (try ctx.context.getKnown(ctx.arena, key)) |value| {
-                return value;
-            }
-
-            if (try ctx.context.getData(ctx.arena, key)) |value| {
-                return value;
-            }
-
-            if (try getLucideIcon(key)) |value| {
-                return value;
-            }
-
-            if (mem.startsWith(u8, key, "collections.") and
-                mem.endsWith(u8, key, ".list"))
-            {
-                const collection = key["collections.".len .. key.len - ".list".len];
-                return try ctx.context.getCollectionsList(ctx.arena, collection);
-            }
-
-            if (mem.startsWith(u8, key, "collections.") and
-                mem.endsWith(u8, key, ".latest"))
-            {
-                const collection = key["collections.".len .. key.len - ".latest".len];
-                return try ctx.context.getCollectionsLatest(ctx.arena, collection);
-            }
-
-            if (mem.eql(u8, key, "meta")) {
-                return try ctx.context.getMeta(ctx.arena);
-            }
-
-            if (mem.eql(u8, key, "theme.head")) {
-                return if (ctx.context.user_context.site_root.len == 0)
-                    try fmt.allocPrint(
-                        ctx.arena,
-                        \\<link rel="stylesheet" type="text/css" href="/bulma.css" />
-                    ,
-                        .{},
-                    )
-                else
-                    try fmt.allocPrint(
-                        ctx.arena,
-                        \\<link rel="stylesheet" type="text/css" href="{[site_root]s}/bulma.css" />
-                    ,
-                        .{ .site_root = ctx.context.user_context.site_root },
-                    );
-            } else if (mem.eql(u8, key, "theme.body")) {
-                // theme.body can be used by themes to inject e.g. scripts.
-                // It's currently empty, but content authors are still recommended
-                // to include it in their templates to allow a more seamless upgrade
-                // once themes do make use of it.
-
-                return try fmt.allocPrint(
-                    ctx.arena,
-                    \\<script src="{[site_root]s}/htmx.js"></script>
-                ,
-                    .{ .site_root = ctx.context.user_context.site_root },
-                );
-            }
-
-            if (mem.startsWith(u8, key, "component ")) {
-                const component_src = src: {
-                    var it = mem.tokenizeScalar(u8, key, ' ');
-
-                    // skip component keyword
-                    _ = it.next();
-
-                    break :src it.rest();
-                };
-
-                var stmt = try ctx.context.user_context.db.db.prepare(
-                    \\SELECT filepath FROM components WHERE name = ? LIMIT 1;
-                    ,
-                );
-                defer stmt.deinit();
-
-                const row = try stmt.oneAlloc(
-                    struct { filepath: []const u8 },
-                    ctx.arena,
-                    .{},
-                    .{ .name = component_src },
-                ) orelse return error.MissingComponent;
-
-                var file = try fs.openFileAbsolute(row.filepath, .{});
-                defer file.close();
-
-                var script_buf = std.ArrayList(u8).init(ctx.arena);
-                defer script_buf.deinit();
-                try file.reader().readAllArrayList(&script_buf, math.maxInt(usize));
-                const script = try script_buf.toOwnedSliceSentinel(0);
-                defer ctx.arena.free(script);
-
-                log.debug(
-                    "render component ({s}) at src {s}",
-                    .{ component_src, row.filepath },
-                );
-
-                var buf = std.ArrayList(u8).init(ctx.arena);
-                errdefer buf.deinit();
-
-                renderComponent(
-                    ctx.arena,
-                    script,
-                    buf.writer(),
-                    &ctx.style_buf,
-                ) catch |err| {
-                    log.err("Failure while rendering component: {any}", .{err});
-                    return err;
-                };
-
-                if (buf.items.len == 0) {
-                    log.err("Component ({s}) did not render.", .{component_src});
-                    return error.ComponentMustRender;
-                }
-
-                return try buf.toOwnedSlice();
-            }
-
-            return null;
         }
 
         fn enter(_: ?*anyopaque, buf: [*c]const u8) callconv(.C) c_int {
@@ -511,6 +380,195 @@ fn MustacheWriterType(comptime UserContext: type) type {
         fn fromPtr(ptr: ?*anyopaque) *MustacheWriter {
             return @ptrCast(@alignCast(ptr));
         }
+
+        const Inner = struct {
+            /// Will write the contents of `buf` to an internal buffer.
+            /// `emit_mode` determines whether the buf is written as-is or escaped.
+            fn emit(self: *MustacheWriter, buf: []const u8, emit_mode: enum { raw, escape }) !void {
+                switch (emit_mode) {
+                    .raw => try self.writer.writeAll(buf),
+                    .escape => {
+                        for (buf) |char| {
+                            switch (char) {
+                                '<' => try self.writer.writeAll("&lt;"),
+                                '>' => try self.writer.writeAll("&gt;"),
+                                else => try self.writer.writeByte(char),
+                            }
+                        }
+                    },
+                }
+            }
+
+            const Getter = union(enum) {
+                simple: *const fn (mem.Allocator, []const u8) anyerror!?[]const u8,
+                ctx: *const fn (*MustacheWriter, []const u8) anyerror!?[]const u8,
+
+                pub fn get(getter: Getter, ctx: *MustacheWriter, key: []const u8) !?[]const u8 {
+                    return switch (getter) {
+                        .simple => |simple_fn| simple_fn(ctx.arena, key),
+                        .ctx => |ctx_fn| ctx_fn(ctx, key),
+                    };
+                }
+            };
+
+            const CollectionGetter = struct {
+                pub fn getList(mw: *MustacheWriter, k: []const u8) !?[]const u8 {
+                    const collection = getBetween("collections.", ".list", k) orelse return null;
+                    return try mw.context.getCollectionsList(mw.arena, collection);
+                }
+                pub fn getLatest(mw: *MustacheWriter, k: []const u8) !?[]const u8 {
+                    const name = getBetween("collections.", ".latest", k) orelse return null;
+                    return try mw.context.getCollectionsLatest(mw.arena, name);
+                }
+
+                /// If `haystack` starts with prefix and ends with suffix, return the middle.
+                fn getBetween(prefix: []const u8, suffix: []const u8, haystack: []const u8) ?[]const u8 {
+                    return if (mem.startsWith(u8, haystack, prefix) and mem.endsWith(u8, haystack, suffix))
+                        haystack[prefix.len .. haystack.len - suffix.len]
+                    else
+                        null;
+                }
+            };
+
+            const LucideGetter = struct {
+                pub fn getIcon(_: mem.Allocator, k: []const u8) !?[]const u8 {
+                    return try getLucideIcon(k);
+                }
+            };
+
+            const ContextGetter = struct {
+                pub fn getKnown(mw: *MustacheWriter, k: []const u8) !?[]const u8 {
+                    return try mw.context.getKnown(mw.arena, k);
+                }
+                pub fn getData(mw: *MustacheWriter, k: []const u8) !?[]const u8 {
+                    return try mw.context.getData(mw.arena, k);
+                }
+            };
+
+            const ComponentGetter = struct {
+                pub fn getStyleRef(mw: *MustacheWriter, k: []const u8) !?[]const u8 {
+                    return if (mem.eql(u8, k, "component.head"))
+                        try fmt.allocPrint(
+                            mw.arena,
+                            \\<link rel="stylesheet" type="text/css" href="{[site_root]s}/component.css" />
+                        ,
+                            .{ .site_root = mw.context.user_context.site_root },
+                        )
+                    else
+                        null;
+                }
+            };
+
+            fn get(ctx: *MustacheWriter, key: []const u8) !?[]const u8 {
+                const getters: []const Getter = &.{
+                    .{ .ctx = ContextGetter.getKnown },
+                    .{ .ctx = ContextGetter.getData },
+                    .{ .simple = LucideGetter.getIcon },
+                    .{ .ctx = CollectionGetter.getList },
+                    .{ .ctx = CollectionGetter.getLatest },
+                    .{ .ctx = ComponentGetter.getStyleRef },
+                };
+
+                for (getters) |getter| {
+                    if (try getter.get(ctx, key)) |value| {
+                        return value;
+                    }
+                }
+
+                if (mem.eql(u8, key, "meta")) {
+                    return try ctx.context.getMeta(ctx.arena);
+                }
+
+                if (mem.eql(u8, key, "theme.head")) {
+                    return if (ctx.context.user_context.site_root.len == 0)
+                        try fmt.allocPrint(
+                            ctx.arena,
+                            \\<link rel="stylesheet" type="text/css" href="/bulma.css" />
+                        ,
+                            .{},
+                        )
+                    else
+                        try fmt.allocPrint(
+                            ctx.arena,
+                            \\<link rel="stylesheet" type="text/css" href="{[site_root]s}/bulma.css" />
+                        ,
+                            .{ .site_root = ctx.context.user_context.site_root },
+                        );
+                } else if (mem.eql(u8, key, "theme.body")) {
+                    // theme.body can be used by themes to inject e.g. scripts.
+                    // It's currently empty, but content authors are still recommended
+                    // to include it in their templates to allow a more seamless upgrade
+                    // once themes do make use of it.
+
+                    return try fmt.allocPrint(
+                        ctx.arena,
+                        \\<script src="{[site_root]s}/htmx.js"></script>
+                    ,
+                        .{ .site_root = ctx.context.user_context.site_root },
+                    );
+                }
+
+                if (mem.startsWith(u8, key, "component ")) {
+                    const component_src = src: {
+                        var it = mem.tokenizeScalar(u8, key, ' ');
+
+                        // skip component keyword
+                        _ = it.next();
+
+                        break :src it.rest();
+                    };
+
+                    var stmt = try ctx.context.user_context.db.db.prepare(
+                        \\SELECT filepath FROM components WHERE name = ? LIMIT 1;
+                        ,
+                    );
+                    defer stmt.deinit();
+
+                    const row = try stmt.oneAlloc(
+                        struct { filepath: []const u8 },
+                        ctx.arena,
+                        .{},
+                        .{ .name = component_src },
+                    ) orelse return error.MissingComponent;
+
+                    var file = try fs.openFileAbsolute(row.filepath, .{});
+                    defer file.close();
+
+                    var script_buf = std.ArrayList(u8).init(ctx.arena);
+                    defer script_buf.deinit();
+                    try file.reader().readAllArrayList(&script_buf, math.maxInt(usize));
+                    const script = try script_buf.toOwnedSliceSentinel(0);
+                    defer ctx.arena.free(script);
+
+                    log.debug(
+                        "render component ({s}) at src {s}",
+                        .{ component_src, row.filepath },
+                    );
+
+                    var buf = std.ArrayList(u8).init(ctx.arena);
+                    errdefer buf.deinit();
+
+                    renderComponent(
+                        ctx.arena,
+                        script,
+                        buf.writer(),
+                        &ctx.style_buf,
+                    ) catch |err| {
+                        log.err("Failure while rendering component: {any}", .{err});
+                        return err;
+                    };
+
+                    if (buf.items.len == 0) {
+                        log.err("Component ({s}) did not render.", .{component_src});
+                        return error.ComponentMustRender;
+                    }
+
+                    return try buf.toOwnedSlice();
+                }
+
+                return null;
+            }
+        };
     };
 }
 fn mustachMem(template: []const u8, closure: ?*anyopaque, vtable: *const c.mustach_itf) !void {

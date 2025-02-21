@@ -192,9 +192,12 @@ fn writePages(self: Site, out_dir: fs.Dir) !void {
     }
 }
 
-// Assumes that the provided allocator is an arena.
-// Reads the page and its associated template from the filesystem
-// and writes the rendered page to a file in the out_dir.
+/// Assumes that the provided allocator is an arena.
+/// Reads the page and its associated template from the filesystem
+/// and writes the rendered page to a file in the out_dir.
+///
+/// May also write to the `component.css` file if the page wrote
+/// to a dedicated styles buffer while rendering.
 fn _render(
     ally: mem.Allocator,
     db: *Database,
@@ -279,6 +282,10 @@ fn _render(
 
     var html_buffer = io.bufferedWriter(file.writer());
 
+    const component_css_file = try out_dir.createFile("component.css", .{});
+    defer component_css_file.close();
+    var styles_buffer = io.bufferedWriter(component_css_file.writer());
+
     // Load the template from the filesystem
     const template = template: {
         if (data.template) |t| {
@@ -311,9 +318,11 @@ fn _render(
         url_prefix,
         wants,
         html_buffer.writer(),
+        styles_buffer.writer(),
     );
 
     try html_buffer.flush();
+    try styles_buffer.flush();
 }
 
 // TODO actual needs don't reflect this initial design. Simplify.
@@ -340,7 +349,7 @@ pub const DispatchWants = enum { wants_editor, wants_raw, wants_content };
 const DispatchOptions = struct {
     wants: DispatchWants = .wants_content,
 };
-pub fn dispatch(site: *Site, slug: []const u8, writer: anytype, options: DispatchOptions) DispatchError!void {
+pub fn dispatch(site: *Site, slug: []const u8, writer: anytype, styles_writer: anytype, options: DispatchOptions) DispatchError!void {
     var stmt = site.db.db.prepare(
         \\SELECT filepath, template FROM pages WHERE slug = ?;
         ,
@@ -385,6 +394,7 @@ pub fn dispatch(site: *Site, slug: []const u8, writer: anytype, options: Dispatc
         const data = p.data(ally) catch return DispatchError.RenderError;
 
         var html_buffer = io.bufferedWriter(writer);
+        var styles_buffer = io.bufferedWriter(styles_writer);
 
         // Load the template from the filesystem
         const template = template: {
@@ -423,11 +433,13 @@ pub fn dispatch(site: *Site, slug: []const u8, writer: anytype, options: Dispatc
                     url_prefix,
                     options.wants,
                     html_buffer.writer(),
+                    styles_buffer.writer(),
                 ) catch return DispatchError.RenderError;
             },
         }
 
         html_buffer.flush() catch {};
+        styles_buffer.flush() catch {};
     } else {
         return DispatchError.NotFound;
     }
@@ -444,6 +456,10 @@ fn renderPage(
     url_prefix: ?[]const u8,
     wants: DispatchWants,
     writer: anytype,
+    /// Any dependent CSS will be written to this writer. It is assumed
+    /// that this will be written to a file that may be referenced by
+    /// the rendered page.
+    styles_writer: anytype,
 ) !void {
     const wants2 = e: switch (wants) {
         .wants_raw => unreachable,
@@ -461,6 +477,7 @@ fn renderPage(
     const content = if (meta.allow_html) content: {
         var buf = std.ArrayList(u8).init(allocator);
         defer buf.deinit();
+
         try mustache.renderStream(
             allocator,
             p.markdown.content,
@@ -470,6 +487,7 @@ fn renderPage(
                 .site_root = url_prefix orelse "",
             },
             buf.writer(),
+            styles_writer,
         );
         break :content try buf.toOwnedSlice();
     } else p.markdown.content;
@@ -506,6 +524,7 @@ fn renderPage(
             .site_root = url_prefix orelse "",
         },
         writer,
+        styles_writer,
     );
 }
 
