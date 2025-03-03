@@ -286,6 +286,10 @@ fn _render(
     defer component_css_file.close();
     var styles_buffer = io.bufferedWriter(component_css_file.writer());
 
+    const component_js_file = try out_dir.createFile("component.js", .{});
+    defer component_js_file.close();
+    var scripts_buffer = io.bufferedWriter(component_js_file.writer());
+
     // Load the template from the filesystem
     const template = template: {
         if (data.template) |t| {
@@ -319,10 +323,12 @@ fn _render(
         wants,
         html_buffer.writer(),
         styles_buffer.writer(),
+        scripts_buffer.writer(),
     );
 
     try html_buffer.flush();
     try styles_buffer.flush();
+    try scripts_buffer.flush();
 }
 
 // TODO actual needs don't reflect this initial design. Simplify.
@@ -349,7 +355,7 @@ pub const DispatchWants = enum { wants_editor, wants_raw, wants_content };
 const DispatchOptions = struct {
     wants: DispatchWants = .wants_content,
 };
-pub fn dispatch(site: *Site, slug: []const u8, writer: anytype, styles_writer: anytype, options: DispatchOptions) DispatchError!void {
+pub fn dispatch(site: *Site, slug: []const u8, writer: anytype, styles_writer: anytype, scripts_writer: anytype, options: DispatchOptions) DispatchError!void {
     var stmt = site.db.db.prepare(
         \\SELECT filepath, template FROM pages WHERE slug = ?;
         ,
@@ -395,6 +401,7 @@ pub fn dispatch(site: *Site, slug: []const u8, writer: anytype, styles_writer: a
 
         var html_buffer = io.bufferedWriter(writer);
         var styles_buffer = io.bufferedWriter(styles_writer);
+        var scripts_buffer = io.bufferedWriter(scripts_writer);
 
         // Load the template from the filesystem
         const template = template: {
@@ -434,12 +441,14 @@ pub fn dispatch(site: *Site, slug: []const u8, writer: anytype, styles_writer: a
                     options.wants,
                     html_buffer.writer(),
                     styles_buffer.writer(),
+                    scripts_buffer.writer(),
                 ) catch return DispatchError.RenderError;
             },
         }
 
         html_buffer.flush() catch {};
         styles_buffer.flush() catch {};
+        scripts_buffer.flush() catch {};
     } else {
         return DispatchError.NotFound;
     }
@@ -460,6 +469,10 @@ fn renderPage(
     /// that this will be written to a file that may be referenced by
     /// the rendered page.
     styles_writer: anytype,
+    /// Any dependent script will be written to this writer. It is assumed
+    /// that this will be written to a file that may be referenced by
+    /// the rendered page.
+    scripts_writer: anytype,
 ) !void {
     const wants2 = e: switch (wants) {
         .wants_raw => unreachable,
@@ -488,6 +501,7 @@ fn renderPage(
             },
             buf.writer(),
             styles_writer,
+            scripts_writer,
         );
         break :content try buf.toOwnedSlice();
     } else p.markdown.content;
@@ -525,6 +539,7 @@ fn renderPage(
         },
         writer,
         styles_writer,
+        scripts_writer,
     );
 }
 

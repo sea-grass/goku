@@ -445,9 +445,13 @@ const PreviewCommand = struct {
         var styles_buf = std.ArrayList(u8).init(req.arena);
         defer styles_buf.deinit();
 
-        context.site.dispatch(req.url.path, res.writer(), styles_buf.writer(), .{ .wants = config }) catch |err| {
+        var scripts_buf = std.ArrayList(u8).init(req.arena);
+        defer styles_buf.deinit();
+
+        context.site.dispatch(req.url.path, res.writer(), styles_buf.writer(), scripts_buf.writer(), .{ .wants = config }) catch |err| {
             switch (err) {
                 else => {
+                    std.log.err("Encountered error when dispatching request: {any}", .{err});
                     res.status = 500;
                     res.body = "Uh oh!";
                     return;
@@ -467,6 +471,7 @@ const PreviewCommand = struct {
                                 return;
                             },
                             else => {
+                                std.log.err("Encountered error when dispatching request: {any}", .{err2});
                                 res.status = 500;
                                 res.body = "Uh oh!";
                                 return;
@@ -475,12 +480,17 @@ const PreviewCommand = struct {
                     };
                     defer file.close();
 
-                    file.reader().streamUntilDelimiter(res.writer(), 0, null) catch |err2| switch (err2) {
-                        error.EndOfStream => {},
-                        else => return err2,
-                    };
+                    var buf: [1024]u8 = undefined;
+                    const reader = file.reader();
+                    const writer = res.writer();
+                    while (true) {
+                        const read = try reader.read(&buf);
+                        if (read == 0) break;
+                        _ = try writer.write(buf[0..read]);
+                    }
 
                     res.header("Cache-Control", "max-age=10");
+                    log.info("Done serving {s}", .{sub_path});
                 },
             }
         };
@@ -493,6 +503,16 @@ const PreviewCommand = struct {
             defer component_css_file.close();
 
             try component_css_file.writeAll(styles_buf.items);
+        }
+
+        if (scripts_buf.items.len > 0) {
+            var dir = try fs.openDirAbsolute(context.out_dir, .{});
+            defer dir.close();
+
+            const component_js_file = try dir.createFile("component.js", .{});
+            defer component_js_file.close();
+
+            try component_js_file.writeAll(scripts_buf.items);
         }
     }
 

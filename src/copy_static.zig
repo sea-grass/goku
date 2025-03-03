@@ -33,12 +33,27 @@ fn copyDirContents(from_path: []const u8, to_path: []const u8) !void {
     var out_dir = try fs.cwd().openDir(to_path, .{});
     defer out_dir.close();
 
-    var it = dir.iterate();
+    try copyDirContentsHandle(dir, out_dir);
+}
+
+/// Caller owns the dir handles.
+/// This function will close any new handles it opens.
+/// Calls itself recursively to handle copying nested dirs.
+fn copyDirContentsHandle(from_dir: fs.Dir, to_dir: fs.Dir) !void {
+    var it = from_dir.iterate();
     while (try it.next()) |entry| {
         switch (entry.kind) {
             .file => {
-                try dir.copyFile(entry.name, out_dir, entry.name, .{});
+                try from_dir.copyFile(entry.name, to_dir, entry.name, .{});
                 std.log.info("entry {s}", .{entry.name});
+            },
+            .directory => {
+                var dir = try from_dir.openDir(entry.name, .{ .iterate = true });
+                defer dir.close();
+                var out_dir = try to_dir.makeOpenPath(entry.name, .{});
+                defer out_dir.close();
+
+                try copyDirContentsHandle(dir, out_dir);
             },
             else => return error.CantHandleKind,
         }

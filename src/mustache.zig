@@ -15,7 +15,7 @@ const std = @import("std");
 const storage = @import("storage.zig");
 const testing = std.testing;
 
-pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: anytype, writer: anytype, styles_writer: anytype) !void {
+pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: anytype, writer: anytype, styles_writer: anytype, scripts_writer: anytype) !void {
     var arena = heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
@@ -24,6 +24,7 @@ pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: any
         context,
         writer.any(),
         styles_writer.any(),
+        scripts_writer.any(),
     );
 
     try mustache_writer.write(template);
@@ -35,6 +36,9 @@ test renderStream {
 
     var styles_buf = std.ArrayList(u8).init(testing.allocator);
     defer styles_buf.deinit();
+
+    var scripts_buf = std.ArrayList(u8).init(testing.allocator);
+    defer scripts_buf.deinit();
 
     const template = "{{title}}";
 
@@ -56,6 +60,7 @@ test renderStream {
         },
         buf.writer(),
         styles_buf.writer(),
+        scripts_buf.writer(),
     );
 
     try testing.expectEqualStrings("foo", buf.items);
@@ -263,24 +268,34 @@ fn MustacheWriterType(comptime UserContext: type) type {
         writer: io.AnyWriter,
         /// The writer to which all component styles get written.
         styles_writer: io.AnyWriter,
+        /// The writer to which all component scripts get written.
+        scripts_writer: io.AnyWriter,
         /// When rendering components, a component may provide a CSS string
         /// that should be included on the page. We keep a hash map of
         /// component name to CSS string and then write them all
         /// once we process all of the content.
         style_buf: std.StringHashMap([]const u8),
+        /// When rendering components, a component may provide a script string
+        /// that should be included on the page. We keep a hash map of
+        /// component name to JS string and then write them all
+        /// once we process all of the content.
+        script_buf: std.StringHashMap([]const u8),
 
         pub fn init(
             arena: mem.Allocator,
             user_context: UserContext,
             writer: io.AnyWriter,
             styles_writer: io.AnyWriter,
+            scripts_writer: io.AnyWriter,
         ) MustacheWriter {
             return .{
                 .arena = arena,
                 .context = .{ .user_context = user_context },
                 .writer = writer,
                 .styles_writer = styles_writer,
+                .scripts_writer = scripts_writer,
                 .style_buf = std.StringHashMap([]const u8).init(arena),
+                .script_buf = std.StringHashMap([]const u8).init(arena),
             };
         }
 
@@ -307,6 +322,23 @@ fn MustacheWriterType(comptime UserContext: type) type {
                 while (it.next()) |value_ptr| {
                     const chunk = value_ptr.*;
                     ctx.styles_writer.print("{s}", .{chunk}) catch {};
+                }
+            }
+
+            log.info("There are {d}", .{ctx.script_buf.count()});
+
+            if (ctx.script_buf.count() > 0) {
+                var it = ctx.script_buf.valueIterator();
+                while (it.next()) |value_ptr| {
+                    const chunk = value_ptr.*;
+                    ctx.scripts_writer.print(
+                        \\;(function() {{
+                        \\  'use strict';
+                        \\{[script_body]s}
+                        \\}}())
+                    ,
+                        .{ .script_body = chunk },
+                    ) catch {};
                 }
             }
         }
@@ -457,6 +489,18 @@ fn MustacheWriterType(comptime UserContext: type) type {
                     else
                         null;
                 }
+
+                pub fn getScriptRef(mw: *MustacheWriter, k: []const u8) !?[]const u8 {
+                    return if (mem.eql(u8, k, "component.body"))
+                        try fmt.allocPrint(
+                            mw.arena,
+                            \\<script src="{[site_root]s}/component.js"></script>
+                        ,
+                            .{ .site_root = mw.context.user_context.site_root },
+                        )
+                    else
+                        null;
+                }
             };
 
             fn get(ctx: *MustacheWriter, key: []const u8) !?[]const u8 {
@@ -467,6 +511,7 @@ fn MustacheWriterType(comptime UserContext: type) type {
                     .{ .ctx = CollectionGetter.getList },
                     .{ .ctx = CollectionGetter.getLatest },
                     .{ .ctx = ComponentGetter.getStyleRef },
+                    .{ .ctx = ComponentGetter.getScriptRef },
                 };
 
                 for (getters) |getter| {
@@ -553,6 +598,10 @@ fn MustacheWriterType(comptime UserContext: type) type {
                         script,
                         buf.writer(),
                         &ctx.style_buf,
+                        &ctx.script_buf,
+                        .{
+                            .site_root = ctx.context.user_context.site_root,
+                        },
                     ) catch |err| {
                         log.err("Failure while rendering component: {any}", .{err});
                         return err;
@@ -647,6 +696,10 @@ fn handleException(ctx: *c.JSContext) !noreturn {
     return error.JSException;
 }
 
+const RenderComponentModel = struct {
+    site_root: []const u8,
+};
+
 /// renderComponent will spin up a one-off QuickJS runtime and register some modules in a brand new context:
 /// - htm
 /// - vhtml
@@ -657,7 +710,7 @@ fn handleException(ctx: *c.JSContext) !noreturn {
 /// The style string, if present, will be stored in a hash map, keyed by the component source.
 ///
 /// NOTE: renderComponent MUST write to the writer.
-fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype, style_buf: *std.StringHashMap([]const u8)) !void {
+fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype, style_buf: *std.StringHashMap([]const u8), script_buf: *std.StringHashMap([]const u8), model: RenderComponentModel) !void {
     const rt = c.JS_NewRuntime() orelse return error.CannotAllocateJSRuntime;
     defer c.JS_FreeRuntime(rt);
     c.JS_SetMemoryLimit(rt, 0x100000);
@@ -690,6 +743,11 @@ fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype,
         else => {},
     }
 
+    const hacky_mod_src: [:0]const u8 = try fmt.allocPrintZ(allocator, "export const site_root = \"{[site_root]s}\";", .{ .site_root = model.site_root });
+    defer allocator.free(hacky_mod_src);
+    const hacky_mod = c.JS_Eval(ctx, hacky_mod_src, hacky_mod_src.len, "site", c.JS_EVAL_TYPE_MODULE);
+    defer c.JS_FreeValue(ctx, hacky_mod);
+
     const user_component_mod = c.JS_Eval(ctx, src, src.len, "component", c.JS_EVAL_TYPE_MODULE);
     defer c.JS_FreeValue(ctx, user_component_mod);
     switch (user_component_mod.tag) {
@@ -698,13 +756,14 @@ fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype,
     }
 
     const t =
-        \\import { render, style } from 'component';
+        \\import * as c from 'component';
         \\try {
-        \\globalThis.html = render();
+        \\globalThis.html = c.render();
         \\} catch (e) {
         \\globalThis.html = e.message || 'Failed to render the component.';
         \\}
-        \\globalThis.style = style;
+        \\if (c.style) globalThis.style = c.style;
+        \\if (c.script) globalThis.script = c.script;
     ;
     const eval_result = c.JS_Eval(ctx, t, t.len, "<input>", c.JS_EVAL_TYPE_MODULE);
     defer c.JS_FreeValue(ctx, eval_result);
@@ -727,6 +786,11 @@ fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype,
                 const str = c.JS_ToCString(ctx, html);
                 defer c.JS_FreeCString(ctx, str);
 
+                // I need to be able to use certain shortcodes from within the rendered html.
+                // Ideally, I provide a js module or the like with certain constants or access
+                // to site attributes.
+                var string_replacement_hack = std.ArrayList(u8).init(allocator);
+                defer string_replacement_hack.deinit();
                 try writer.print("{s}", .{str});
             },
         }
@@ -735,6 +799,7 @@ fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype,
     {
         const style = c.JS_GetPropertyStr(ctx, global_object, "style");
         defer c.JS_FreeValue(ctx, style);
+        log.info("style here? {d}", .{style.tag});
         switch (style.tag) {
             c.JS_TAG_EXCEPTION => try handleException(ctx),
             c.JS_TAG_STRING => {
@@ -742,6 +807,25 @@ fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype,
                 if (!result.found_existing) {
                     const str = c.JS_ToCString(ctx, style);
                     defer c.JS_FreeCString(ctx, str);
+                    result.value_ptr.* = try allocator.dupe(u8, mem.span(str));
+                }
+            },
+            else => {},
+        }
+    }
+
+    {
+        const script = c.JS_GetPropertyStr(ctx, global_object, "script");
+        defer c.JS_FreeValue(ctx, script);
+        log.info("script here? {d}", .{script.tag});
+        switch (script.tag) {
+            c.JS_TAG_EXCEPTION => try handleException(ctx),
+            c.JS_TAG_STRING => {
+                const result = try script_buf.getOrPut(src);
+                if (!result.found_existing) {
+                    const str = c.JS_ToCString(ctx, script);
+                    defer c.JS_FreeCString(ctx, str);
+                    log.info("JS! {s}", .{str});
                     result.value_ptr.* = try allocator.dupe(u8, mem.span(str));
                 }
             },
