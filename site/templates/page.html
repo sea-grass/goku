@@ -3,6 +3,7 @@
   <head>
     <title>{{title}}</title>
     {{& theme.head}}
+    {{& component.head}}
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>a[href^="https://"]::after {
         content: " [*]";
@@ -54,5 +55,6 @@
       </div>
     </section>
     {{& theme.body}}
+    {{& component.body}}
   </body>
 </html>

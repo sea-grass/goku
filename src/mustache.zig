@@ -748,6 +748,13 @@ fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype,
     const hacky_mod = c.JS_Eval(ctx, hacky_mod_src, hacky_mod_src.len, "site", c.JS_EVAL_TYPE_MODULE);
     defer c.JS_FreeValue(ctx, hacky_mod);
 
+    const hacky_mod_src2: [:0]const u8 =
+        \\import htm from 'htm';
+        \\export const html = htm.bind(globalThis.vhtml);
+    ;
+    const hacky_mod2 = c.JS_Eval(ctx, hacky_mod_src2, hacky_mod_src2.len, "goku", c.JS_EVAL_TYPE_MODULE);
+    defer c.JS_FreeValue(ctx, hacky_mod2);
+
     const user_component_mod = c.JS_Eval(ctx, src, src.len, "component", c.JS_EVAL_TYPE_MODULE);
     defer c.JS_FreeValue(ctx, user_component_mod);
     switch (user_component_mod.tag) {
