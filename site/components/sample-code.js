@@ -48,7 +48,14 @@ font-weight: bold;
   --tab-2: 179px;
   --tab-3: 426px;
   height: 380px;
-  overflow: scroll;
+  overflow: hidden;
+}
+
+.sample-code pre {
+pointer-events: all;
+max-height: 200px;
+overflow-y: scroll;
+text-wrap: wrap;
 }
 
 .sample-code pre code {
@@ -61,19 +68,25 @@ details {
   left: 0;
 }
 
-details ~ details {
+details ~ details summary {
   margin-left: var(--tab-2);
 }
-details ~ details ~ details {
+details ~ details ~ details summary {
   margin-left: var(--tab-3);
 }
-details pre {
+
+details {
+  pointer-events: none;
+  width: 100%;
 }
-details ~ details pre {
-  margin-left: Calc(-1 * var(--tab-2));
+
+details summary {
+  pointer-events: all;
+  text-wrap: nowrap;
 }
-details ~ details ~ details pre {
-  margin-left: Calc(-1 * var(--tab-3));
+
+details[open] summary {
+  pointer-events: none;
 }
 
 summary {
@@ -88,11 +101,21 @@ summary {
   background: var(--bulma-info-soft-invert);
   color: var(--bulma-info-soft);
 }
-details[open] {
-width: 100%;
-}
-details[open] pre {
-width: 100%;
+
+@media (max-width: 768px) {
+  details ~ details ~details summary {
+    margin-left: 0;
+    margin-top: var(--tab-3-mobile, 60px);
+
+  }
+
+  details[open] pre {
+    margin-top: var(--tab-3-mobile, 60px);
+  }
+
+  details ~ details ~ details[open] pre {
+    margin-top: 0;
+  }
 }
 `;
 
