@@ -13,7 +13,6 @@ const page = @import("page.zig");
 const std = @import("std");
 const storage = @import("storage.zig");
 const testing = std.testing;
-const tracy = @import("tracy");
 const Database = @import("Database.zig");
 const markdown = @import("markdown.zig");
 
@@ -123,12 +122,6 @@ pub fn write(
 }
 
 fn writeSitemap(self: Site, out_dir: fs.Dir) !void {
-    const zone = tracy.initZone(
-        @src(),
-        .{ .name = "Write sitemap" },
-    );
-    defer zone.deinit();
-
     var file = try out_dir.createFile("_sitemap.html", .{});
     defer file.close();
 
@@ -171,12 +164,6 @@ fn writePages(self: Site, out_dir: fs.Dir) !void {
     defer batch_allocator.deinit();
 
     while (try it.next()) |entry| {
-        const zone = tracy.initZone(
-            @src(),
-            .{ .name = "Render Page Loop" },
-        );
-        defer zone.deinit();
-
         defer batch_allocator.flush();
 
         try _render(

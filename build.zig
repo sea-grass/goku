@@ -140,11 +140,6 @@ pub fn build(b: *std.Build) void {
         "wasm",
         "Compile to webassembly (supported on e.g. wasmtime)",
     ) orelse false;
-    const tracy_enable = b.option(
-        bool,
-        "tracy_enable",
-        "Enable profiling",
-    ) orelse false;
 
     const target = if (wasm_option) b.resolveTargetQuery(.{
         .cpu_arch = .wasm32,
@@ -152,13 +147,6 @@ pub fn build(b: *std.Build) void {
     }) else b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const tracy = b.dependency("tracy", .{
-        .target = target,
-        .optimize = optimize,
-        .tracy_enable = tracy_enable,
-        .tracy_no_exit = true,
-        .tracy_manual_lifetime = true,
-    });
     const clap = b.dependency("clap", .{ .target = target, .optimize = optimize });
     const httpz = b.dependency("httpz", .{ .target = target, .optimize = optimize });
     const sqlite = b.dependency("sqlite", .{ .target = target, .optimize = optimize });
@@ -185,7 +173,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     exe.root_module.addImport("c", c_mod);
-    exe.root_module.addImport("tracy", tracy.module("tracy"));
     exe.root_module.addImport("clap", clap.module("clap"));
     exe.root_module.addImport("sqlite", sqlite.module("sqlite"));
     exe.root_module.addImport("lucide", lucide.module("lucide"));
@@ -195,10 +182,6 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("htm", htm.module("htm"));
     exe.root_module.addImport("vhtml", vhtml.module("vhtml"));
     exe.linkLibrary(sqlite.artifact("sqlite"));
-    if (tracy_enable) {
-        exe.linkLibrary(tracy.artifact("tracy"));
-        exe.linkLibCpp();
-    }
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -225,14 +208,9 @@ pub fn build(b: *std.Build) void {
     exe_unit_tests.root_module.addImport("htm", htm.module("htm"));
     exe_unit_tests.root_module.addImport("vhtml", vhtml.module("vhtml"));
     exe_unit_tests.root_module.addImport("sqlite", sqlite.module("sqlite"));
-    exe_unit_tests.root_module.addImport("tracy", tracy.module("tracy"));
     exe_unit_tests.root_module.addImport("zap", zap.module("zap"));
     exe_unit_tests.root_module.addImport("httpz", httpz.module("httpz"));
     exe_unit_tests.linkLibrary(sqlite.artifact("sqlite"));
-    if (tracy_enable) {
-        exe_unit_tests.linkLibrary(tracy.artifact("tracy"));
-        exe_unit_tests.linkLibCpp();
-    }
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
     build_steps.@"test".dependOn(&run_exe_unit_tests.step);
 
@@ -253,17 +231,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     exe_check.root_module.addImport("c", c_mod);
-    exe_check.root_module.addImport("tracy", tracy.module("tracy"));
     exe_check.root_module.addImport("clap", clap.module("clap"));
     exe_check.root_module.addImport("sqlite", sqlite.module("sqlite"));
     exe_check.root_module.addImport("lucide", lucide.module("lucide"));
     exe_check.root_module.addImport("bulma", bulma.module("bulma"));
     exe_check.root_module.addImport("htmx", htmx.module("htmx"));
     exe_check.linkLibrary(sqlite.artifact("sqlite"));
-    if (tracy_enable) {
-        exe_check.linkLibrary(tracy.artifact("tracy"));
-        exe_check.linkLibCpp();
-    }
     build_steps.check.dependOn(&exe_check.step);
 
     const serve_exe = b.addExecutable(.{

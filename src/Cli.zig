@@ -16,7 +16,6 @@ const std = @import("std");
 const storage = @import("storage.zig");
 const testing = std.testing;
 const time = std.time;
-const tracy = @import("tracy");
 const Database = @import("Database.zig");
 const Site = @import("Site.zig");
 
@@ -193,9 +192,6 @@ const PreviewCommand = struct {
                 },
                 else => return err,
             }) |entry| {
-                const zone = tracy.initZone(@src(), .{ .name = "Load Page from File" });
-                defer zone.deinit();
-
                 const file = try entry.openFile();
                 defer file.close();
 
@@ -243,7 +239,6 @@ const PreviewCommand = struct {
                 );
 
                 page_count += 1;
-                tracy.plot(u32, "Discovered Page Count", page_count);
             }
         }
 
@@ -259,9 +254,6 @@ const PreviewCommand = struct {
                 },
                 else => return err,
             }) |entry| {
-                const zone = tracy.initZone(@src(), .{ .name = "Scan for template files" });
-                defer zone.deinit();
-
                 const file = try entry.openFile();
                 defer file.close();
 
@@ -282,7 +274,6 @@ const PreviewCommand = struct {
                 );
 
                 template_count += 1;
-                tracy.plot(u32, "Discovered Template Count", template_count);
             }
 
             log.debug("Discovered template count {d}", .{template_count});
@@ -299,9 +290,6 @@ const PreviewCommand = struct {
                 },
                 else => return err,
             }) |entry| {
-                const zone = tracy.initZone(@src(), .{ .name = "Scan for component files" });
-                defer zone.deinit();
-
                 var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
 
                 try storage.Component.insert(
@@ -313,7 +301,6 @@ const PreviewCommand = struct {
                 );
 
                 component_count += 1;
-                tracy.plot(u32, "Discovered Component Count", component_count);
             }
         }
 
@@ -795,9 +782,6 @@ const BuildCommand = struct {
                 },
                 else => return err,
             }) |entry| {
-                const zone = tracy.initZone(@src(), .{ .name = "Load Page from File" });
-                defer zone.deinit();
-
                 const file = try entry.openFile();
                 defer file.close();
 
@@ -845,7 +829,6 @@ const BuildCommand = struct {
                 );
 
                 page_count += 1;
-                tracy.plot(u32, "Discovered Page Count", page_count);
             }
         }
 
@@ -861,9 +844,6 @@ const BuildCommand = struct {
                 },
                 else => return err,
             }) |entry| {
-                const zone = tracy.initZone(@src(), .{ .name = "Scan for template files" });
-                defer zone.deinit();
-
                 const file = try entry.openFile();
                 defer file.close();
 
@@ -884,7 +864,6 @@ const BuildCommand = struct {
                 );
 
                 template_count += 1;
-                tracy.plot(u32, "Discovered Template Count", template_count);
             }
 
             log.debug("Discovered template count {d}", .{template_count});
@@ -901,9 +880,6 @@ const BuildCommand = struct {
                 },
                 else => return err,
             }) |entry| {
-                const zone = tracy.initZone(@src(), .{ .name = "Scan for component files" });
-                defer zone.deinit();
-
                 var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
 
                 try storage.Component.insert(
@@ -915,7 +891,6 @@ const BuildCommand = struct {
                 );
 
                 component_count += 1;
-                tracy.plot(u32, "Discovered Component Count", component_count);
             }
         }
 
@@ -991,9 +966,6 @@ const BuildCommand = struct {
         //
 
         {
-            const write_output_zone = tracy.initZone(@src(), .{ .name = "Write Site to Output Dir" });
-            defer write_output_zone.deinit();
-
             var out_dir = try fs.openDirAbsolute(build.out_dir, .{});
             defer out_dir.close();
 

@@ -22,11 +22,6 @@
             .url = "git+https://github.com/vrischmann/zig-sqlite#47a9c0d42ff5c083a9b04b04a5a1aeb0a777e153",
             .hash = "1220caab315c54e76dff7a60d8486c5fb4de216402d2efb6471763e2d49c194b4600",
         },
-        .tracy = .{
-            // Point back to cipharius/zig-tracy once it's been updated to support Zig 0.14
-            .url = "git+https://github.com/sea-grass/zig-tracy?ref=zig-0.14.0-dev.2628+5b5c60f43#fb29d4997bb8dada9f02296278c78dcfc296ff0e",
-            .hash = "122090abd8d145508ff7f47a3269562939fe6105029c6a12237c54393eefc0f7359d",
-        },
         .vhtml = .{ .path = "./modules/vhtml" },
         .yaml = .{ .path = "./modules/yaml" },
         .zap = .{
