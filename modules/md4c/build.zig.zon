@@ -1,12 +1,12 @@
 .{
-    .name = "md4c",
-
+    .name = .md4c,
     .version = "0.5.2",
+    .fingerprint = 0xc847502bbea787ad,
 
     .dependencies = .{
         .upstream = .{
-            .url = "https://github.com/mity/md4c/archive/refs/tags/release-0.5.2.tar.gz",
-            .hash = "1220251028e2f8c9b08684c3a3fe1aa320751e48154ad57ebdf86857dbceeb25cbb5",
+            .url = "git+https://github.com/mity/md4c?ref=release-0.5.2#729e6b8b320caa96328968ab27d7db2235e4fb47",
+            .hash = "N-V-__8AABchEAAlECji-MmwhoTDo_4aoyB1HkgVStV-vfho",
         },
     },
 

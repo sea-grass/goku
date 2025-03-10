@@ -4,8 +4,8 @@
     .fingerprint = 0x6258ab6458a3c4a3,
     .dependencies = .{
         .httpz = .{
-            .url = "git+https://github.com/karlseguin/http.zig?ref=master#56258131ef4505543fef5484451867c13c5ff322",
-            .hash = "httpz-0.0.0-PNVzrJSuBgDFvO7mtd2qDzaq8_hXIu1BqFuL1jwAV8Ac",
+            .url = "git+https://github.com/sea-grass/http.zig?ref=new-dependency-hash-format#bb30e7ea1d51f091e6883503e8b69937fa9f7287",
+            .hash = "httpz-0.0.0-PNVzrK6uBgBYP4D-QGrd_g1A6ZS86NQcLJZEPZyRFFoH",
         },
         .clap = .{
             .url = "git+https://github.com/Hejsil/zig-clap?ref=master#e47028deaefc2fb396d3d9e9f7bd776ae0b2a43a",

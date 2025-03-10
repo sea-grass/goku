@@ -1,12 +1,12 @@
 .{
-    .name = "quickjs",
-
+    .name = .quickjs,
     .version = "0.0.0",
+    .fingerprint = 0x23b1522837e9b987,
 
     .dependencies = .{
         .upstream = .{
-            .url = "git+https://github.com/bellard/quickjs#6e2e68fd0896957f92eb6c242a2e048c1ef3cae0",
-            .hash = "1220d49e57fc131eebbf4b09fb100f5d802b909d2f36e15d2d849a72f354cd24489d",
+            .url = "git+https://github.com/bellard/quickjs#1be68b3345953c94e8072d12ad116e14403b66a8",
+            .hash = "N-V-__8AAGmhMQArxURIgd7hxKLPsXPhQF38MdzOHl3tEDOa",
         },
     },
 

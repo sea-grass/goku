@@ -1,12 +1,12 @@
 .{
-    .name = "md4c",
-
-    .version = "0.5.2",
+    .name = .mustach,
+    .version = "1.4.2-dev",
+    .fingerprint = 0x3261b3e455fb6b78,
 
     .dependencies = .{
         .upstream = .{
-            .url = "git+https://github.com/RekGRpth/mustach#e3f0939421d2aeb0cd5a1990eb2c4cc710c69741",
-            .hash = "1220945b7e8dcfa9859a49a4260e0921f3c55ebbc154e4b823343b351c0bcdafc136",
+            .url = "git+https://gitlab.com/jobol/mustach#32ba6c6bd5ad376f0cf905710355f53c88d79233",
+            .hash = "N-V-__8AAF-BBAAcHiYzeiQWYBscothCbxjjJAEwyZz-yQvk",
         },
     },
 
