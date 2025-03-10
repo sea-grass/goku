@@ -69,7 +69,7 @@ pub fn WalkerType(comptime config: WalkerConfig) type {
 
             if (file) |f| return f;
 
-            if (self.dir_queue.?.popOrNull()) |dir| {
+            if (self.dir_queue.?.pop()) |dir| {
                 self.dir_handle.?.close();
                 self.dir_handle = dir;
                 self.dir_iterator = null;

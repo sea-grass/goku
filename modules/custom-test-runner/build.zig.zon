@@ -1,5 +1,5 @@
 .{
-    .name = "custom-test-runner",
+    .name = .custom_test_runner,
     .version = "0.0.1",
     .dependencies = .{},
     .paths = .{

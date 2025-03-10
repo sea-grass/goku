@@ -390,7 +390,7 @@ const PreviewCommand = struct {
         );
         defer server.deinit();
 
-        var router = server.router(.{});
+        var router = try server.router(.{});
         router.get("*", handleGet, .{});
         router.post("*", handlePost, .{});
 
