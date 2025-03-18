@@ -10,43 +10,6 @@ const bundled_lucide_icons = @as([]const []const u8, &.{
     "arrow-down-to-line",
 });
 
-const BuildSteps = struct {
-    check: *std.Build.Step,
-    coverage: *std.Build.Step,
-    docs: *std.Build.Step,
-    generate_benchmark_site: *std.Build.Step,
-    preview: *std.Build.Step,
-    run: *std.Build.Step,
-    run_benchmark: *std.Build.Step,
-    site: *std.Build.Step,
-    serve: *std.Build.Step,
-    wasm_module: *std.Build.Step,
-    @"test": *std.Build.Step,
-
-    pub fn init(b: *std.Build) BuildSteps {
-        return .{
-            .check = b.step("check", "Check the Zig code"),
-            .coverage = b.step("coverage", "Analyze code coverage"),
-            .docs = b.step("docs", "Generate source code docs"),
-            .generate_benchmark_site = b.step("generate-benchmark", "Generate a site dir used to benchmark goku"),
-            .preview = b.step("preview", "Preview the site locally in dev mode"),
-            .run = b.step("run", "Run the app"),
-            .run_benchmark = b.step("run-benchmark", "Run the benchmark"),
-            .site = b.step("site", "Build the Goku site"),
-            .serve = b.step("serve", "Serve the Goku site (for local previewing)"),
-            .wasm_module = b.step("wasm-module", "Build the wasm module"),
-            .@"test" = b.step("test", "Run unit tests"),
-        };
-    }
-
-    pub fn deinit(self: @This()) void {
-        inline for (@typeInfo(@This()).@"struct".fields) |f| {
-            const step = @field(self, f.name);
-            debug.assert(step.dependencies.items.len > 0);
-        }
-    }
-};
-
 pub const Docs = struct {
     compile: *std.Build.Step.Compile,
     serve: *std.Build.Step.Run,
@@ -132,8 +95,24 @@ const CModule = struct {
 };
 
 pub fn build(b: *std.Build) void {
-    const build_steps = BuildSteps.init(b);
-    defer build_steps.deinit();
+    const build_steps = .{
+        .check = b.step("check", "Check the Zig code"),
+        .coverage = b.step("coverage", "Analyze code coverage"),
+        .docs = b.step("docs", "Generate source code docs"),
+        .generate_benchmark_site = b.step("generate-benchmark", "Generate a site dir used to benchmark goku"),
+        .preview = b.step("preview", "Preview the site locally in dev mode"),
+        .run = b.step("run", "Run the app"),
+        .run_benchmark = b.step("run-benchmark", "Run the benchmark"),
+        .site = b.step("site", "Build the Goku site"),
+        .serve = b.step("serve", "Serve the Goku site (for local previewing)"),
+        .wasm_module = b.step("wasm-module", "Build the wasm module"),
+        .@"test" = b.step("test", "Run unit tests"),
+    };
+    defer inline for (@typeInfo(@TypeOf(build_steps)).@"struct".fields) |f| {
+        if (f.type == *std.Build.Step) {
+            debug.assert(@field(build_steps, f.name).dependencies.items.len > 0);
+        }
+    };
 
     const wasm_option = b.option(
         bool,
