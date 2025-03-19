@@ -562,7 +562,10 @@ const @"test" = struct {
         var buf = std.ArrayList(u8).init(testing.allocator);
         defer buf.deinit();
 
-        const writer = buf.writer();
+        var styles_buf = std.ArrayList(u8).init(testing.allocator);
+        defer styles_buf.deinit();
+        var scripts_buf = std.ArrayList(u8).init(testing.allocator);
+        defer scripts_buf.deinit();
 
         try renderPage(
             testing.allocator,
@@ -571,7 +574,9 @@ const @"test" = struct {
             &db,
             null,
             .wants_content,
-            writer,
+            buf.writer(),
+            styles_buf.writer(),
+            scripts_buf.writer(),
         );
 
         try testing.expectEqualStrings(expected, buf.items);
