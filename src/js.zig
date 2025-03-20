@@ -2,6 +2,7 @@ const c = @import("c");
 const debug = std.debug;
 const fmt = std.fmt;
 const io = std.io;
+const log = std.log;
 const mem = std.mem;
 const std = @import("std");
 const testing = std.testing;
@@ -10,7 +11,7 @@ const testing = std.testing;
 // usable by a QuickJS runtime, backed by a Zig allocator.
 // c.JSMallocState.opaque holds a pointer that we can use to access the allocator.
 // TODO: I think I need to store a map of ptr to slice attrs
-const MallocFunctions = struct {
+pub const MallocFunctions = struct {
     allocator: mem.Allocator,
     map: AllocMap,
 

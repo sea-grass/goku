@@ -2,8 +2,10 @@
 <html>
   <head>
     <title>{{title}}</title>
-    {{& theme.head}}
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    {{& theme.head}}
+    {{& component.head}}
     <style>a[href^="https://"]::after {
         content: " [*]";
       }
@@ -23,11 +25,10 @@
           letter-spacing: 0.3em;
         }
       }
-
-      .room-to-breathe::after { content: ""; display: block; height: 30vh; }
+      p > code { text-wrap: nowrap; }
     </style>
   </head>
-  <body class="room-to-breathe">
+  <body>
     <section class="section">
       <div class="container">
         <nav class="navbar mb-4" role="navigation">
@@ -56,5 +57,6 @@
       </div>
     </section>
     {{& theme.body}}
+    {{& component.body}}
   </body>
 </html>

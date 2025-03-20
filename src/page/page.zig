@@ -23,6 +23,7 @@ pub const Page = union(enum) {
             \\---
             \\title: Hello, world
             \\slug: /
+            \\template: foo.html
             \\---
         ;
 

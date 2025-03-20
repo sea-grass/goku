@@ -1,12 +1,12 @@
 .{
-    .name = "htmx",
-
-    .version = "2.0.3",
+    .name = .htmx,
+    .version = "2.0.4",
+    .fingerprint = 0x2a32c98695e5344,
 
     .dependencies = .{
         .upstream = .{
             .url = "git+https://github.com/bigskysoftware/htmx#e6a2ea15a2254986bd40160d62afbb289aa0f3dd",
-            .hash = "1220e7de8efaf7e21873c9c787e6e7fc58bab002e786681b9697114fe45be60d1cca",
+            .hash = "N-V-__8AAAKTxgHn3o769-IYc8nHh-bn_Fi6sALnhmgblpcR",
         },
     },
     .paths = .{

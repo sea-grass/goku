@@ -1,0 +1,11 @@
+!node_modules/
+
+node_modules/*
+!node_modules/vhtml
+
+node_modules/vhtml/*
+!node_modules/vhtml/LICENSE
+!node_modules/vhtml/dist/
+
+node_modules/vhtml/dist/*
+!node_modules/vhtml/dist/vhtml.js

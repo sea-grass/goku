@@ -1,12 +1,12 @@
 .{
-    .name = "lucide",
-
-    .version = "0.0.1",
+    .name = .lucide,
+    .version = "0.479.0",
+    .fingerprint = 0xad1a920b5b2f9ee8,
 
     .dependencies = .{
-        .@"lucide-icons" = .{
-            .url = "https://github.com/lucide-icons/lucide/archive/refs/tags/0.428.0.tar.gz",
-            .hash = "1220d704c84ee42e05d559e039c976256dc4c31d6dbdfc33c5d43361ce5a31478a35",
+        .icons = .{
+            .url = "git+https://github.com/lucide-icons/lucide?ref=0.479.0#aefb710e5c64b3d569b6e3eafa7516c273a1bf4a",
+            .hash = "N-V-__8AALSKVgBaTKVbhBYnQZOX9H2EVzPpbWQCh4pmYx5h",
         },
     },
 

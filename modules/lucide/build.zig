@@ -4,7 +4,7 @@ const math = std.math;
 const std = @import("std");
 
 pub fn build(b: *std.Build) !void {
-    const lucide_src = b.dependency("lucide-icons", .{});
+    const lucide_src = b.dependency("icons", .{});
     const embedded_icons = b.option([]const []const u8, "icons", "The icons to embed into the generated module.");
 
     const wf = b.addWriteFiles();

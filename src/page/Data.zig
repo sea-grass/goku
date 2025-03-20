@@ -8,7 +8,6 @@ const mem = std.mem;
 const CodeFence = @import("CodeFence.zig");
 const std = @import("std");
 const testing = std.testing;
-const tracy = @import("tracy");
 
 slug: []const u8,
 collection: ?[]const u8 = null,
@@ -64,9 +63,6 @@ pub const Diagnostics = struct {
 // Duplicates slices from the input data. Caller is responsible for
 // calling page_data.deinit(allocator) afterwards.
 pub fn fromYamlString(allocator: mem.Allocator, data: []const u8, diag: ?*Diagnostics) !Data {
-    const zone = tracy.initZone(@src(), .{ .name = "PageData.fromYamlString" });
-    defer zone.deinit();
-
     var parser: c.yaml_parser_t = undefined;
     const ptr: [*c]c.yaml_parser_t = &parser;
 
@@ -255,6 +251,7 @@ test fromReader {
         \\---
         \\slug: /
         \\title: Home page
+        \\template: foo.html
         \\---
     ;
 
@@ -318,6 +315,7 @@ test fromYamlString {
     const input =
         \\slug: /
         \\title: Home page
+        \\template: foo.html
     ;
 
     const yaml = try fromYamlString(

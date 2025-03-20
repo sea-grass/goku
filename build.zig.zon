@@ -1,32 +1,33 @@
 .{
-    .name = "goku",
-    .version = "0.0.3",
+    .name = .goku,
+    .version = "0.0.7",
+    .fingerprint = 0x6258ab6458a3c4a3,
     .dependencies = .{
-        .clap = .{
-            .url = "git+https://github.com/Hejsil/zig-clap#e9207ad2b86131fa9f0dfbd5c68cafd67f00fe64",
-            .hash = "1220cb2f28680ef73c1020bfd8c7b08de38821b0bc19b5469f60dcf813f1d8455dbd",
+        .httpz = .{
+            .url = "git+https://github.com/sea-grass/http.zig?ref=new-dependency-hash-format#bb30e7ea1d51f091e6883503e8b69937fa9f7287",
+            .hash = "httpz-0.0.0-PNVzrK6uBgBYP4D-QGrd_g1A6ZS86NQcLJZEPZyRFFoH",
         },
-        .@"custom-test-runner" = .{ .path = "./modules/custom-test-runner" },
+        .clap = .{
+            .url = "git+https://github.com/Hejsil/zig-clap?ref=master#e47028deaefc2fb396d3d9e9f7bd776ae0b2a43a",
+            .hash = "clap-0.10.0-oBajB434AQBDh-Ei3YtoKIRxZacVPF1iSwp3IX_ZB8f0",
+        },
+        .custom_test_runner = .{ .path = "./modules/custom-test-runner" },
         .bulma = .{ .path = "./modules/bulma" },
+        .htm = .{ .path = "./modules/htm" },
         .htmx = .{ .path = "./modules/htmx" },
         .lucide = .{ .path = "./modules/lucide" },
         .md4c = .{ .path = "./modules/md4c" },
         .mustach = .{ .path = "./modules/mustach" },
         .quickjs = .{ .path = "./modules/quickjs" },
         .sqlite = .{
-            .url = "git+https://github.com/vrischmann/zig-sqlite#7d50331972777727d0a22f5e4a51e8a06c410bad",
-            .hash = "1220f01a534f84839a66b127b88183bd81f6ab3778289150aa79f83ae126e4a8e0df",
+            .url = "git+https://github.com/vrischmann/zig-sqlite?ref=master#59c06617d5b86546c0c739e73ae01d3965dbe8ce",
+            .hash = "sqlite-3.48.0-F2R_a_uGDgCfOH5UEJYjuOCe-HixnLjToxOdEGAEM3xk",
         },
-        .tracy = .{
-            // Point back to cipharius/zig-tracy once it's been updated to support Zig 0.13
-            .url = "https://github.com/kcbanner/zig-tracy/archive/40ad7b4c7976dcd94b2f3a89470b2e84d42b7b8c.tar.gz",
-            .hash = "1220847a8e1395c15ac39e200227a1f102c5a93be2ef12528d4ff97dd79ce164906a",
-            //.path = "../modules/zig-tracy",
-        },
+        .vhtml = .{ .path = "./modules/vhtml" },
         .yaml = .{ .path = "./modules/yaml" },
         .zap = .{
-            .url = "git+https://github.com/zigzap/zap#29b923f96ee09d855b603866d2e149d506f72679",
-            .hash = "1220399fcdfff1fd73f8cbced2530ab805391f31d8c188db99ae7ba978dd77fd2814",
+            .url = "git+https://github.com/zigzap/zap?ref=master#3b06a336ef27e5ffe04075109d67e309b83a337a",
+            .hash = "zap-0.9.1-GoeB856uIwDAc9I-e5Pp83lKXBIhSXAiB8Cd5NYoP0D7",
         },
     },
     .paths = .{
