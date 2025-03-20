@@ -6,30 +6,7 @@ template: page.html
 description: A static site generator written in Zig.
 ---
 
-Write your website in markdown with SSR components.
+Write your website in markdown with server-side rendered components.
 
 {{&component sample-code.js}}
 
-{{& collections.test.list }}
-
-<style>
-  #spinner {
-    animation: spin 4s infinite linear;
-    display: inline-block;
-    transform-origin: center;
-  }
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-</style>
-
-<div id="spinner">
-
-- [Docs](/docs)
-- [Source code](https://github.com/sea-grass/goku)
-- [Changelog](/changelog)
-  
-</div>
-
-{{&component foo.js}}

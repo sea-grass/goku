@@ -1,40 +1,35 @@
 import { html } from 'goku';
 
 const index = ["pages/index.md", `template: template.html
+title: Hello, world
 ---
 # Hello, world`];
-const template = ["templates/template.html", `
+const template = ["templates/template.html", `<!doctype html>
+<html>
+<head>
+{{& title}}
+{{& theme.head}}
 {{& component.head }}
-
-{{& component button.js }}
-{{& content }}
-
-{{& component.body }}`];
+</head>
+<body>
+  <h1>{{& title}}</h1>
+  {{& component button.js }}
+  <div class="content">
+    {{& content }}
+  </div>
+  {{& theme.body}}
+  {{& component.body }}
+</body>
+</html>`];
 
 // There's a bug where the html returned from a component is then processed as markdown.
 // I think it has to do with `allow_html: true`...
-const button = ["components/button.js", `
-// Custom button component
-// A simple demo of a component within a Goku site.
-// A component is a javascript module whose exports satisfy the component API.
-// The component API might look like this typescript type:
-// {
-//   // Produce an HTML string to be injected at the point of usage.
-//   render: () => string;
-//   // Produce a JS string to be bundled in a script on a page where
-//   // the component is used.
-//   script?: () => string;
-//   // Produce a CSS string to be bundled in a script on a page where
-//   // the component is used.
-//   style?: () => string;
-// }
-
-export render = () => '<button class="my-button">Click me!</button>';
-export const script = * 
+const button = ["components/button.js", `export const render = () => '<button class="my-btn">Click me!</button>';
+export const script = "
   Array.from(document.querySelectorAll(".my-button")).forEach((button) => {
     button.addEventListener("click", () => { console.log("Hello, world!"); });
   });
-*;`];
+"`];
 
 const tabs = [index, template, button];
 
@@ -120,9 +115,7 @@ summary {
 `;
 
 export const render = () => html`<div class="sample-code">
-<div class="container">
   ${tabs.map((tab, i) => html`<${Tab} title=${tab[0]} content=${tab[1]} open=${i==0}/>`)}
-</div>
 </div>
 `;
 
