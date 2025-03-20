@@ -2,8 +2,10 @@
 <html>
   <head>
     <title>Site</title>
-    <link rel="stylesheet" type="text/css" href="/goku/bulma.css" />
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" type="text/css" href="/goku/bulma.css" />
+    <link rel="stylesheet" type="text/css" href="/goku/component.css" />
     <style>a[href^="https://"]::after {
         content: " [*]";
       }
@@ -23,11 +25,10 @@
           letter-spacing: 0.3em;
         }
       }
-
-      .room-to-breathe::after { content: ""; display: block; height: 30vh; }
+      p > code { text-wrap: nowrap; }
     </style>
   </head>
-  <body class="room-to-breathe">
+  <body>
     <section class="section">
       <div class="container">
         <nav class="navbar mb-4" role="navigation">
@@ -142,6 +143,7 @@ Similar to the method to add new pages to your site, you create new templates by
         </section>
       </div>
     </section>
-    
+    <script src="/goku/htmx.js"></script>
+    <script src="/goku/component.js"></script>
   </body>
 </html>

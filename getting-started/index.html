@@ -2,8 +2,10 @@
 <html>
   <head>
     <title>Getting started</title>
-    <link rel="stylesheet" type="text/css" href="/goku/bulma.css" />
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" type="text/css" href="/goku/bulma.css" />
+    <link rel="stylesheet" type="text/css" href="/goku/component.css" />
     <style>a[href^="https://"]::after {
         content: " [*]";
       }
@@ -23,11 +25,10 @@
           letter-spacing: 0.3em;
         }
       }
-
-      .room-to-breathe::after { content: ""; display: block; height: 30vh; }
+      p > code { text-wrap: nowrap; }
     </style>
   </head>
-  <body class="room-to-breathe">
+  <body>
     <section class="section">
       <div class="container">
         <nav class="navbar mb-4" role="navigation">
@@ -83,80 +84,63 @@
 To get started with Goku, you need to be able to run it. This page describes possible project structures and their ideal use cases. Skim this page for your ideal set-up.</p><h2>
 Run Goku with the Zig build system</h2>
 <p>
-Prerequisites: A working Zig compiler (minimum version 0.13.0)</p><ol>
+Prerequisites: A working Zig compiler (minimum version 0.14.0)</p><ol>
 <li>
-Create a Zig project</li><li>
-Add Goku to your dependencies in build.zig.zon</li><li>
-Create a minimal goku site (pages/index.md and templates/page.html)</li><li>
-Create a run step in your build.zig to use Goku to build your site</li></ol><h3>
-1. Create a Zig project</h3>
-<p>
-You can use <code>zig init</code> to create a Zig project if you wish, but all you really need to do is create minimal build.zig and build.zig.zon files.</p><h3>
-2. Add Goku to your dependencies</h3>
-<p>
-This will allow the Zig build system to locate Goku.</p><h3>
-3. Create a minimal Goku site</h3>
-<p>
-Create these files.</p><h4>
-pages/index.md</h4>
-<p>
-<strong>pages/index.md</strong></p><pre><code>---
-slug: /
-template: page.html
-title: Home page
----
+Use <code>goku init</code> to scaffold a new Goku site</li><li>
+Run <code>zig build site</code> to build the site</li><li>
+Run <code>zig build serve</code> to preview the site locally</li></ol><pre><code>$ goku init my-site
+info(goku): init (my-site)
+info(goku): Site scaffolded at (my-site).
+$ tree my-site
+my-site
+├── build.zig
+├── build.zig.zon
+├── pages
+│   └── index.md
+└── templates
+    └── page.html
+$ cd my-site
+$ zig build site
+info(goku): mode Debug
+info(goku): Goku Build
+info(goku): Site Root: /home/user/code/my-site
+info(goku): Out Dir: /home/user/code/my-site/build
+debug(goku): Discovered template count 1
+debug(site): rendering (Home page)[/]
+info(goku): Elapsed: 3ms
+$ tree build
+build
+├── _sitemap.html
+├── bulma.css
+├── htmx.js
+└── index.html
 
-This is the home page.
-</code></pre><h4>
-templates/page.html</h4>
-<p>
-<strong>templates/page.html</strong></p><pre><code>&lt;!doctype html&gt;&lt;html&gt;&lt;head&gt;
-&lt;title&gt;{{title}}&lt;/title&gt;
-{{& theme.head}}
-&lt;/head&gt;
-&lt;body&gt;
-&lt;div class="container"&gt;
-&lt;div class="section"&gt;
-&lt;div class="title"&gt;{{title}}&lt;/div&gt;
-&lt;div class="content"&gt;{{& content}}&lt;/div&gt;
-{{& theme.body}}
-&lt;/body&gt;
-&lt;/html&gt;
-</code></pre><h3>
-4. Create a run step in your build.zig</h3>
-<p>
-Your build.zig should look like this:</p><pre><code>const std = @import("std");
-const Goku = @import("goku").Goku;
-
-pub fn build(b: *std.Build) !void {
-  const target = b.standardTargetOptions(.{});
-  const optimize = b.standardOptimizeOption(.{});
-  const goku_dep = b.dependency("goku", .{ .target = target, .optimize = optimize });
-  
-  const site_source_path = b.path("site");
-  const site_dest_path = b.path("build");
-  
-  const build_site = Goku.build(b, goku_dep, site_source_path, site_dest_path);
-  const build_site_step = b.step("site", "Build the site");
-  build_site_step.dependOn(&build_site.step);
-  
-  const serve_site = Goku.serve(b, goku_dep, site_dest_path);
-  const serve_site_step = b.step("serve", "Serve the site");
-  serve_site_step.dependOn(&build_site.step);
-  serve_site_step.dependOn(&serve_site.step);
-}
+1 directory, 4 files
+$ zig build serve
+info(goku): mode Debug
+info(goku): Goku Build
+info(goku): Site Root: /home/user/code/my-site
+info(goku): Out Dir: /home/user/code/my-site/build
+debug(goku): Discovered template count 1
+debug(site): rendering (Home page)[/]
+info(goku): Elapsed: 3ms
+INFO: Listening on port 3000
+info(serve): Running at http://localhost:3000
+INFO: Server is running 1 worker X 1 thread with facil.io 0.7.4 (kqueue)
+* Detected capacity: 10224 open file limit
+* Root pid: 10488
+* Press ^C to stop
 </code></pre><h2>
 Run Goku as a standalone binary</h2>
 <p>
 Binary releases are not currently available. The recommended way of using Goku at this time is by compiling a standalone binary for your machine with Zig.</p><h2>
 Other ways of running Goku</h2>
 <p>
-Thinking of running Goku in some other way not listed here? Share your thoughts in the GitHub Issues in the Goku repo.</p><h2>
-Getting started with Zig</h2>
-
+Thinking of running Goku in some other way not listed here? Share your thoughts in the GitHub Issues in the Goku repo.</p>
         </section>
       </div>
     </section>
-    
+    <script src="/goku/htmx.js"></script>
+    <script src="/goku/component.js"></script>
   </body>
 </html>

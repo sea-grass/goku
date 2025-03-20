@@ -2,8 +2,10 @@
 <html>
   <head>
     <title>Changelog</title>
-    <link rel="stylesheet" type="text/css" href="/goku/bulma.css" />
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" type="text/css" href="/goku/bulma.css" />
+    <link rel="stylesheet" type="text/css" href="/goku/component.css" />
     <style>a[href^="https://"]::after {
         content: " [*]";
       }
@@ -23,11 +25,10 @@
           letter-spacing: 0.3em;
         }
       }
-
-      .room-to-breathe::after { content: ""; display: block; height: 30vh; }
+      p > code { text-wrap: nowrap; }
     </style>
   </head>
-  <body class="room-to-breathe">
+  <body>
     <section class="section">
       <div class="container">
         <nav class="navbar mb-4" role="navigation">
@@ -80,6 +81,73 @@
         <p class="subtitle"></p>
         <section class="content">
           <h2>
+0.0.7</h2>
+<p>
+This is a big release for Goku and sets the stage for its future development. Keep in mind that currently many aspects of Goku are in flux and may change dramatically between releases. If this is a concern, I'd be more than happy to consider your usecase; just <a href="https://github.com/sea-grass/goku/issues/new">open an issue</a> and let's chat.</p><p>
+This release is loaded and spans improvements across many areas. It includes changes to the development experience, new server-side rendered JS component support, an updated dependency to the latest stable Zig version, some default theme updates, the inclusion of an experimental in-browser page editor, improved documentation, static file support, and a site scaffolding tool.</p><p>
+This is quite a packed release, but the existing implementation is definitely showing its limitations. There will be bugs. If you encounter any bugs or notice odd behaviour, don't hesitate to open an issue on the GitHub repo.</p><p>
+Without further ado, here's an overview of the changes for this release.</p><h3>
+Updated Zig version</h3>
+<p>
+The officially supported Zig version is now Zig <code>0.14.0</code>. You must upgrade to at least this Zig version when you upgrade to Goku 0.0.7.</p><h3>
+Goku subcommands</h3>
+<p>
+The Goku CLI has become more useful to more fully capture the site creation and editing workflows. It now ships with three subcommands: <code>goku init</code>, <code>goku build</code>, and <code>goku preview</code>.</p><h4>
+<code>goku init</code></h4>
+<p>
+Getting a Goku site set up is only a few files, but that work can still be a hurdle for creating your first website or your tenth. So, the <code>goku init</code> subcommand was added to speed up working on a Goku site by scaffolding a blank site directory.</p><h4>
+<code>goku build</code></h4>
+<p>
+To support additional functionality, the default behaviour has been moved to a subcommand <code>goku build</code>, which will build the target site. The same command line flags as before are supported.</p><h4>
+<code>goku preview</code></h4>
+<p>
+This command builds the site and spins up a local HTTP server to allow you to preview it as it might be presented when you host it elsewhere.</p><p>
+The server has dynamic dispatch capabilities - meaning it builds pages on demand, enabling a nicer iteration process when you modify your pages and want to preview your changes. The ultimate goal would be to support live reload à la websockets so you don't need to refresh your browser when you make a change.</p><p>
+In addition, the preview server has the experimental inline editor feature, which will be detailed in a further section.</p><h3>
+Default theme</h3>
+<p>
+The <code>{{& theme.body}}</code> now correctly injects a script tag for <code>htmx.js</code>.</p><h3>
+Components</h3>
+<p>
+A brand new feature for Goku is components. You can define JS modules which you can reference within your templates to achieve server-side rendering. This feature is supported by the quickjs runtime. The runtime is intentionally limited for now; it does not provide any of the QuickJS runtime's standard libraries. However, there are a limited number of NPM modules that are available out-of-the-box, in addition to a special module allowing you to make use of page-specific data.</p><p>
+Goku provides a built-in module, <code>goku</code>, will a single export, <code>html</code>. This is simply a wrapper around <code>htm</code> and <code>vhtml</code> which can help you to achieve a more composable component framework with little effort.</p><p>
+A simple component file might look like:</p><pre><code>import { html } from 'goku';
+const MyButton = () =&gt; html`&lt;button class="my-button"/&gt;`;
+export const render = () =&gt; html`&lt;${MyButton}&gt;Click me!&lt;//&gt;`;
+export const style = () =&gt; `
+.my-button {
+  color: white;
+  background: #24f;
+  height: 42px;
+  padding: .5em 2em;
+}
+`;
+</code></pre><p>
+You don't need to use the <code>html</code> helper though. Even simpler:</p><pre><code>export const render = () =&gt; `&lt;button class="my-button"&gt;Click me!&lt;/button&gt;`;
+export const style = () =&gt; `
+.my-button {
+  color: white;
+  background: #24f;
+  height: 42px;
+  padding: .5em 2em;
+}
+`;
+</code></pre><p>
+Goku also provides a built-in module, <code>site</code>, which allows you to access the <code>site_root</code> that you set from the command line when building Goku. Other site properties may be added as needed (or upon request via GitHub issue).</p><h3>
+Updated Zig version</h3>
+<p>
+The officially supported Zig version is now Zig <code>0.14.0-dev.2628+5b5c60f43</code>. You must upgrade to at least this Zig version when you upgrade to Goku 0.0.7.</p><h3>
+<code>?editor</code></h3>
+<p>
+When you run <code>goku preview</code>, you can view your site, edit it, and refresh to view your changes, all without restarting Goku. A WIP method of editing your content has been added in pair, the web editor.</p><p>
+When you include the <code>?editor</code> query in the URL, you will be able to edit the file content, save it, and view the changes right away.</p><p>
+As mentioned earlier in the changelog, this feature is experimental. I'm investigating ways to reduce the amount of steps for users to get up and running with a Goku site and in-browser editor support is part of that.</p><h3>
+Improved documentation</h3>
+<p>
+The documentation has been updated to include a fancy almost-no-JS example code preview. Some other pages have received updates as well. In general, however, the documentation still needs some work.</p><h3>
+Static file support</h3>
+<p>
+This feature came from a requirement of one website which had loads of images and other assets. Currently, this is locked behind a build step and not included in the mainline Goku binary. See the <code>Goku</code> build-time API for the command.</p><h2>
 0.0.6</h2>
 <p>
 This release is a quick follow-up to the previous release to fix a bug with the theme shortcodes.</p><h3>
@@ -247,6 +315,7 @@ Initial release</li></ul>
         </section>
       </div>
     </section>
-    
+    <script src="/goku/htmx.js"></script>
+    <script src="/goku/component.js"></script>
   </body>
 </html>

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>Page</title>
+    <title>Template</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" type="text/css" href="/goku/bulma.css" />
@@ -61,74 +61,30 @@
   <path d="M10 2c1 .5 2 2 2 5" />
 </svg>
 
-            <span>Page</span></span>
+            <span>Template</span></span>
         </h1>
         <div class="field is-grouped is-grouped-multiline">
 <div class="control">
 <div class="tags has-addons">
 <span class="tag is-white">slug</span>
-<span class="tag is-light">/docs/page</span>
+<span class="tag is-light">/docs/template</span>
 </div>
 </div>
 
 <div class="control">
 <div class="tags has-addons">
 <span class="tag is-white">title</span>
-<span class="tag is-light">Page</span>
+<span class="tag is-light">Template</span>
 </div>
 </div>
 </div>
         <p class="subtitle"></p>
         <section class="content">
           <p>
-A Page in Goku is represented by its metadata and content.</p><p>
-An author can create a Page
-using markdown for the content
-and yaml frontmatter for its metadata.</p><p>
-The Page must be placed in a file with the <code>.md</code> extension
-as a descendant of the <code>site/pages/</code> directory.</p><p>
-For example, consider a file located at <code>site/pages/home.md</code>
-with the following contents:</p><pre><code>---
-slug: /
-title: Home page
-template: home.html
----
-
-Welcome to the home page.
-</code></pre><p>
-Inside Goku, the above snippet would translate to this struct:</p><pre><code>Page {
-  .metadata = .{
-    .slug = "/",
-    .title = "Home page",
-    .template = "home.html",
-  },
-  .content = "Welcome to the home page.",
-}
-</code></pre><p>
-Notice that the filename isn't part of the Page struct.
-How you name and organize your pages inside the <code>site/pages/</code> directory
-is up to you.</p><h2>
-Metadata</h2>
+A template in Goku is typically an HTML document with Mustache directives, which are referred to within Goku as <a href="/goku/docs/shortcode">shortcodes</a>.</p><p>
+Every <a href="/goku/docs/page">page</a> in a Goku site is required to reference a template. When the page is rendered, its content will be injected into the template through the <code>{{& content }}</code> shortcode.</p><blockquote>
 <p>
-The Page Metadata is specified as yaml frontmatter inside the Page file.
-We consider the metadata to be made up of Parameters.
-Some Parameters are required, like <code>slug</code> and <code>title</code>.</p><h3>
-Parameters</h3>
-<p>
-Following is a table of all supported Parameters and their uses.</p><h4>
-Required Parameters</h4>
-<ul>
-<li>
-<strong><code>slug</code></strong> - The url where this page should be located.</li><li>
-<strong><code>title</code></strong> - The title of the page.</li><li>
-<strong><code>template</code></strong> - The location of the template (relative to the <code>site/templates/</code> directory) used to render this page.</li></ul>
-<h4>
-Optional Parameters</h4>
-<ul>
-<li>
-<strong><code>collection</code></strong> - The name of the collection to which this page belongs.</li><li>
-<strong><code>date</code></strong> - A date which can be used to order page entries when rendering a collection.</li><li>
-<strong><code>allow_html</code></strong> - A flag to determine whether the contents of this page should be rendered using mustache templating.</li></ul>
+If you forget to include the <code>content</code> shortcode in your template, the page content won't be rendered at all! Sometimes, this may be what you want.</p></blockquote>
 
         </section>
       </div>

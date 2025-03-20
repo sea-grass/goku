@@ -2,8 +2,10 @@
 <html>
   <head>
     <title>Goku</title>
-    <link rel="stylesheet" type="text/css" href="/goku/bulma.css" />
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" type="text/css" href="/goku/bulma.css" />
+    <link rel="stylesheet" type="text/css" href="/goku/component.css" />
     <style>a[href^="https://"]::after {
         content: " [*]";
       }
@@ -23,11 +25,10 @@
           letter-spacing: 0.3em;
         }
       }
-
-      .room-to-breathe::after { content: ""; display: block; height: 30vh; }
+      p > code { text-wrap: nowrap; }
     </style>
   </head>
-  <body class="room-to-breathe">
+  <body>
     <section class="section">
       <div class="container">
         <nav class="navbar mb-4" role="navigation">
@@ -79,28 +80,37 @@
 </div>
         <p class="subtitle">A static site generator written in Zig.</p>
         <section class="content">
-          <style>
-  #spinner {
-    animation: spin 4s infinite linear;
-    display: inline-block;
-    transform-origin: center;
-  }
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-</style>
-<div id="spinner">
-<ul>
-<li>
-<a href="/goku/docs">Docs</a></li><li>
-<a href="https://github.com/sea-grass/goku">Source code</a></li><li>
-<a href="/goku/changelog">Changelog</a></li></ul>
-</div>
+          <p>
+Write your website in markdown with server-side rendered components and mustache for templating.</p><div class="sample-code"><details name="tab" open="true"><summary>pages/index.md</summary><pre><code>template: template.html
+title: Hello, world
+---
+# Hello, world</code></pre></details><details name="tab"><summary>templates/template.html</summary><pre><code>&lt;!doctype html&gt;
+&lt;html&gt;
+&lt;head&gt;
+{{&amp; title}}
+{{&amp; theme.head}}
+{{&amp; component.head }}
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;h1&gt;{{&amp; title}}&lt;/h1&gt;
+  {{&amp; component button.js }}
+  &lt;div class=&quot;content&quot;&gt;
+    {{&amp; content }}
+  &lt;/div&gt;
+  {{&amp; theme.body}}
+  {{&amp; component.body }}
+&lt;/body&gt;
+&lt;/html&gt;</code></pre></details><details name="tab"><summary>components/button.js</summary><pre><code>export const render = () =&gt; &apos;&lt;button class=&quot;my-btn&quot;&gt;Click me!&lt;/button&gt;&apos;;
+export const script = &quot;
+  Array.from(document.querySelectorAll(&quot;.my-button&quot;)).forEach((button) =&gt; {
+    button.addEventListener(&quot;click&quot;, () =&gt; { console.log(&quot;Hello, world!&quot;); });
+  });
+&quot;</code></pre></details></div>
 
         </section>
       </div>
     </section>
-    
+    <script src="/goku/htmx.js"></script>
+    <script src="/goku/component.js"></script>
   </body>
 </html>
