@@ -45,12 +45,10 @@ pub const MallocFunctions = struct {
     }
 
     pub fn js_malloc_functions(_: *MallocFunctions) [*c]c.JSMallocFunctions {
-        log.info("heree weeee gooo!", .{});
         return @constCast(@ptrCast(&MallocFunctions._js_malloc_functions));
     }
 
     fn malloc(state: [*c]c.JSMallocState, n: usize) callconv(.C) ?*anyopaque {
-        log.info("Reeeeally?!", .{});
         const self = fromState(state);
         return mallocInner(self, n) catch null;
     }

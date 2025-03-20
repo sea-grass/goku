@@ -1,6 +1,6 @@
 .{
     .name = .goku,
-    .version = "0.0.3",
+    .version = "0.0.7",
     .fingerprint = 0x6258ab6458a3c4a3,
     .dependencies = .{
         .httpz = .{
