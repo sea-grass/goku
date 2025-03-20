@@ -80,11 +80,6 @@ export const style = () => `
 
 Goku also provides a built-in module, `site`, which allows you to access the `site_root` that you set from the command line when building Goku. Other site properties may be added as needed (or upon request via GitHub issue).
 
-### Updated Zig version
-
-The officially supported Zig version is now Zig `0.14.0-dev.2628+5b5c60f43`. You must upgrade to at least this Zig version when you upgrade to Goku 0.0.7.
-
-
 ### `?editor`
 
 When you run `goku preview`, you can view your site, edit it, and refresh to view your changes, all without restarting Goku. A WIP method of editing your content has been added in pair, the web editor.
