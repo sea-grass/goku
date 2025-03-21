@@ -13,7 +13,7 @@ A static site generator (SSG) is typically run on some input source to produce a
 
 ## Requirements
 
-- Officially supported Zig: `0.14.0-dev.1710+8ee52f99c` (you can get it from the [Zig Releases page](https://ziglang.org/download/))
+- Officially supported Zig: `0.14.0` (you can get it from the [Zig Releases page](https://ziglang.org/download/))
 
 ## Installation
 
@@ -54,4 +54,3 @@ Contributions are welcome, but I do request that if there's no open GitHub issue
 ## Bug reports
 
 If you find a bug in the software, please report it using the GitHub issue tracker for this project's repository.
-
