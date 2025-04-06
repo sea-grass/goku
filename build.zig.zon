@@ -25,10 +25,6 @@
         },
         .vhtml = .{ .path = "./modules/vhtml" },
         .yaml = .{ .path = "./modules/yaml" },
-        .zap = .{
-            .url = "git+https://github.com/zigzap/zap?ref=master#3b06a336ef27e5ffe04075109d67e309b83a337a",
-            .hash = "zap-0.9.1-GoeB856uIwDAc9I-e5Pp83lKXBIhSXAiB8Cd5NYoP0D7",
-        },
     },
     .paths = .{
         "build.zig",

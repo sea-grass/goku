@@ -1,5 +1,5 @@
 const std = @import("std");
-const zap = @import("zap");
+const httpz = @import("httpz");
 const log = std.log.scoped(.serve);
 const mem = std.mem;
 const process = std.process;
@@ -8,207 +8,98 @@ const fmt = std.fmt;
 const heap = std.heap;
 const debug = std.debug;
 
-const enable_websocket = false;
-const log_sitemap = false;
-
-// This is the shape of the program architecture that I envision.
-const shape = .{
-    .serve_bin = .{
-        .zap_server = .{
-            .serve_static_files = {},
-            .livereload_websocket_handler = {},
-            .socket_for_rebuild_notification = {},
-        },
-        .inotifywait = .{
-            .folder_watcher = {},
-            .socket_for_build_complete_notification = {},
-        },
-        .goku_lib = .{
-            .socket_to_trigger_rebuild = {},
-        },
-    },
-};
-
 pub fn main() !void {
-    var gpa = heap.GeneralPurposeAllocator(.{}){};
+    var gpa: heap.GeneralPurposeAllocator(.{}) = .init;
+    const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    var buf: [fs.max_path_bytes]u8 = undefined;
-    const public_folder = try parsePublicFolder(&buf);
+    const path = path: {
+        var args = try process.argsWithAllocator(allocator);
+        defer args.deinit();
 
-    if (log_sitemap) {
-        const sitemap = try readSitemap(gpa.allocator(), public_folder);
-        defer gpa.allocator().free(sitemap);
+        // skip exe name
+        _ = args.next();
 
-        log.info("Sitemap\n{s}\n", .{sitemap});
-    }
+        const path_arg = args.next() orelse return error.MissingArgs;
+        if ((try fs.cwd().statFile(path_arg)).kind != .directory) return error.NotADirectory;
 
-    var server: Server = undefined;
-    server.init(.{
-        .public_folder = public_folder,
-        .allocator = gpa.allocator(),
+        break :path try allocator.dupe(u8, path_arg);
+    };
+    defer allocator.free(path);
+
+    log.info("Serve from {s}", .{path});
+
+    const app: App = .{ .path = path };
+    var server: App.Server = try .init(allocator, .{
+        .address = "127.0.0.1",
         .port = 3000,
-    });
+    }, &app);
     defer server.deinit();
 
-    try server.start();
+    log.info("http://{s}:{d}", .{
+        server.config.address.?,
+        server.config.port.?,
+    });
+    try server.listen();
 }
 
-fn parsePublicFolder(buf: []u8) ![:0]const u8 {
-    var args = process.args();
+const App = struct {
+    path: []const u8,
 
-    // skip exe name
-    _ = args.next();
+    pub const Server = httpz.Server(*const App);
 
-    if (args.next()) |public_folder| {
-        const result = try fs.cwd().statFile(public_folder);
-        debug.assert(result.kind == .directory);
-
-        return try fmt.bufPrintZ(buf, "{s}", .{public_folder});
-    }
-
-    return error.MissingArgs;
-}
-
-// Assumes that the `public_folder_path` points to a Goku site with a generated sitemap.html.
-// Returns memory owned by the caller (that the caller must free)
-fn readSitemap(allocator: mem.Allocator, public_folder_path: []const u8) ![]const u8 {
-    var dir = try fs.cwd().openDir(public_folder_path, .{});
-    defer dir.close();
-
-    const file = try dir.openFile("_sitemap.html", .{});
-    defer file.close();
-
-    return try file.readToEndAlloc(allocator, 1 * 1024 * 1024);
-}
-
-const Server = struct {
-    allocator: mem.Allocator,
-    listener: zap.Endpoint.Listener,
-    public: Public,
-
-    const Public = struct {
-        public_folder: []const u8,
-        ep: zap.Endpoint,
-
-        pub fn init(public_folder: []const u8) Public {
-            return .{
-                .ep = zap.Endpoint.init(.{
-                    .path = "/",
-                    .get = get,
-                }),
-                .public_folder = public_folder,
-            };
-        }
-
-        pub fn deinit(self: Public) void {
-            _ = self;
-        }
-
-        pub fn endpoint(self: *Public) *zap.Endpoint {
-            return &self.ep;
-        }
-
-        fn get(ep: *zap.Endpoint, r: zap.Request) void {
-            getWithError(
-                @fieldParentPtr("ep", ep),
-                r,
-            ) catch {};
-        }
-
-        fn filePath(self: *Public, path: []const u8, buf: []u8) ![]const u8 {
-            var fba = heap.FixedBufferAllocator.init(buf);
-
-            return try fs.path.join(
-                fba.allocator(),
-                &.{ self.public_folder, path },
-            );
-        }
-
-        fn customCacheControlHeader(path: []const u8) ?[]const u8 {
-            inline for (&.{
-                ".html",
-                "sources.tar",
-            }) |suffix| {
-                if (mem.endsWith(u8, path, suffix))
-                    return "no-cache";
-            }
-            return null;
-        }
-
-        fn getWithError(self: *Public, r: zap.Request) !void {
-            if (r.path == null) return error.MissingPath;
-
-            var buf: [fs.max_path_bytes]u8 = undefined;
-            const path = try self.filePath(r.path.?, &buf);
-
-            if (customCacheControlHeader(path)) |value| {
-                try r.setHeader("Cache-Control", value);
-            }
-
-            r.sendFile(path) catch |err| switch (err) {
-                error.SendFile => {
-                    return handleFallback(r);
-                },
-                else => return err,
-            };
-        }
-
-        fn handleFallback(r: zap.Request) error{ NotFound, Foobie, MalformedRequestPath }!void {
-            if (!mem.endsWith(u8, r.path.?, "/")) {
-                var buf: [fs.max_path_bytes]u8 = undefined;
-                const path: []const u8 = fmt.bufPrint(&buf, "{s}/", .{r.path.?}) catch return error.Foobie;
-                r.redirectTo(path, .temporary_redirect) catch return error.Foobie;
-            }
-
-            return error.NotFound;
-        }
-    };
-
-    pub const Options = struct {
-        allocator: mem.Allocator,
-        port: u16,
-        public_folder: []const u8,
-    };
-
-    pub fn init(self: *Server, opts: Options) void {
-        zap.mimetypeRegister("wasm", "application/wasm");
-
-        self.* = .{
-            .allocator = opts.allocator,
-            .listener = zap.Endpoint.Listener.init(opts.allocator, .{
-                .port = opts.port,
-                .on_request = onRequest,
-                .log = true,
-                .max_clients = 10,
-                .max_body_size = 1 * 1024, // careful here  HUH ????
-            }),
-            .public = Public.init(opts.public_folder),
+    pub fn handle(self: *const App, req: *httpz.Request, res: *httpz.Response) void {
+        const sub_path = filePath(req);
+        var dir = fs.cwd().openDir(self.path, .{}) catch {
+            res.status = 500;
+            res.body = "Not farnd";
+            return;
         };
+        defer dir.close();
 
-        self.listener.register(self.public.endpoint()) catch
-            @panic("Could not register public_folder endpoint");
+        serveFile(&dir, sub_path, res) catch {
+            res.status = 404;
+            res.body = "Not foond";
+            return;
+        };
     }
 
-    pub fn deinit(self: *Server) void {
-        self.listener.deinit();
-        self.public.deinit();
+    fn filePath(req: *httpz.Request) []const u8 {
+        if (mem.eql(u8, req.url.path, "/")) {
+            return "index.html";
+        }
+
+        return req.url.path[1..];
     }
 
-    pub fn start(self: *Server) !void {
-        zap.enableDebugLog();
-        try self.listener.listen();
+    fn serveFile(dir: *fs.Dir, sub_path: []const u8, res: *httpz.Response) !void {
+        var file = try dir.openFile(sub_path, .{});
+        defer file.close();
 
-        log.info("Running at http://localhost:3000", .{});
+        var fifo: std.fifo.LinearFifo(u8, .{ .Static = 1024 }) = .init();
+        try fifo.pump(file.reader(), res.writer());
 
-        zap.start(.{
-            .threads = 1,
-            .workers = 1,
-        });
+        if (Mime.match(sub_path)) |mime| {
+            res.header("Content-Type", mime.contentType());
+        }
+    }
+};
+
+const Mime = enum {
+    wasm,
+    javascript,
+
+    pub fn match(file_name: []const u8) ?Mime {
+        if (mem.endsWith(u8, file_name, ".wasm.a")) return .wasm;
+        if (mem.endsWith(u8, file_name, ".wasm")) return .wasm;
+        if (mem.endsWith(u8, file_name, ".js")) return .javascript;
+        return null;
     }
 
-    fn onRequest(r: zap.Request) void {
-        r.setStatus(.not_found);
-        r.sendBody("Not found") catch {};
+    pub fn contentType(mime: Mime) []const u8 {
+        return switch (mime) {
+            .wasm => "application/wasm",
+            .javascript => "text/javascript",
+        };
     }
 };

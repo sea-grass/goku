@@ -32,7 +32,7 @@ pub const Docs = struct {
             .target = target,
             .optimize = optimize,
         });
-        exe.root_module.addImport("zap", b.dependency("zap", .{}).module("zap"));
+        exe.root_module.addImport("httpz", b.dependency("httpz", .{}).module("httpz"));
 
         const serve = b.addRunArtifact(exe);
         serve.addDirectoryArg(compile.getEmittedDocs());
@@ -104,6 +104,7 @@ pub fn build(b: *std.Build) void {
         .run = b.step("run", "Run the app"),
         .run_benchmark = b.step("run-benchmark", "Run the benchmark"),
         .site = b.step("site", "Build the Goku site"),
+        .serve_exe = b.step("serve_exe", "Build the Serve binary"),
         .serve = b.step("serve", "Serve the Goku site (for local previewing)"),
         .wasm_module = b.step("wasm-module", "Build the wasm module"),
         .@"test" = b.step("test", "Run unit tests"),
@@ -127,14 +128,13 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const clap = b.dependency("clap", .{ .target = target, .optimize = optimize });
-    const httpz = b.dependency("httpz", .{ .target = target, .optimize = optimize });
     const sqlite = b.dependency("sqlite", .{ .target = target, .optimize = optimize });
     const lucide = b.dependency("lucide", .{ .icons = bundled_lucide_icons });
     const bulma = b.dependency("bulma", .{});
     const htm = b.dependency("htm", .{});
     const vhtml = b.dependency("vhtml", .{});
     const htmx = b.dependency("htmx", .{});
-    const zap = b.dependency("zap", .{ .target = target, .optimize = optimize });
+    const httpz = b.dependency("httpz", .{ .target = target, .optimize = optimize });
 
     const c_mod = CModule.build(b, .{
         .md4c = b.dependency("md4c", .{}),
@@ -187,7 +187,6 @@ pub fn build(b: *std.Build) void {
     exe_unit_tests.root_module.addImport("htm", htm.module("htm"));
     exe_unit_tests.root_module.addImport("vhtml", vhtml.module("vhtml"));
     exe_unit_tests.root_module.addImport("sqlite", sqlite.module("sqlite"));
-    exe_unit_tests.root_module.addImport("zap", zap.module("zap"));
     exe_unit_tests.root_module.addImport("httpz", httpz.module("httpz"));
     exe_unit_tests.linkLibrary(sqlite.artifact("sqlite"));
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
@@ -224,8 +223,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    serve_exe.root_module.addImport("zap", zap.module("zap"));
+    serve_exe.root_module.addImport("httpz", httpz.module("httpz"));
     b.installArtifact(serve_exe);
+    build_steps.serve_exe.dependOn(&serve_exe.step);
+    // TODO I don't know how to get _only_ serve in the zig-out/bin dir when this build step is executed
+    build_steps.serve_exe.dependOn(b.getInstallStep());
 
     const serve_exe_check = b.addExecutable(.{
         .name = "serve-check",
@@ -233,7 +235,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    serve_exe_check.root_module.addImport("zap", zap.module("zap"));
+    serve_exe_check.root_module.addImport("httpz", httpz.module("httpz"));
     build_steps.check.dependOn(&serve_exe_check.step);
 
     const benchmark_site = buildBenchmarkSite(b);
