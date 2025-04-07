@@ -1,55 +1,85 @@
 //! The Goku CLI
-const clap = @import("clap");
-const debug = std.debug;
-const fmt = std.fmt;
-const fs = std.fs;
-const heap = std.heap;
-const io = std.io;
-const log = std.log.scoped(.goku);
-const mem = std.mem;
-const httpz = @import("httpz");
-const page = @import("page.zig");
-const process = std.process;
-const filesystem = @import("source/filesystem.zig");
-const scaffold = @import("scaffold.zig");
-const std = @import("std");
-const storage = @import("storage.zig");
-const testing = std.testing;
-const time = std.time;
-const Database = @import("Database.zig");
-const Site = @import("Site.zig");
+//!
+//! Commands:
+//! - init
+//! - build
+//! - preview
 
-pub fn main(unlimited_allocator: mem.Allocator) !void {
-    var iter = try process.ArgIterator.initWithAllocator(unlimited_allocator);
-    defer iter.deinit();
+pub fn printHelp() void {
+    const stderr = io.getStdErr().writer();
 
-    // skip exe name
-    _ = iter.next();
-
-    const command = SubCommand.parse(unlimited_allocator, &iter) catch |err| switch (err) {
-        error.MissingCommand => {
-            SubCommand.printHelp();
-            process.exit(1);
-        },
-        else => return err,
-    };
-
-    switch (command) {
-        .build => {
-            try BuildCommand.main(unlimited_allocator, &iter);
-        },
-        .help => {
-            SubCommand.printHelp();
-            process.exit(0);
-        },
-        .init => {
-            try initMain(unlimited_allocator, &iter);
-        },
-        .preview => {
-            try PreviewCommand.main(unlimited_allocator, &iter);
-        },
-    }
+    stderr.print(
+        "{s}",
+        .{standard_help},
+    ) catch {};
 }
+
+pub const Command = union(enum) {
+    build: Build,
+    help: void,
+    init: Init,
+    preview: Preview,
+
+    pub const Build = struct {
+        site_root: union(enum) {
+            absolute: []const u8,
+            relative: []const u8,
+        },
+        out_dir: []const u8 = "build",
+        url_prefix: ?[]const u8 = null,
+    };
+    pub const Init = struct {};
+    pub const Preview = struct {};
+
+    /// Assumes the exe name has already been consumed in the iterator
+    pub fn parse(args: *process.ArgIterator) !?Command {
+        const command = args.next() orelse return null;
+
+        if (mem.eql(u8, command, "build")) {
+            return try parseBuildArgs(args);
+        } else if (mem.eql(u8, command, "help")) {
+            return .help;
+        } else if (mem.eql(u8, command, "init")) {
+            @panic("TODO");
+            //return parseInitArgs(args);
+        } else if (mem.eql(u8, command, "preview")) {
+            @panic("TODO");
+            //return parsePreviewArgs(args);
+        }
+
+        return null;
+    }
+
+    pub fn parseBuildArgs(args: *process.ArgIterator) !Command {
+        var site_root: ?[]const u8 = null;
+        var out_dir: ?[]const u8 = null;
+        var url_prefix: ?[]const u8 = null;
+
+        while (args.next()) |arg| {
+            if (mem.eql(u8, arg, "-o")) {
+                if (out_dir != null) return error.TooManyArguments;
+                out_dir = args.next() orelse return error.MissingOutDir;
+            } else if (mem.eql(u8, arg, "-p")) {
+                if (url_prefix != null) return error.TooManyArguments;
+                url_prefix = args.next() orelse return error.MissingUrlPrefix;
+            } else {
+                if (site_root != null) return error.TooManyArguments;
+                site_root = arg;
+            }
+        }
+
+        if (site_root == null) return error.MissingSiteRoot;
+        var build: Build = .{
+            .site_root = if (fs.path.isAbsolute(site_root.?))
+                .{ .absolute = site_root.? }
+            else
+                .{ .relative = site_root.? },
+        };
+        if (out_dir) |path| build.out_dir = path;
+        if (url_prefix) |prefix| build.url_prefix = prefix;
+        return .{ .build = build };
+    }
+};
 
 const size_of_alice_txt = 1189000;
 
@@ -105,17 +135,6 @@ const SubCommand = enum {
 
         return res.positionals[0] orelse return error.MissingCommand;
     }
-
-    pub fn printHelp() void {
-        const stderr = io.getStdErr().writer();
-
-        stderr.print(
-            "{s}",
-            .{standard_help},
-        ) catch {};
-
-        clap.help(stderr, clap.Help, &main_params, .{}) catch {};
-    }
 };
 
 const PreviewCommand = struct {
@@ -143,7 +162,7 @@ const PreviewCommand = struct {
 
         const build = parse(unlimited_allocator, iter) catch |err| switch (err) {
             ParseError.Help => {
-                PreviewCommand.printHelp();
+                printHelp();
                 process.exit(0);
             },
             ParseError.MissingOutDir,
@@ -636,42 +655,6 @@ const PreviewCommand = struct {
     pub fn deinit(self: PreviewCommand) void {
         self.arena.deinit();
     }
-
-    const AbsolutePathOptions = struct {
-        // Make the directory if it does not exist
-        make: bool = false,
-    };
-    fn absolutePath(path: []const u8, buf: []u8, options: AbsolutePathOptions) ![]const u8 {
-        if (fs.path.isAbsolute(path)) {
-            if (options.make) {
-                fs.makeDirAbsolute(path) catch |err| switch (err) {
-                    error.PathAlreadyExists => {},
-                    else => return err,
-                };
-            }
-
-            return path;
-        }
-
-        const cwd = fs.cwd();
-
-        if (options.make) {
-            try cwd.makePath(path);
-        }
-
-        return try cwd.realpath(path, buf);
-    }
-
-    pub fn printHelp() void {
-        const stderr = io.getStdErr().writer();
-
-        stderr.print(
-            "{s}",
-            .{standard_help},
-        ) catch {};
-
-        clap.help(stderr, clap.Help, &params, .{}) catch {};
-    }
 };
 
 pub fn initMain(unlimited_allocator: mem.Allocator, iter: *process.ArgIterator) !void {
@@ -724,7 +707,6 @@ const BuildCommand = struct {
     );
 
     pub fn main(unlimited_allocator: mem.Allocator, iter: *process.ArgIterator) !void {
-        const start = time.milliTimestamp();
         log.info("mode {s}", .{@tagName(@import("builtin").mode)});
 
         //
@@ -733,7 +715,7 @@ const BuildCommand = struct {
 
         const build = parse(unlimited_allocator, iter) catch |err| switch (err) {
             ParseError.Help => {
-                BuildCommand.printHelp();
+                printHelp();
                 process.exit(0);
             },
             ParseError.MissingOutDir,
@@ -758,230 +740,6 @@ const BuildCommand = struct {
         log.info("Goku Build", .{});
         log.info("Site Root: {s}", .{build.site_root});
         log.info("Out Dir: {s}", .{build.out_dir});
-
-        var db = try Database.init(unlimited_allocator);
-        defer db.deinit();
-
-        try storage.Page.init(&db);
-        try storage.Template.init(&db);
-        try storage.Component.init(&db);
-
-        //
-        // INDEX SITE
-        //
-
-        var page_count: u32 = 0;
-
-        {
-            var page_it = filesystem.walker(build.site_root, "pages");
-            while (page_it.next() catch |err| switch (err) {
-                error.CannotOpenDirectory => {
-                    log.err("Cannot open pages dir at {s}/{s}.", .{ page_it.root, page_it.subpath });
-                    log.err("Suggestion: Create the directory {s}/{s}.", .{ page_it.root, page_it.subpath });
-                    return error.CannotOpenPagesDirectory;
-                },
-                else => return err,
-            }) |entry| {
-                const file = try entry.openFile();
-                defer file.close();
-
-                debug.assert(try file.getPos() == 0);
-                const length = try file.getEndPos();
-
-                // alice.txt is 148.57kb. I doubt I'll write a single markdown file
-                // longer than the entire Alice's Adventures in Wonderland.
-                debug.assert(length < size_of_alice_txt);
-
-                var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
-                const filepath = try entry.realpath(&filepath_buf);
-
-                const data = page.Data.fromReader(unlimited_allocator, file.reader(), size_of_alice_txt) catch |err| {
-                    switch (err) {
-                        error.MissingFrontmatter => {
-                            log.err("Malformed page in source file: {s}", .{filepath});
-                        },
-                        error.MissingSlug => {
-                            log.err("Page is missing required, non-empty frontmatter parameter: slug (source file: {s})", .{filepath});
-                        },
-                        error.MissingTitle => {
-                            log.err("Page is missing required, non-empty frontmatter parameter: title (source file: {s})", .{filepath});
-                        },
-                        error.MissingTemplate => {
-                            log.err("Page is missing required, non-empty frontmatter parameter: template (source file: {s})", .{filepath});
-                        },
-                        else => {},
-                    }
-
-                    return err;
-                };
-                defer data.deinit(unlimited_allocator);
-
-                try storage.Page.insert(
-                    &db,
-                    .{
-                        .slug = data.slug,
-                        .title = data.title orelse "(missing title)",
-                        .filepath = filepath,
-                        .template = data.template.?,
-                        .collection = data.collection orelse "",
-                        .date = data.date,
-                    },
-                );
-
-                page_count += 1;
-            }
-        }
-
-        var template_count: u32 = 0;
-
-        {
-            var template_it = filesystem.walker(build.site_root, "templates");
-            while (template_it.next() catch |err| switch (err) {
-                error.CannotOpenDirectory => {
-                    log.err("Cannot open templates dir at {s}/{s}.", .{ template_it.root, template_it.subpath });
-                    log.err("Suggestion: Create the directory {s}/{s}.", .{ template_it.root, template_it.subpath });
-                    return error.CannotOpenTemplatesDirectory;
-                },
-                else => return err,
-            }) |entry| {
-                const file = try entry.openFile();
-                defer file.close();
-
-                debug.assert(try file.getPos() == 0);
-                const length = try file.getEndPos();
-
-                // I don't think it makes sense to have an empty template file, right?
-                if (length == 0) {
-                    log.err("Template file cannot be empty. (template path: {s})", .{entry.subpath});
-                    return error.EmptyTemplate;
-                }
-
-                var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
-
-                try storage.Template.insert(
-                    &db,
-                    .{ .filepath = try entry.realpath(&filepath_buf) },
-                );
-
-                template_count += 1;
-            }
-
-            log.debug("Discovered template count {d}", .{template_count});
-        }
-
-        var component_count: u32 = 0;
-
-        {
-            var component_it = filesystem.walker(build.site_root, "components");
-            while (component_it.next() catch |err| switch (err) {
-                error.CannotOpenDirectory => {
-                    log.err("Cannot open components dir at {s}/{s}.", .{ component_it.root, component_it.subpath });
-                    return error.CannotOpenComponentsDirectory;
-                },
-                else => return err,
-            }) |entry| {
-                var filepath_buf: [fs.MAX_NAME_BYTES]u8 = undefined;
-
-                try storage.Component.insert(
-                    &db,
-                    .{
-                        .name = entry.subpath,
-                        .filepath = try entry.realpath(&filepath_buf),
-                    },
-                );
-
-                component_count += 1;
-            }
-        }
-
-        // SOME SITE VALIDATIONS
-
-        {
-            // Find all unique templates in pages
-            // Ensure each template exists as an entry in sqlite
-
-            const get_templates = .{
-                .stmt =
-                \\ SELECT DISTINCT template
-                \\ FROM pages
-                ,
-                .type = struct {
-                    template: []const u8,
-                },
-            };
-
-            var get_stmt = try db.db.prepare(get_templates.stmt);
-            defer get_stmt.deinit();
-
-            var it = try get_stmt.iterator(
-                get_templates.type,
-                .{},
-            );
-
-            var arena = heap.ArenaAllocator.init(unlimited_allocator);
-            defer arena.deinit();
-
-            while (try it.nextAlloc(arena.allocator(), .{})) |entry| {
-                const get_template = .{
-                    .stmt =
-                    \\ SELECT filepath
-                    \\ FROM templates
-                    \\ WHERE filepath = ?
-                    \\ LIMIT 1
-                    ,
-                    .type = struct {
-                        filepath: []const u8,
-                    },
-                };
-
-                var get_template_stmt = try db.db.prepare(get_template.stmt);
-                defer get_template_stmt.deinit();
-
-                var buf: [fs.max_path_bytes]u8 = undefined;
-                var fba = heap.FixedBufferAllocator.init(&buf);
-                const filepath = try fs.path.join(fba.allocator(), &.{
-                    build.site_root,
-                    "templates",
-                    entry.template,
-                });
-
-                const row = try get_template_stmt.oneAlloc(
-                    get_template.type,
-                    arena.allocator(),
-                    .{},
-                    .{
-                        .filepath = filepath,
-                    },
-                );
-
-                if (row == null) {
-                    log.err("The template ({s}) does not exist.", .{entry.template});
-                    return error.MissingTemplate;
-                }
-            }
-        }
-
-        //
-        // BUILD SITE
-        //
-
-        {
-            var out_dir = try fs.openDirAbsolute(build.out_dir, .{});
-            defer out_dir.close();
-
-            var site = Site.init(unlimited_allocator, &db, build.site_root, build.url_prefix);
-            defer site.deinit();
-
-            try site.write(.sitemap, out_dir);
-            try site.write(.assets, out_dir);
-            try site.write(.pages, out_dir);
-        }
-
-        log.info("Elapsed: {d}ms", .{time.milliTimestamp() - start});
-
-        // const assets_dir = try root_dir.openDir("assets");
-        // const partials_dir = try root_dir.openDir("partials");
-        // const themes_dir = try root_dir.openDir("themes");
     }
 
     pub const ParseError = error{
@@ -1058,40 +816,49 @@ const BuildCommand = struct {
     pub fn deinit(self: BuildCommand) void {
         self.arena.deinit();
     }
-
-    const AbsolutePathOptions = struct {
-        // Make the directory if it does not exist
-        make: bool = false,
-    };
-    fn absolutePath(path: []const u8, buf: []u8, options: AbsolutePathOptions) ![]const u8 {
-        if (fs.path.isAbsolute(path)) {
-            if (options.make) {
-                fs.makeDirAbsolute(path) catch |err| switch (err) {
-                    error.PathAlreadyExists => {},
-                    else => return err,
-                };
-            }
-
-            return path;
-        }
-
-        const cwd = fs.cwd();
-
-        if (options.make) {
-            try cwd.makePath(path);
-        }
-
-        return try cwd.realpath(path, buf);
-    }
-
-    pub fn printHelp() void {
-        const stderr = io.getStdErr().writer();
-
-        stderr.print(
-            "{s}",
-            .{standard_help},
-        ) catch {};
-
-        clap.help(stderr, clap.Help, &params, .{}) catch {};
-    }
 };
+
+const clap = @import("clap");
+const debug = std.debug;
+const fmt = std.fmt;
+const fs = std.fs;
+const heap = std.heap;
+const io = std.io;
+const log = std.log.scoped(.goku);
+const mem = std.mem;
+const httpz = @import("httpz");
+const page = @import("page.zig");
+const process = std.process;
+const filesystem = @import("source/filesystem.zig");
+const scaffold = @import("scaffold.zig");
+const std = @import("std");
+const storage = @import("storage.zig");
+const testing = std.testing;
+const time = std.time;
+const Database = @import("Database.zig");
+const Site = @import("Site.zig");
+
+const AbsolutePathOptions = struct {
+    // Make the directory if it does not exist
+    make: bool = false,
+};
+fn absolutePath(path: []const u8, buf: []u8, options: AbsolutePathOptions) ![]const u8 {
+    if (fs.path.isAbsolute(path)) {
+        if (options.make) {
+            fs.makeDirAbsolute(path) catch |err| switch (err) {
+                error.PathAlreadyExists => {},
+                else => return err,
+            };
+        }
+
+        return path;
+    }
+
+    const cwd = fs.cwd();
+
+    if (options.make) {
+        try cwd.makePath(path);
+    }
+
+    return try cwd.realpath(path, buf);
+}

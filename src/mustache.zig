@@ -814,6 +814,7 @@ fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype,
                 if (!result.found_existing) {
                     const str = c.JS_ToCString(ctx, style);
                     defer c.JS_FreeCString(ctx, str);
+                    log.info("[[{s}]]", .{str});
                     result.value_ptr.* = try allocator.dupe(u8, mem.span(str));
                 }
             },

@@ -1,4 +1,4 @@
-pub const Goku = @import("src/Goku.zig");
+pub const Goku = @import("src/build/Goku.zig");
 
 const debug = std.debug;
 const std = @import("std");

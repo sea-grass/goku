@@ -96,17 +96,88 @@ pub fn init(
     database: *Database,
     site_root: []const u8,
     url_prefix: ?[]const u8,
-) Site {
-    return .{
+) !Site {
+    const site: Site = .{
         .allocator = allocator,
         .db = database,
         .site_root = site_root,
         .url_prefix = url_prefix,
     };
+
+    try site.validate();
+
+    return site;
 }
 
 pub fn deinit(self: Site) void {
     _ = self;
+}
+
+pub fn validate(self: Site) !void {
+    // Find all unique templates in pages
+    // Ensure each template exists as an entry in sqlite
+
+    const get_templates = .{
+        .stmt =
+        \\ SELECT DISTINCT template
+        \\ FROM pages
+        ,
+        .type = struct {
+            template: []const u8,
+        },
+    };
+
+    var get_stmt = try self.db.db.prepare(get_templates.stmt);
+    defer get_stmt.deinit();
+
+    var it = try get_stmt.iterator(
+        get_templates.type,
+        .{},
+    );
+
+    var arena = heap.ArenaAllocator.init(self.allocator);
+    defer arena.deinit();
+
+    while (try it.nextAlloc(arena.allocator(), .{})) |entry| {
+        const get_template = .{
+            .stmt =
+            \\ SELECT filepath
+            \\ FROM templates
+            \\ WHERE filepath = ?
+            \\ LIMIT 1
+            ,
+            .type = struct {
+                filepath: []const u8,
+            },
+        };
+
+        var get_template_stmt = try self.db.db.prepare(get_template.stmt);
+        defer get_template_stmt.deinit();
+
+        var buf: [fs.max_path_bytes]u8 = undefined;
+        var fba = heap.FixedBufferAllocator.init(&buf);
+        const filepath = try fs.path.join(fba.allocator(), &.{
+            self.site_root,
+            "templates",
+            entry.template,
+        });
+
+        log.info("path: {s}", .{filepath});
+
+        const row = try get_template_stmt.oneAlloc(
+            get_template.type,
+            arena.allocator(),
+            .{},
+            .{
+                .filepath = filepath,
+            },
+        );
+
+        if (row == null) {
+            log.err("The template ({s}) does not exist.", .{entry.template});
+            return error.MissingTemplate;
+        }
+    }
 }
 
 pub fn write(
