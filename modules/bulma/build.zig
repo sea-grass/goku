@@ -19,6 +19,7 @@ pub fn build(b: *std.Build) !void {
             \\    .css = @embedFile("css/bulma.min.css"),
             \\    .map = @embedFile("css/bulma.css.map"),
             \\};
+            \\
             ,
         ),
     });

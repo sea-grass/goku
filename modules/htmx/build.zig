@@ -18,6 +18,7 @@ pub fn build(b: *std.Build) !void {
             \\pub const min = .{
             \\    .js = @embedFile("dist/htmx.min.js"),
             \\};
+            \\
             ,
         ),
     });
