@@ -25,6 +25,10 @@
         },
         .vhtml = .{ .path = "./modules/vhtml" },
         .yaml = .{ .path = "./modules/yaml" },
+        .serve = .{
+            .url = "git+https://github.com/sea-grass/serve?ref=main#a6822a7427fe03ef64406d31cbfda796c6d1da7f",
+            .hash = "serve-0.0.1-LyESynYVAADMd4mawOoPHzdYiDE8zgumIwzrICXxiO5A",
+        },
     },
     .paths = .{
         "build.zig",

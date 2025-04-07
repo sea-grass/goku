@@ -23,18 +23,6 @@ pub fn build(
     return run_goku;
 }
 
-pub fn serve(
-    goku_dep: *std.Build.Dependency,
-    public_path: std.Build.LazyPath,
-) *std.Build.Step.Run {
-    const b = goku_dep.builder;
-    const serve_site = b.addRunArtifact(goku_dep.artifact("serve"));
-
-    serve_site.addDirectoryArg(public_path);
-
-    return serve_site;
-}
-
 pub fn copyStatic(
     goku_dep: *std.Build.Dependency,
     static_path: std.Build.LazyPath,

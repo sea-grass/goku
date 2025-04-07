@@ -16,7 +16,6 @@ pub const httpz = @import("httpz");
 //pub const htm = @import("htm");
 
 pub const main = @import("main.zig");
-pub const serve = @import("serve.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());
