@@ -27,6 +27,9 @@ pub fn main() !void {
         .build => |args| {
             try goku.build(unlimited_allocator, args);
         },
+        .preview => |args| {
+            try goku.preview(unlimited_allocator, args);
+        },
         else => {
             std.log.info("Some other command", .{});
         },
