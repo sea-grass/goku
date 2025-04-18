@@ -25,6 +25,7 @@ pub fn build(unlimited_allocator: mem.Allocator, args: cli.Command.Build) !void 
     try site.write(.sitemap, out_dir);
     try site.write(.assets, out_dir);
     try site.write(.pages, out_dir);
+    try site.write(.component_assets, out_dir);
 
     log.info("Elapsed: {d}ms", .{time.milliTimestamp() - start});
 
@@ -58,6 +59,7 @@ pub fn preview(unlimited_allocator: mem.Allocator, args: cli.Command.Preview) !v
     try site.write(.sitemap, out_dir);
     try site.write(.assets, out_dir);
     try site.write(.pages, out_dir);
+    try site.write(.component_assets, out_dir);
 
     const context: PreviewServer.Context = .{ .site = &site, .out_dir = args.out_dir };
     const config: PreviewServer.Config = .{

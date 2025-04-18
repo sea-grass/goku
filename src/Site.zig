@@ -24,6 +24,12 @@ site_root: []const u8,
 url_prefix: ?[]const u8,
 allocator: mem.Allocator,
 db: *Database,
+component_assets: *ComponentAssets,
+
+pub const ComponentAssets = struct {
+    style_map: std.StringHashMap([]const u8),
+    script_map: std.StringHashMap([]const u8),
+};
 
 const Site = @This();
 
@@ -97,11 +103,23 @@ pub fn init(
     site_root: []const u8,
     url_prefix: ?[]const u8,
 ) !Site {
+    const component_assets = try allocator.create(ComponentAssets);
+    errdefer allocator.destroy(component_assets);
+    component_assets.* = .{
+        .script_map = .init(allocator),
+        .style_map = .init(allocator),
+    };
+    errdefer {
+        component_assets.script_map.deinit();
+        component_assets.style_map.deinit();
+    }
+
     const site: Site = .{
         .allocator = allocator,
         .db = database,
         .site_root = site_root,
         .url_prefix = url_prefix,
+        .component_assets = component_assets,
     };
 
     try site.validate();
@@ -110,7 +128,25 @@ pub fn init(
 }
 
 pub fn deinit(self: Site) void {
-    _ = self;
+    // In mustache render we use the style_map allocator to allocate the values...
+    // This should be made less tightly coupled in the future.
+    {
+        var it = self.component_assets.style_map.valueIterator();
+        while (it.next()) |entry| {
+            self.component_assets.style_map.allocator.free(entry.*);
+        }
+    }
+    self.component_assets.style_map.deinit();
+    // In mustache render we use the script_map allocator to allocate the values...
+    // This should be made less tightly coupled in the future.
+    {
+        var it = self.component_assets.script_map.valueIterator();
+        while (it.next()) |entry| {
+            self.component_assets.script_map.allocator.free(entry.*);
+        }
+    }
+    self.component_assets.script_map.deinit();
+    self.allocator.destroy(self.component_assets);
 }
 
 pub fn validate(self: Site) !void {
@@ -182,13 +218,14 @@ pub fn validate(self: Site) !void {
 
 pub fn write(
     self: Site,
-    part: enum { sitemap, assets, pages },
+    part: enum { sitemap, assets, pages, component_assets },
     out_dir: fs.Dir,
 ) !void {
     switch (part) {
         .sitemap => try writeSitemap(self, out_dir),
         .assets => try writeAssets(out_dir),
         .pages => try writePages(self, out_dir),
+        .component_assets => try writeComponentAssets(self, out_dir),
     }
 }
 
@@ -240,6 +277,7 @@ fn writePages(self: Site, out_dir: fs.Dir) !void {
         try _render(
             batch_allocator.allocator(),
             self.db,
+            self.component_assets,
             self.url_prefix,
             self.site_root,
             entry.filepath,
@@ -247,6 +285,48 @@ fn writePages(self: Site, out_dir: fs.Dir) !void {
             .wants_content,
             out_dir,
         );
+    }
+}
+
+fn writeComponentAssets(self: Site, out_dir: fs.Dir) !void {
+    log.debug("Css file write", .{});
+    {
+        var css_file = try out_dir.createFile("component.css", .{});
+        defer css_file.close();
+        const file_writer = css_file.writer();
+        log.debug("Css file open", .{});
+
+        if (self.component_assets.style_map.count() > 0) {
+            log.debug("Css entries to write", .{});
+            var it = self.component_assets.style_map.valueIterator();
+            while (it.next()) |value_ptr| {
+                log.debug("Css entry to write", .{});
+                const chunk = value_ptr.*;
+                try file_writer.print("{s}", .{chunk});
+            }
+        }
+    }
+
+    log.info("Js file write", .{});
+    {
+        var js_file = try out_dir.createFile("component.js", .{});
+        defer js_file.close();
+        const file_writer = js_file.writer();
+
+        if (self.component_assets.script_map.count() > 0) {
+            var it = self.component_assets.script_map.valueIterator();
+            while (it.next()) |value_ptr| {
+                const chunk = value_ptr.*;
+                try file_writer.print(
+                    \\;(function() {{
+                    \\  'use strict';
+                    \\{[script_body]s}
+                    \\}}())
+                ,
+                    .{ .script_body = chunk },
+                );
+            }
+        }
     }
 }
 
@@ -259,6 +339,7 @@ fn writePages(self: Site, out_dir: fs.Dir) !void {
 fn _render(
     ally: mem.Allocator,
     db: *Database,
+    component_assets: *ComponentAssets,
     url_prefix: ?[]const u8,
     site_root: []const u8,
     filepath: []const u8,
@@ -340,14 +421,6 @@ fn _render(
 
     var html_buffer = io.bufferedWriter(file.writer());
 
-    const component_css_file = try out_dir.createFile("component.css", .{});
-    defer component_css_file.close();
-    var styles_buffer = io.bufferedWriter(component_css_file.writer());
-
-    const component_js_file = try out_dir.createFile("component.js", .{});
-    defer component_js_file.close();
-    var scripts_buffer = io.bufferedWriter(component_js_file.writer());
-
     // Load the template from the filesystem
     const template = template: {
         if (data.template) |t| {
@@ -377,16 +450,13 @@ fn _render(
         p,
         .{ .bytes = template },
         db,
+        component_assets,
         url_prefix,
         wants,
         html_buffer.writer(),
-        styles_buffer.writer(),
-        scripts_buffer.writer(),
     );
 
     try html_buffer.flush();
-    try styles_buffer.flush();
-    try scripts_buffer.flush();
 }
 
 // TODO actual needs don't reflect this initial design. Simplify.
@@ -495,11 +565,10 @@ pub fn dispatch(site: *Site, slug: []const u8, writer: anytype, styles_writer: a
                     p,
                     .{ .bytes = template },
                     db,
+                    site.component_assets,
                     url_prefix,
                     options.wants,
                     html_buffer.writer(),
-                    styles_buffer.writer(),
-                    scripts_buffer.writer(),
                 ) catch return DispatchError.RenderError;
             },
         }
@@ -520,17 +589,10 @@ fn renderPage(
     p: page.Page,
     tmpl: TemplateOption,
     db: *Database,
+    component_assets: *ComponentAssets,
     url_prefix: ?[]const u8,
     wants: DispatchWants,
     writer: anytype,
-    /// Any dependent CSS will be written to this writer. It is assumed
-    /// that this will be written to a file that may be referenced by
-    /// the rendered page.
-    styles_writer: anytype,
-    /// Any dependent script will be written to this writer. It is assumed
-    /// that this will be written to a file that may be referenced by
-    /// the rendered page.
-    scripts_writer: anytype,
 ) !void {
     const wants2 = e: switch (wants) {
         .wants_raw => unreachable,
@@ -556,10 +618,9 @@ fn renderPage(
                 .db = db,
                 .data = meta,
                 .site_root = url_prefix orelse "",
+                .component_assets = component_assets,
             },
             buf.writer(),
-            styles_writer,
-            scripts_writer,
         );
         break :content try buf.toOwnedSlice();
     } else p.markdown.content;
@@ -594,10 +655,9 @@ fn renderPage(
             .data = meta,
             .content = content_buf.items,
             .site_root = url_prefix orelse "",
+            .component_assets = component_assets,
         },
         writer,
-        styles_writer,
-        scripts_writer,
     );
 }
 
