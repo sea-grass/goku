@@ -265,16 +265,7 @@ fn MustacheWriterType(comptime UserContext: type) type {
         arena: mem.Allocator,
         context: GetHandle,
         writer: io.AnyWriter,
-        /// When rendering components, a component may provide a CSS string
-        /// that should be included on the page. We keep a hash map of
-        /// component name to CSS string and then write them all
-        /// once we process all of the content.
-        style_buf: *std.StringHashMap([]const u8),
-        /// When rendering components, a component may provide a script string
-        /// that should be included on the page. We keep a hash map of
-        /// component name to JS string and then write them all
-        /// once we process all of the content.
-        script_buf: *std.StringHashMap([]const u8),
+        component_assets: *ComponentAssets,
 
         pub fn init(
             arena: mem.Allocator,
@@ -285,8 +276,7 @@ fn MustacheWriterType(comptime UserContext: type) type {
                 .arena = arena,
                 .context = .{ .user_context = user_context },
                 .writer = writer,
-                .style_buf = &user_context.component_assets.style_map,
-                .script_buf = &user_context.component_assets.style_map,
+                .component_assets = user_context.component_assets,
             };
         }
 
@@ -563,8 +553,7 @@ fn MustacheWriterType(comptime UserContext: type) type {
                         ctx.arena,
                         script,
                         buf.writer(),
-                        ctx.style_buf,
-                        ctx.script_buf,
+                        ctx.component_assets,
                         .{
                             .site_root = ctx.context.user_context.site_root,
                         },
@@ -676,7 +665,13 @@ const RenderComponentModel = struct {
 /// The style string, if present, will be stored in a hash map, keyed by the component source.
 ///
 /// NOTE: renderComponent MUST write to the writer.
-fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype, style_buf: *std.StringHashMap([]const u8), script_buf: *std.StringHashMap([]const u8), model: RenderComponentModel) !void {
+fn renderComponent(
+    allocator: mem.Allocator,
+    src: [:0]const u8,
+    writer: anytype,
+    component_assets: *ComponentAssets,
+    model: RenderComponentModel,
+) !void {
     const rt = c.JS_NewRuntime() orelse return error.CannotAllocateJSRuntime;
     defer c.JS_FreeRuntime(rt);
     c.JS_SetMemoryLimit(rt, 0x100000);
@@ -769,54 +764,49 @@ fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype,
         }
     }
 
-    {
+    style: {
         const style = c.JS_GetPropertyStr(ctx, global_object, "style");
         defer c.JS_FreeValue(ctx, style);
-        log.info("style here? {d}", .{style.tag});
+
         switch (style.tag) {
             c.JS_TAG_EXCEPTION => try handleException(ctx),
             c.JS_TAG_STRING => {
-                log.debug("Gonna try to see if there's a style for the src", .{});
-                log.debug("[[{s}]]", .{src});
-                const x = style_buf.get(src);
-                if (x) |existing| {
-                    _ = existing;
-                    log.debug("Found existing!", .{});
-                    //if (true) @panic("boop");
-                } else {
-                    log.debug("Didn't find existing", .{});
-                    //if (true) @panic("boop");
-                }
-                if (true) {
-                    const result = try style_buf.getOrPut(src);
-                    if (!result.found_existing) {
-                        const str = c.JS_ToCString(ctx, style);
-                        defer c.JS_FreeCString(ctx, str);
-                        log.info("[[{s}]]", .{str});
-                        // TODO find better way of persisting these strings beyond page build
-                        result.value_ptr.* = try style_buf.allocator.dupe(u8, mem.span(str));
-                    }
-                }
+                const result = try component_assets.style_map.getOrPut(component_assets.arena.allocator(), src);
+
+                if (result.found_existing) break :style;
+
+                const str = c.JS_ToCString(ctx, style);
+                defer c.JS_FreeCString(ctx, str);
+
+                const value: []const u8 = try component_assets.arena.allocator().dupe(
+                    u8,
+                    mem.span(str),
+                );
+                result.value_ptr.* = value;
             },
             else => {},
         }
     }
 
-    {
+    script: {
         const script = c.JS_GetPropertyStr(ctx, global_object, "script");
         defer c.JS_FreeValue(ctx, script);
-        log.info("script here? {d}", .{script.tag});
+
         switch (script.tag) {
             c.JS_TAG_EXCEPTION => try handleException(ctx),
             c.JS_TAG_STRING => {
-                const result = try script_buf.getOrPut(src);
-                if (!result.found_existing) {
-                    const str = c.JS_ToCString(ctx, script);
-                    defer c.JS_FreeCString(ctx, str);
-                    log.info("JS! {s}", .{str});
-                    // TODO find better way of persisting these strings beyond page build
-                    result.value_ptr.* = try script_buf.allocator.dupe(u8, mem.span(str));
-                }
+                const result = try component_assets.script_map.getOrPut(component_assets.arena.allocator(), src);
+
+                if (result.found_existing) break :script;
+
+                const str = c.JS_ToCString(ctx, script);
+                defer c.JS_FreeCString(ctx, str);
+                const value = try component_assets.arena.allocator().dupe(
+                    u8,
+                    mem.span(str),
+                );
+
+                result.value_ptr.* = value;
             },
             else => {},
         }

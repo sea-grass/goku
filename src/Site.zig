@@ -27,8 +27,33 @@ db: *Database,
 component_assets: *ComponentAssets,
 
 pub const ComponentAssets = struct {
-    style_map: std.StringHashMap([]const u8),
-    script_map: std.StringHashMap([]const u8),
+    arena: *heap.ArenaAllocator,
+    style_map: std.StringArrayHashMapUnmanaged([]const u8),
+    script_map: std.StringArrayHashMapUnmanaged([]const u8),
+
+    pub fn init(allocator: mem.Allocator, db: *Database) !ComponentAssets {
+        const arena = try allocator.create(heap.ArenaAllocator);
+        arena.* = .init(allocator);
+        _ = db;
+
+        return .{
+            .arena = arena,
+            .style_map = .empty,
+            .script_map = .empty,
+        };
+    }
+
+    pub fn deinit(self: *ComponentAssets) void {
+        const allocator = self.arena.*.child_allocator;
+        self.arena.deinit();
+        allocator.destroy(self.arena);
+        self.* = undefined;
+    }
+
+    fn getNumComponents(db: *Database) !usize {
+        var stmt = try db.db.prepare("SELECT count(*) FROM components;");
+        defer stmt.deinit();
+    }
 };
 
 const Site = @This();
@@ -105,14 +130,8 @@ pub fn init(
 ) !Site {
     const component_assets = try allocator.create(ComponentAssets);
     errdefer allocator.destroy(component_assets);
-    component_assets.* = .{
-        .script_map = .init(allocator),
-        .style_map = .init(allocator),
-    };
-    errdefer {
-        component_assets.script_map.deinit();
-        component_assets.style_map.deinit();
-    }
+    component_assets.* = try .init(allocator, database);
+    errdefer component_assets.deinit();
 
     const site: Site = .{
         .allocator = allocator,
@@ -128,24 +147,7 @@ pub fn init(
 }
 
 pub fn deinit(self: Site) void {
-    // In mustache render we use the style_map allocator to allocate the values...
-    // This should be made less tightly coupled in the future.
-    {
-        var it = self.component_assets.style_map.valueIterator();
-        while (it.next()) |entry| {
-            self.component_assets.style_map.allocator.free(entry.*);
-        }
-    }
-    self.component_assets.style_map.deinit();
-    // In mustache render we use the script_map allocator to allocate the values...
-    // This should be made less tightly coupled in the future.
-    {
-        var it = self.component_assets.script_map.valueIterator();
-        while (it.next()) |entry| {
-            self.component_assets.script_map.allocator.free(entry.*);
-        }
-    }
-    self.component_assets.script_map.deinit();
+    self.component_assets.deinit();
     self.allocator.destroy(self.component_assets);
 }
 
@@ -298,10 +300,8 @@ fn writeComponentAssets(self: Site, out_dir: fs.Dir) !void {
 
         if (self.component_assets.style_map.count() > 0) {
             log.debug("Css entries to write", .{});
-            var it = self.component_assets.style_map.valueIterator();
-            while (it.next()) |value_ptr| {
+            for (self.component_assets.style_map.values()) |chunk| {
                 log.debug("Css entry to write", .{});
-                const chunk = value_ptr.*;
                 try file_writer.print("{s}", .{chunk});
             }
         }
@@ -314,9 +314,7 @@ fn writeComponentAssets(self: Site, out_dir: fs.Dir) !void {
         const file_writer = js_file.writer();
 
         if (self.component_assets.script_map.count() > 0) {
-            var it = self.component_assets.script_map.valueIterator();
-            while (it.next()) |value_ptr| {
-                const chunk = value_ptr.*;
+            for (self.component_assets.script_map.values()) |chunk| {
                 try file_writer.print(
                     \\;(function() {{
                     \\  'use strict';
