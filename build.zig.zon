@@ -18,7 +18,6 @@
         .lucide = .{ .path = "./modules/lucide" },
         .md4c = .{ .path = "./modules/md4c" },
         .mustach = .{ .path = "./modules/mustach" },
-        .quickjs = .{ .path = "./modules/quickjs" },
         .sqlite = .{
             .url = "git+https://github.com/vrischmann/zig-sqlite?ref=master#59c06617d5b86546c0c739e73ae01d3965dbe8ce",
             .hash = "sqlite-3.48.0-F2R_a_uGDgCfOH5UEJYjuOCe-HixnLjToxOdEGAEM3xk",
@@ -28,6 +27,10 @@
         .serve = .{
             .url = "git+https://github.com/sea-grass/serve?ref=main#a6822a7427fe03ef64406d31cbfda796c6d1da7f",
             .hash = "serve-0.0.1-LyESynYVAADMd4mawOoPHzdYiDE8zgumIwzrICXxiO5A",
+        },
+        .quickjs = .{
+            .url = "git+https://github.com/sea-grass/quickjs-zig?ref=main#b6284947a7d9ce45ad78b5778df2e9e93ff16ce8",
+            .hash = "quickjs-0.0.0-h7npNw4HAADzhLcIm9aLQ1uC9xOOqw-x0p13W_YyjzUc",
         },
     },
     .paths = .{
