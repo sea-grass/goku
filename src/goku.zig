@@ -316,7 +316,7 @@ fn indexPages(unlimited_allocator: mem.Allocator, site_root: []const u8, db: *Da
         page_count += 1;
     }
 
-    log.debug("Page Count: {d}", .{page_count});
+    log.info("Page Count: {d}", .{page_count});
 }
 
 fn indexTemplates(site_root: []const u8, db: *Database) !void {
@@ -354,7 +354,7 @@ fn indexTemplates(site_root: []const u8, db: *Database) !void {
         template_count += 1;
     }
 
-    log.debug("Template Count: {d}", .{template_count});
+    log.info("Template Count: {d}", .{template_count});
 }
 
 fn indexComponents(site_root: []const u8, db: *Database) !void {
@@ -382,7 +382,7 @@ fn indexComponents(site_root: []const u8, db: *Database) !void {
         component_count += 1;
     }
 
-    log.debug("Component Count: {d}", .{component_count});
+    log.info("Component Count: {d}", .{component_count});
 }
 
 const std = @import("std");

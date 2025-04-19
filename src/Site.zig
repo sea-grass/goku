@@ -200,8 +200,6 @@ pub fn validate(self: Site) !void {
             entry.template,
         });
 
-        log.info("path: {s}", .{filepath});
-
         const row = try get_template_stmt.oneAlloc(
             get_template.type,
             arena.allocator(),
@@ -291,27 +289,26 @@ fn writePages(self: Site, out_dir: fs.Dir) !void {
 }
 
 fn writeComponentAssets(self: Site, out_dir: fs.Dir) !void {
-    log.debug("Css file write", .{});
     {
         var css_file = try out_dir.createFile("component.css", .{});
         defer css_file.close();
         const file_writer = css_file.writer();
-        log.debug("Css file open", .{});
+
+        log.info("Write component.css", .{});
 
         if (self.component_assets.style_map.count() > 0) {
-            log.debug("Css entries to write", .{});
             for (self.component_assets.style_map.values()) |chunk| {
-                log.debug("Css entry to write", .{});
                 try file_writer.print("{s}", .{chunk});
             }
         }
     }
 
-    log.info("Js file write", .{});
     {
         var js_file = try out_dir.createFile("component.js", .{});
         defer js_file.close();
         const file_writer = js_file.writer();
+
+        log.info("Write component.js", .{});
 
         if (self.component_assets.script_map.count() > 0) {
             for (self.component_assets.script_map.values()) |chunk| {
@@ -600,8 +597,8 @@ fn renderPage(
     const meta = try p.data(allocator);
     defer meta.deinit(allocator);
 
-    log.debug(
-        "rendering ({s})[{s}]",
+    log.info(
+        "Render ({s})[{s}]",
         .{ meta.title.?, meta.slug },
     );
 
