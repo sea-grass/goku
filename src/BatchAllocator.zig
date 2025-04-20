@@ -11,8 +11,6 @@ const testing = std.testing;
 const BatchAllocator = @This();
 
 const State = union(enum) {
-    pub const Enum = @typeInfo(State).@"union".tag_type.?;
-
     init: struct {
         arena: heap.ArenaAllocator,
     },
@@ -29,7 +27,7 @@ pub fn init(ally: mem.Allocator) BatchAllocator {
     return .{
         .state = .{
             .init = .{
-                .arena = heap.ArenaAllocator.init(ally),
+                .arena = .init(ally),
             },
         },
     };
@@ -78,7 +76,7 @@ pub fn allocator(self: *BatchAllocator) mem.Allocator {
             self.state = .{
                 .live = .{
                     .arena = self.state.init.arena,
-                    .curr = heap.ArenaAllocator.init(self.state.init.arena.allocator()),
+                    .curr = .init(self.state.init.arena.allocator()),
                 },
             };
         },
@@ -97,7 +95,7 @@ test BatchAllocator {
     const workload_size = 10;
 
     for (0..workload_size) |i| {
-        var buf = std.ArrayList(u8).init(batch_allocator.allocator());
+        var buf: std.ArrayList(u8) = .init(batch_allocator.allocator());
         defer buf.deinit();
 
         try buf.writer().print("Work item {d}", .{i});
@@ -106,7 +104,7 @@ test BatchAllocator {
 
         try testing.expectEqual(
             .init,
-            @as(State.Enum, batch_allocator.state),
+            @as(@typeInfo(State).@"union".tag_type.?, batch_allocator.state),
         );
     }
 
@@ -114,6 +112,6 @@ test BatchAllocator {
 
     try testing.expectEqual(
         .closed,
-        @as(State.Enum, batch_allocator.state),
+        @as(@typeInfo(State).@"union".tag_type.?, batch_allocator.state),
     );
 }

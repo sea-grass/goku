@@ -45,7 +45,6 @@ fn copyDirContentsHandle(from_dir: fs.Dir, to_dir: fs.Dir) !void {
         switch (entry.kind) {
             .file => {
                 try from_dir.copyFile(entry.name, to_dir, entry.name, .{});
-                std.log.info("entry {s}", .{entry.name});
             },
             .directory => {
                 var dir = try from_dir.openDir(entry.name, .{ .iterate = true });

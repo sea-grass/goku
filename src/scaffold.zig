@@ -1,11 +1,11 @@
 const fs = @import("std").fs;
 
 pub fn check(dir: *fs.Dir) !void {
-    if (try exists(dir, "build.zig") or
-        try exists(dir, "build.zig.zon") or
-        try exists(dir, ".gitignore") or
+    if (try exists(dir, ".gitignore") or
         try exists(dir, "pages") or
-        try exists(dir, "templates"))
+        try exists(dir, "templates") or
+        try exists(dir, "components") or
+        try exists(dir, "build"))
     {
         return error.DirectoryNotEmpty;
     }
@@ -13,8 +13,6 @@ pub fn check(dir: *fs.Dir) !void {
 
 pub fn write(dir: *fs.Dir) !void {
     inline for (&.{
-        "build.zig",
-        "build.zig.zon",
         ".gitignore",
     }) |sub_path| {
         try dir.writeFile(.{
@@ -42,6 +40,18 @@ pub fn write(dir: *fs.Dir) !void {
             .data = @embedFile("scaffold/site_template/templates/page.html"),
         });
     }
+
+    {
+        var components_dir = try dir.makeOpenPath("components", .{});
+        defer components_dir.close();
+
+        try components_dir.writeFile(.{
+            .sub_path = "button.js",
+            .data = @embedFile("scaffold/site_template/components/button.js"),
+        });
+    }
+
+    try dir.makeDir("build");
 }
 
 fn exists(dir: *fs.Dir, sub_path: []const u8) !bool {

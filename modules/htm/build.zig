@@ -12,6 +12,7 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = wf.add(
             "root.zig",
             \\pub const mjs = @embedFile("htm.mjs");
+            \\
             ,
         ),
     });
