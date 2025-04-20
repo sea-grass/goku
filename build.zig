@@ -30,7 +30,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const clap = b.dependency("clap", .{ .target = target, .optimize = optimize });
     const sqlite = b.dependency("sqlite", .{ .target = target, .optimize = optimize });
     const lucide = b.dependency("lucide", .{ .icons = bundled_lucide_icons });
     const bulma = b.dependency("bulma", .{});
@@ -55,7 +54,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     exe.root_module.addImport("c", c_mod);
-    exe.root_module.addImport("clap", clap.module("clap"));
     exe.root_module.addImport("sqlite", sqlite.module("sqlite"));
     exe.root_module.addImport("lucide", lucide.module("lucide"));
     exe.root_module.addImport("bulma", bulma.module("bulma"));
@@ -77,7 +75,6 @@ pub fn build(b: *std.Build) void {
     });
     exe_unit_tests.root_module.addImport("bulma", bulma.module("bulma"));
     exe_unit_tests.root_module.addImport("c", c_mod);
-    exe_unit_tests.root_module.addImport("clap", clap.module("clap"));
     exe_unit_tests.root_module.addImport("htmx", htmx.module("htmx"));
     exe_unit_tests.root_module.addImport("lucide", lucide.module("lucide"));
     exe_unit_tests.root_module.addImport("htm", htm.module("htm"));
@@ -105,7 +102,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     exe_check.root_module.addImport("c", c_mod);
-    exe_check.root_module.addImport("clap", clap.module("clap"));
     exe_check.root_module.addImport("sqlite", sqlite.module("sqlite"));
     exe_check.root_module.addImport("lucide", lucide.module("lucide"));
     exe_check.root_module.addImport("bulma", bulma.module("bulma"));

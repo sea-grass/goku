@@ -94,6 +94,7 @@ const PreviewServer = struct {
 
         const query = try req.query();
         log.info("{d}", .{query.len});
+
         const config: Site.DispatchWants = wants: {
             for (query.keys) |query_key| {
                 if (mem.eql(u8, query_key, "editor")) {
@@ -102,6 +103,7 @@ const PreviewServer = struct {
                     break :wants .wants_raw;
                 }
             }
+
             break :wants .wants_content;
         };
 
