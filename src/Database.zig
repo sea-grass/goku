@@ -13,7 +13,7 @@ db: sqlite.Db,
 const Database = @This();
 
 pub fn init(allocator: mem.Allocator) !Database {
-    var db = try sqlite.Db.init(.{
+    var db: sqlite.Db = try .init(.{
         .mode = .Memory,
         .open_flags = .{ .write = true, .create = true },
         .threading_mode = .SingleThread,

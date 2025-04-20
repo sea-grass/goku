@@ -1,15 +1,11 @@
 .{
     .name = .goku,
-    .version = "0.0.7",
+    .version = "0.0.8",
     .fingerprint = 0x6258ab6458a3c4a3,
     .dependencies = .{
         .httpz = .{
             .url = "git+https://github.com/sea-grass/http.zig?ref=new-dependency-hash-format#bb30e7ea1d51f091e6883503e8b69937fa9f7287",
             .hash = "httpz-0.0.0-PNVzrK6uBgBYP4D-QGrd_g1A6ZS86NQcLJZEPZyRFFoH",
-        },
-        .clap = .{
-            .url = "git+https://github.com/Hejsil/zig-clap?ref=master#e47028deaefc2fb396d3d9e9f7bd776ae0b2a43a",
-            .hash = "clap-0.10.0-oBajB434AQBDh-Ei3YtoKIRxZacVPF1iSwp3IX_ZB8f0",
         },
         .custom_test_runner = .{ .path = "./modules/custom-test-runner" },
         .bulma = .{ .path = "./modules/bulma" },
@@ -18,16 +14,19 @@
         .lucide = .{ .path = "./modules/lucide" },
         .md4c = .{ .path = "./modules/md4c" },
         .mustach = .{ .path = "./modules/mustach" },
-        .quickjs = .{ .path = "./modules/quickjs" },
         .sqlite = .{
             .url = "git+https://github.com/vrischmann/zig-sqlite?ref=master#59c06617d5b86546c0c739e73ae01d3965dbe8ce",
             .hash = "sqlite-3.48.0-F2R_a_uGDgCfOH5UEJYjuOCe-HixnLjToxOdEGAEM3xk",
         },
         .vhtml = .{ .path = "./modules/vhtml" },
         .yaml = .{ .path = "./modules/yaml" },
-        .zap = .{
-            .url = "git+https://github.com/zigzap/zap?ref=master#3b06a336ef27e5ffe04075109d67e309b83a337a",
-            .hash = "zap-0.9.1-GoeB856uIwDAc9I-e5Pp83lKXBIhSXAiB8Cd5NYoP0D7",
+        .serve = .{
+            .url = "git+https://github.com/sea-grass/serve?ref=main#a6822a7427fe03ef64406d31cbfda796c6d1da7f",
+            .hash = "serve-0.0.1-LyESynYVAADMd4mawOoPHzdYiDE8zgumIwzrICXxiO5A",
+        },
+        .quickjs = .{
+            .url = "git+https://github.com/sea-grass/quickjs-zig?ref=main#b6284947a7d9ce45ad78b5778df2e9e93ff16ce8",
+            .hash = "quickjs-0.0.0-h7npNw4HAADzhLcIm9aLQ1uC9xOOqw-x0p13W_YyjzUc",
         },
     },
     .paths = .{

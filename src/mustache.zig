@@ -14,8 +14,9 @@ const mem = std.mem;
 const std = @import("std");
 const storage = @import("storage.zig");
 const testing = std.testing;
+const ComponentAssets = @import("Site.zig").ComponentAssets;
 
-pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: anytype, writer: anytype, styles_writer: anytype, scripts_writer: anytype) !void {
+pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: anytype, writer: anytype) !void {
     var arena = heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
@@ -23,8 +24,6 @@ pub fn renderStream(allocator: mem.Allocator, template: []const u8, context: any
         arena.allocator(),
         context,
         writer.any(),
-        styles_writer.any(),
-        scripts_writer.any(),
     );
 
     try mustache_writer.write(template);
@@ -266,36 +265,18 @@ fn MustacheWriterType(comptime UserContext: type) type {
         arena: mem.Allocator,
         context: GetHandle,
         writer: io.AnyWriter,
-        /// The writer to which all component styles get written.
-        styles_writer: io.AnyWriter,
-        /// The writer to which all component scripts get written.
-        scripts_writer: io.AnyWriter,
-        /// When rendering components, a component may provide a CSS string
-        /// that should be included on the page. We keep a hash map of
-        /// component name to CSS string and then write them all
-        /// once we process all of the content.
-        style_buf: std.StringHashMap([]const u8),
-        /// When rendering components, a component may provide a script string
-        /// that should be included on the page. We keep a hash map of
-        /// component name to JS string and then write them all
-        /// once we process all of the content.
-        script_buf: std.StringHashMap([]const u8),
+        component_assets: *ComponentAssets,
 
         pub fn init(
             arena: mem.Allocator,
             user_context: UserContext,
             writer: io.AnyWriter,
-            styles_writer: io.AnyWriter,
-            scripts_writer: io.AnyWriter,
         ) MustacheWriter {
             return .{
                 .arena = arena,
                 .context = .{ .user_context = user_context },
                 .writer = writer,
-                .styles_writer = styles_writer,
-                .scripts_writer = scripts_writer,
-                .style_buf = std.StringHashMap([]const u8).init(arena),
-                .script_buf = std.StringHashMap([]const u8).init(arena),
+                .component_assets = user_context.component_assets,
             };
         }
 
@@ -316,31 +297,6 @@ fn MustacheWriterType(comptime UserContext: type) type {
                     => |e| return e,
                 }
             };
-
-            if (ctx.style_buf.count() > 0) {
-                var it = ctx.style_buf.valueIterator();
-                while (it.next()) |value_ptr| {
-                    const chunk = value_ptr.*;
-                    ctx.styles_writer.print("{s}", .{chunk}) catch {};
-                }
-            }
-
-            log.info("There are {d}", .{ctx.script_buf.count()});
-
-            if (ctx.script_buf.count() > 0) {
-                var it = ctx.script_buf.valueIterator();
-                while (it.next()) |value_ptr| {
-                    const chunk = value_ptr.*;
-                    ctx.scripts_writer.print(
-                        \\;(function() {{
-                        \\  'use strict';
-                        \\{[script_body]s}
-                        \\}}())
-                    ,
-                        .{ .script_body = chunk },
-                    ) catch {};
-                }
-            }
         }
 
         const vtable: c.mustach_itf = .{
@@ -597,8 +553,7 @@ fn MustacheWriterType(comptime UserContext: type) type {
                         ctx.arena,
                         script,
                         buf.writer(),
-                        &ctx.style_buf,
-                        &ctx.script_buf,
+                        ctx.component_assets,
                         .{
                             .site_root = ctx.context.user_context.site_root,
                         },
@@ -710,7 +665,13 @@ const RenderComponentModel = struct {
 /// The style string, if present, will be stored in a hash map, keyed by the component source.
 ///
 /// NOTE: renderComponent MUST write to the writer.
-fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype, style_buf: *std.StringHashMap([]const u8), script_buf: *std.StringHashMap([]const u8), model: RenderComponentModel) !void {
+fn renderComponent(
+    allocator: mem.Allocator,
+    src: [:0]const u8,
+    writer: anytype,
+    component_assets: *ComponentAssets,
+    model: RenderComponentModel,
+) !void {
     const rt = c.JS_NewRuntime() orelse return error.CannotAllocateJSRuntime;
     defer c.JS_FreeRuntime(rt);
     c.JS_SetMemoryLimit(rt, 0x100000);
@@ -792,49 +753,54 @@ fn renderComponent(allocator: mem.Allocator, src: [:0]const u8, writer: anytype,
             c.JS_TAG_STRING => {
                 const str = c.JS_ToCString(ctx, html);
                 defer c.JS_FreeCString(ctx, str);
-
-                // I need to be able to use certain shortcodes from within the rendered html.
-                // Ideally, I provide a js module or the like with certain constants or access
-                // to site attributes.
-                var string_replacement_hack = std.ArrayList(u8).init(allocator);
-                defer string_replacement_hack.deinit();
                 try writer.print("{s}", .{str});
             },
         }
     }
 
-    {
+    style: {
         const style = c.JS_GetPropertyStr(ctx, global_object, "style");
         defer c.JS_FreeValue(ctx, style);
-        log.info("style here? {d}", .{style.tag});
+
         switch (style.tag) {
             c.JS_TAG_EXCEPTION => try handleException(ctx),
             c.JS_TAG_STRING => {
-                const result = try style_buf.getOrPut(src);
-                if (!result.found_existing) {
-                    const str = c.JS_ToCString(ctx, style);
-                    defer c.JS_FreeCString(ctx, str);
-                    result.value_ptr.* = try allocator.dupe(u8, mem.span(str));
-                }
+                const result = try component_assets.style_map.getOrPut(component_assets.arena.allocator(), src);
+
+                if (result.found_existing) break :style;
+
+                const str = c.JS_ToCString(ctx, style);
+                defer c.JS_FreeCString(ctx, str);
+
+                const value: []const u8 = try component_assets.arena.allocator().dupe(
+                    u8,
+                    mem.span(str),
+                );
+                result.value_ptr.* = value;
             },
             else => {},
         }
     }
 
-    {
+    script: {
         const script = c.JS_GetPropertyStr(ctx, global_object, "script");
         defer c.JS_FreeValue(ctx, script);
-        log.info("script here? {d}", .{script.tag});
+
         switch (script.tag) {
             c.JS_TAG_EXCEPTION => try handleException(ctx),
             c.JS_TAG_STRING => {
-                const result = try script_buf.getOrPut(src);
-                if (!result.found_existing) {
-                    const str = c.JS_ToCString(ctx, script);
-                    defer c.JS_FreeCString(ctx, str);
-                    log.info("JS! {s}", .{str});
-                    result.value_ptr.* = try allocator.dupe(u8, mem.span(str));
-                }
+                const result = try component_assets.script_map.getOrPut(component_assets.arena.allocator(), src);
+
+                if (result.found_existing) break :script;
+
+                const str = c.JS_ToCString(ctx, script);
+                defer c.JS_FreeCString(ctx, str);
+                const value = try component_assets.arena.allocator().dupe(
+                    u8,
+                    mem.span(str),
+                );
+
+                result.value_ptr.* = value;
             },
             else => {},
         }

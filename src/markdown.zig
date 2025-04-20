@@ -144,7 +144,6 @@ fn ParserType(comptime Writer: type) type {
             const self = fromPtr(userdata);
             const writer = self.writer;
 
-            log.debug("Enter block {s}", .{@tagName(md_block_type)});
 
             switch (md_block_type) {
                 .doc => {},
@@ -203,7 +202,6 @@ fn ParserType(comptime Writer: type) type {
             const self = fromPtr(userdata);
             const writer = self.writer;
 
-            log.debug("Leave block {s}", .{@tagName(md_block_type)});
 
             switch (md_block_type) {
                 .doc => {},
