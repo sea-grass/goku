@@ -482,6 +482,8 @@ pub fn dispatch(site: *Site, slug: []const u8, writer: anytype, styles_writer: a
     // Clear style and script maps between page navigations
     site.component_assets.script_map.clearRetainingCapacity();
     site.component_assets.style_map.clearRetainingCapacity();
+
+    log.debug("Dispatch request for slug ({s})", .{slug});
     var stmt = site.db.db.prepare(
         \\SELECT filepath, template FROM pages WHERE slug = ?;
         ,

@@ -4,6 +4,39 @@ title: Changelog
 template: page.html
 ---
 
+## 0.0.8
+
+This release contains one bugfix related to generating component assets. The behaviour of `goku init` has also changed slightly. Other than that, this is a small release, mostly focused on reorganizing the internals to support future development. As such, no feature changes are present.
+
+### Bug fixes
+
+- Fixed an issue where rendered component assets were not always written to the site's assets.
+
+### `goku init`
+
+The init subcommand used to scaffold a Zig project so you could `goku init` and then run `zig build site` to build your Goku site. The suggested path forward in the near future for Goku sites will be to use Goku standalone, so these assets have been removed from the site template.
+
+In addition, an example component has been added to the site template.
+
+### Dependencies
+
+- Removed zap
+- Removed clap
+- Removed ./modules/quickjs
+- Added quickjs-zig
+
+### Serve extracted to a separate repo
+
+In a previous version, the `goku preview` command was added. Since it's been added, it's gained dynamic dispatch capabilities and an experimental in-browser page editor. As its capabilities grew, it was clear that there were two distinct modes of "previewing" the site: the kind during development where you want to iterate on your content and preview the changes and the other where you check out the site as a sanity check before deploying it to your production server. I believe Goku should support the development use case as a priority, since it has intimate knowledge of your site's source code and how the site is generated. I think the second type should be handled by other tools which only need to know about serving static files over HTTP. So, part of the Goku codebase has been split into a separate repository as a tool called Serve.
+
+Serve now lives in its own Git repo at [sea-grass/serve](https://github.com/sea-grass/serve.git).
+
+The `goku preview` still stands up an HTTP server with `httpz` directly, but with a focus on dynamic dispatch rather than a read-only preview of the site. This stance may lead to more diagnostic or interactive information being shown in preview mode by default than before.
+
+### QuickJS compilation extracted to a separate repo
+
+In the near future, I plan to extract the component rendering aspects of Goku to a standalone tool/library. Once that's done, Goku won't need to depend directly on QuickJS anymore. So, the configuration to handle compiling QuickJS has been extracted to a separate repo, which lives at [sea-grass/quickjs-zig](https://github.com/sea-grass/quickjs-zig).
+
 ## 0.0.7
 
 This is a big release for Goku and sets the stage for its future development. Keep in mind that currently many aspects of Goku are in flux and may change dramatically between releases. If this is a concern, I'd be more than happy to consider your usecase; just [open an issue](https://github.com/sea-grass/goku/issues/new) and let's chat.
