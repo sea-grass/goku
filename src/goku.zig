@@ -1,3 +1,19 @@
+pub fn init(args: cli.Command.Init) !void {
+    var site_root_buf: [fs.max_path_bytes]u8 = undefined;
+    const site_root = switch (args.site_root) {
+        .relative => |rel_path| try fs.cwd().realpath(rel_path, &site_root_buf),
+        .absolute => |abs_path| abs_path,
+    };
+
+    var dir = try fs.cwd().makeOpenPath(site_root, .{});
+    defer dir.close();
+
+    try scaffold.check(&dir);
+    try scaffold.write(&dir);
+
+    log.info("Site scaffolded at ({s}).", .{site_root});
+}
+
 pub fn build(unlimited_allocator: mem.Allocator, args: cli.Command.Build) !void {
     const start = time.milliTimestamp();
 
@@ -399,6 +415,7 @@ const fmt = std.fmt;
 const fs = std.fs;
 const page = @import("page.zig");
 const heap = std.heap;
+const scaffold = @import("scaffold.zig");
 const Site = @import("Site.zig");
 
 const size_of_alice_txt = 1189000;

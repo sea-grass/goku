@@ -28,7 +28,12 @@ pub const Command = union(enum) {
         out_dir: []const u8 = "build",
         url_prefix: ?[]const u8 = null,
     };
-    pub const Init = struct {};
+    pub const Init = struct {
+        site_root: union(enum) {
+            absolute: []const u8,
+            relative: []const u8,
+        },
+    };
     pub const Preview = struct {
         site_root: union(enum) {
             absolute: []const u8,
@@ -47,8 +52,7 @@ pub const Command = union(enum) {
         } else if (mem.eql(u8, command, "help")) {
             return .help;
         } else if (mem.eql(u8, command, "init")) {
-            @panic("TODO");
-            //return parseInitArgs(args);
+            return try parseInitArgs(args);
         } else if (mem.eql(u8, command, "preview")) {
             return try parsePreviewArgs(args);
         }
@@ -114,6 +118,31 @@ pub const Command = union(enum) {
         if (url_prefix) |prefix| preview.url_prefix = prefix;
         return .{ .preview = preview };
     }
+
+    pub fn parseInitArgs(args: *process.ArgIterator) !Command {
+        var site_root: ?[]const u8 = null;
+
+        while (args.next()) |arg| {
+            if (site_root == null) {
+                site_root = arg;
+            } else {
+                return error.TooManyArguments;
+            }
+        }
+
+        if (site_root == null) {
+            site_root = ".";
+        }
+
+        return .{
+            .init = .{
+                .site_root = if (fs.path.isAbsolute(site_root.?))
+                    .{ .absolute = site_root.? }
+                else
+                    .{ .relative = site_root.? },
+            },
+        };
+    }
 };
 
 const size_of_alice_txt = 1189000;
@@ -129,84 +158,6 @@ const standard_help =
     \\
 ;
 
-const SubCommand = enum {
-    build,
-    help,
-    init,
-    preview,
-
-    const main_parsers = .{
-        .command = clap.parsers.enumeration(SubCommand),
-    };
-
-    const main_params = clap.parseParamsComptime(
-        \\-h, --help  Display this help text and exit.
-        \\<command> The subcommand - can be one of build, help, init
-        \\
-    );
-
-    const MainArgs = clap.ResultEx(clap.Help, &main_params, main_parsers);
-
-    pub fn parse(allocator: mem.Allocator, iter: *process.ArgIterator) !SubCommand {
-        var diag: clap.Diagnostic = .{};
-        var res = clap.parseEx(clap.Help, &main_params, main_parsers, iter, .{
-            .diagnostic = &diag,
-            .allocator = allocator,
-
-            // Terminate the parsing of arguments after the first positional,
-            // the subcommand. This will leave the rest of the iter args unconsumed,
-            // so the iter can be reused for parsing the subcommand arguments.
-            .terminating_positional = 0,
-        }) catch |err| {
-            diag.report(io.getStdErr().writer(), err) catch {};
-            return err;
-        };
-        defer res.deinit();
-
-        if (res.args.help != 0) {
-            printHelp();
-            process.exit(0);
-        }
-
-        return res.positionals[0] orelse return error.MissingCommand;
-    }
-};
-
-pub fn initMain(unlimited_allocator: mem.Allocator, iter: *process.ArgIterator) !void {
-    const params = comptime clap.parseParamsComptime(
-        \\-h, --help Display this help text and exit.
-        \\<str>  The directory to initialize (defaults to the current working directory).
-    );
-
-    var diag: clap.Diagnostic = .{};
-    var res = clap.parseEx(clap.Help, &params, clap.parsers.default, iter, .{
-        .diagnostic = &diag,
-        .allocator = unlimited_allocator,
-    }) catch |err| {
-        diag.report(io.getStdErr().writer(), err) catch {};
-        return err;
-    };
-    defer res.deinit();
-
-    const site_root = res.positionals[0] orelse ".";
-
-    if (res.args.help != 0) {
-        log.info("THelp", .{});
-        process.exit(0);
-    }
-
-    log.info("init ({s})", .{site_root});
-
-    var dir = try fs.cwd().makeOpenPath(site_root, .{});
-    defer dir.close();
-
-    try scaffold.check(&dir);
-    try scaffold.write(&dir);
-
-    log.info("Site scaffolded at ({s}).", .{site_root});
-}
-
-const clap = @import("clap");
 const debug = std.debug;
 const fmt = std.fmt;
 const fs = std.fs;

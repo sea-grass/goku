@@ -30,8 +30,11 @@ pub fn main() !void {
         .preview => |args| {
             try goku.preview(unlimited_allocator, args);
         },
-        else => {
-            std.log.info("Some other command", .{});
+        .init => |args| {
+            try goku.init(args);
+        },
+        .help => {
+            cli.printHelp();
         },
     }
 }
