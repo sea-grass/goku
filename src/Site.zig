@@ -479,6 +479,9 @@ const DispatchOptions = struct {
     wants: DispatchWants = .wants_content,
 };
 pub fn dispatch(site: *Site, slug: []const u8, writer: anytype, styles_writer: anytype, scripts_writer: anytype, options: DispatchOptions) DispatchError!void {
+    // Clear style and script maps between page navigations
+    site.component_assets.script_map.clearRetainingCapacity();
+    site.component_assets.style_map.clearRetainingCapacity();
     var stmt = site.db.db.prepare(
         \\SELECT filepath, template FROM pages WHERE slug = ?;
         ,
@@ -520,41 +523,41 @@ pub fn dispatch(site: *Site, slug: []const u8, writer: anytype, styles_writer: a
             },
         };
 
-        const data = p.data(ally) catch return DispatchError.RenderError;
-
-        var html_buffer = io.bufferedWriter(writer);
-        var styles_buffer = io.bufferedWriter(styles_writer);
-        var scripts_buffer = io.bufferedWriter(scripts_writer);
-
-        // Load the template from the filesystem
-        const template = template: {
-            if (data.template) |t| {
-                const template_path = fs.path.join(
-                    ally,
-                    &.{ site_root, "templates", t },
-                ) catch return DispatchError.OOM;
-
-                var template_file = fs.openFileAbsolute(
-                    template_path,
-                    .{},
-                ) catch return DispatchError.ReadError;
-                defer template_file.close();
-
-                const template = template_file.readToEndAlloc(
-                    ally,
-                    math.maxInt(u32),
-                ) catch return DispatchError.OOM;
-                break :template template;
-            }
-
-            break :template fallback_template;
-        };
-
         switch (options.wants) {
             .wants_raw => {
-                html_buffer.writer().print("---\n{s}\n---\n{s}\n", .{ p.markdown.frontmatter, p.markdown.content }) catch {};
+                writer.print("---\n{s}\n---\n{s}\n", .{ p.markdown.frontmatter, p.markdown.content }) catch {};
             },
             else => {
+                const data = p.data(ally) catch return DispatchError.RenderError;
+
+                var html_buffer = io.bufferedWriter(writer);
+                var styles_buffer = io.bufferedWriter(styles_writer);
+                var scripts_buffer = io.bufferedWriter(scripts_writer);
+
+                // Load the template from the filesystem
+                const template = template: {
+                    if (data.template) |t| {
+                        const template_path = fs.path.join(
+                            ally,
+                            &.{ site_root, "templates", t },
+                        ) catch return DispatchError.OOM;
+
+                        var template_file = fs.openFileAbsolute(
+                            template_path,
+                            .{},
+                        ) catch return DispatchError.ReadError;
+                        defer template_file.close();
+
+                        const template = template_file.readToEndAlloc(
+                            ally,
+                            math.maxInt(u32),
+                        ) catch return DispatchError.OOM;
+                        break :template template;
+                    }
+
+                    break :template fallback_template;
+                };
+
                 renderPage(
                     ally,
                     p,
@@ -565,12 +568,12 @@ pub fn dispatch(site: *Site, slug: []const u8, writer: anytype, styles_writer: a
                     options.wants,
                     html_buffer.writer(),
                 ) catch return DispatchError.RenderError;
+
+                html_buffer.flush() catch {};
+                styles_buffer.flush() catch {};
+                scripts_buffer.flush() catch {};
             },
         }
-
-        html_buffer.flush() catch {};
-        styles_buffer.flush() catch {};
-        scripts_buffer.flush() catch {};
     } else {
         return DispatchError.NotFound;
     }

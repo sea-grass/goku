@@ -753,12 +753,6 @@ fn renderComponent(
             c.JS_TAG_STRING => {
                 const str = c.JS_ToCString(ctx, html);
                 defer c.JS_FreeCString(ctx, str);
-
-                // I need to be able to use certain shortcodes from within the rendered html.
-                // Ideally, I provide a js module or the like with certain constants or access
-                // to site attributes.
-                var string_replacement_hack = std.ArrayList(u8).init(allocator);
-                defer string_replacement_hack.deinit();
                 try writer.print("{s}", .{str});
             },
         }
