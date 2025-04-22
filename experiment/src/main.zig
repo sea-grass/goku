@@ -38,55 +38,7 @@ fn siteCommand(allocator: mem.Allocator, site_path: []const u8) !void {
     defer arena_impl.deinit();
     const arena = arena_impl.allocator();
 
-    var template_walker = walker(site_path, "templates");
-    while (try template_walker.next()) |entry| {
-        // Template files must end with .html - all other files are ignored.
-        if (!mem.endsWith(u8, entry.subpath, ".html")) continue;
-
-        const realpath = try entry.realpathAlloc(arena);
-        errdefer arena.free(realpath);
-
-        const name = try arena.dupe(u8, entry.subpath);
-
-        const node = try arena.create(Template);
-        errdefer arena.destroy(node);
-
-        node.* = .{ .file = .{ .path = realpath } };
-        try site.templates.put(name, node);
-    }
-
-    var page_walker = walker(site_path, "pages");
-    while (try page_walker.next()) |entry| {
-        const realpath = try entry.realpathAlloc(arena);
-        errdefer arena.free(realpath);
-
-        const node = try arena.create(Page.List.Node);
-        errdefer arena.destroy(node);
-
-        node.* = .{ .data = .{ .file = .{ .path = realpath } } };
-        site.pages.prepend(node);
-    }
-
-    if (site_dir.statFile("components")) |stat| switch (stat.kind) {
-        .directory => {
-            var component_walker = walker(site_path, "components");
-            while (try component_walker.next()) |entry| {
-                const realpath = try entry.realpathAlloc(arena);
-                errdefer arena.free(realpath);
-
-                const node = try arena.create(Component.List.Node);
-                errdefer arena.destroy(node);
-
-                node.* = .{ .data = .{ .file = .{ .path = realpath } } };
-                site.components.prepend(node);
-            }
-        },
-        else => return error.ComponentsIsNotADir,
-    } else |err| switch (err) {
-        // components dir is optional
-        error.FileNotFound => {},
-        else => return err,
-    }
+    try site.readDir(arena, &site_dir);
 
     {
         var curr = site.pages.first;
@@ -214,6 +166,61 @@ const Site = struct {
 
         if (dir.statFile("components")) |stat| switch (stat.kind) {
             .directory => {},
+            else => return error.ComponentsIsNotADir,
+        } else |err| switch (err) {
+            // components dir is optional
+            error.FileNotFound => {},
+            else => return err,
+        }
+    }
+
+    pub fn readDir(site: *Site, arena: mem.Allocator, site_dir: *fs.Dir) !void {
+        var site_path_buf: [fs.max_path_bytes]u8 = undefined;
+        const site_path: []const u8 = try site_dir.realpath(".", &site_path_buf);
+
+        var template_walker = walker(site_path, "templates");
+        while (try template_walker.next()) |entry| {
+            // Template files must end with .html - all other files are ignored.
+            if (!mem.endsWith(u8, entry.subpath, ".html")) continue;
+
+            const realpath = try entry.realpathAlloc(arena);
+            errdefer arena.free(realpath);
+
+            const name = try arena.dupe(u8, entry.subpath);
+
+            const node = try arena.create(Template);
+            errdefer arena.destroy(node);
+
+            node.* = .{ .file = .{ .path = realpath } };
+            try site.templates.put(name, node);
+        }
+
+        var page_walker = walker(site_path, "pages");
+        while (try page_walker.next()) |entry| {
+            const realpath = try entry.realpathAlloc(arena);
+            errdefer arena.free(realpath);
+
+            const node = try arena.create(Page.List.Node);
+            errdefer arena.destroy(node);
+
+            node.* = .{ .data = .{ .file = .{ .path = realpath } } };
+            site.pages.prepend(node);
+        }
+
+        if (site_dir.statFile("components")) |stat| switch (stat.kind) {
+            .directory => {
+                var component_walker = walker(site_path, "components");
+                while (try component_walker.next()) |entry| {
+                    const realpath = try entry.realpathAlloc(arena);
+                    errdefer arena.free(realpath);
+
+                    const node = try arena.create(Component.List.Node);
+                    errdefer arena.destroy(node);
+
+                    node.* = .{ .data = .{ .file = .{ .path = realpath } } };
+                    site.components.prepend(node);
+                }
+            },
             else => return error.ComponentsIsNotADir,
         } else |err| switch (err) {
             // components dir is optional
