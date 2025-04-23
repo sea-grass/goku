@@ -42,8 +42,9 @@ fn siteCommand(allocator: mem.Allocator, site_path: []const u8) !void {
 
     {
         var curr = site.pages.first;
-        while (curr) |p| {
-            const data = try p.data.file.readAll(allocator);
+        while (curr) |node| {
+            const page: *Page = @fieldParentPtr("node", node);
+            const data = try page.file.readAll(allocator);
             defer allocator.free(data);
 
             const frontmatter, const content = try Page.split(data);
@@ -56,19 +57,19 @@ fn siteCommand(allocator: mem.Allocator, site_path: []const u8) !void {
                     }
                 }
 
-                log.err("Error: Page({s}) is missing frontmatter attribute 'template'", .{p.data.file.path});
+                log.err("Error: Page({s}) is missing frontmatter attribute 'template'", .{page.file.path});
                 return error.PageMissingFrontmatterAttributeTemplate;
             };
 
             const template: *const Template = site.templates.get(template_name) orelse {
-                log.err("Error: Page({s}) references non-existent Template({s})", .{ p.data.file.path, template_name });
+                log.err("Error: Page({s}) references non-existent Template({s})", .{ page.file.path, template_name });
                 return error.PageReferencesNonExistentTemplate;
             };
 
-            log.info("{s} ({d} bytes)\n- (fm {d} bytes)\n- (content {d} bytes)\n- (template {s})\n", .{ p.data.file.path, data.len, frontmatter.len, content.len, template.*.file.path });
+            log.info("{s} ({d} bytes)\n- (fm {d} bytes)\n- (content {d} bytes)\n- (template {s})\n", .{ page.file.path, data.len, frontmatter.len, content.len, template.*.file.path });
             log.info("{s}", .{frontmatter});
 
-            curr = p.next;
+            curr = node.next;
         }
     }
 
@@ -81,9 +82,10 @@ fn siteCommand(allocator: mem.Allocator, site_path: []const u8) !void {
 
     {
         var curr = site.components.first;
-        while (curr) |p| {
-            log.info("{s}", .{p.data.file.path});
-            curr = p.next;
+        while (curr) |node| {
+            const component: *Component = @fieldParentPtr("node", node);
+            log.info("{s}", .{component.file.path});
+            curr = node.next;
         }
     }
 }
@@ -104,8 +106,7 @@ const File = struct {
 
 const Page = struct {
     file: File,
-
-    pub const List = std.SinglyLinkedList(Page);
+    node: std.SinglyLinkedList.Node,
 
     pub fn split(file_content: []const u8) !struct { []const u8, []const u8 } {
         if (!mem.eql(u8, file_content[0..3], "---")) return error.PageIsMissingFrontmatterFence;
@@ -126,14 +127,13 @@ const Template = struct {
 
 const Component = struct {
     file: File,
-
-    pub const List = std.SinglyLinkedList(Component);
+    node: std.SinglyLinkedList.Node,
 };
 
 const Site = struct {
-    pages: Page.List,
+    pages: std.SinglyLinkedList,
     templates: Template.Map,
-    components: Component.List,
+    components: std.SinglyLinkedList,
 
     pub fn init(allocator: mem.Allocator) Site {
         return .{
@@ -200,11 +200,15 @@ const Site = struct {
             const realpath = try entry.realpathAlloc(arena);
             errdefer arena.free(realpath);
 
-            const node = try arena.create(Page.List.Node);
-            errdefer arena.destroy(node);
+            const page = try arena.create(Page);
+            errdefer arena.destroy(page);
 
-            node.* = .{ .data = .{ .file = .{ .path = realpath } } };
-            site.pages.prepend(node);
+            page.* = .{
+                .file = .{ .path = realpath },
+                .node = .{},
+            };
+
+            site.pages.prepend(&page.node);
         }
 
         if (site_dir.statFile("components")) |stat| switch (stat.kind) {
@@ -214,11 +218,13 @@ const Site = struct {
                     const realpath = try entry.realpathAlloc(arena);
                     errdefer arena.free(realpath);
 
-                    const node = try arena.create(Component.List.Node);
-                    errdefer arena.destroy(node);
-
-                    node.* = .{ .data = .{ .file = .{ .path = realpath } } };
-                    site.components.prepend(node);
+                    const component = try arena.create(Component);
+                    errdefer arena.destroy(component);
+                    component.* = .{
+                        .file = .{ .path = realpath },
+                        .node = .{},
+                    };
+                    site.components.prepend(&component.node);
                 }
             },
             else => return error.ComponentsIsNotADir,
