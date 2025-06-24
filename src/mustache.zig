@@ -232,27 +232,20 @@ fn GetHandleType(comptime UserContext: type) type {
                 \\<tbody>
             , .{});
 
-            try buf.writer().print(
-                \\<tr><th>slug</th>
-                \\<td>{[slug]s}</td>
-                \\</tr>
-                \\<tr><th>title</th>
-                \\<td>{[title]s}</td>
-                \\</tr>
-            ,
-                .{
-                    .slug = get_handle.user_context.data.slug,
-                    .title = if (@TypeOf(get_handle.user_context.data.title) == ?[]const u8)
-                        get_handle.user_context.data.title.?
-                    else
-                        get_handle.user_context.data.title,
-                },
-            );
-
-            if (get_handle.user_context.data.collection) |collection| {
-                try buf.writer().print("<tr><th>collection</th><td>{[collection]s}</td></tr>", .{
-                    .collection = collection,
-                });
+            inline for (std.meta.fields(@TypeOf(get_handle.user_context.data))) |field| {
+                switch (field.type) {
+                    []const u8 => try buf.writer().print("<tr><th>{[name]s}</th><td>{[value]s}</td>", .{
+                        .name = field.name,
+                        .value = @field(get_handle.user_context.data, field.name),
+                    }),
+                    ?[]const u8 => if (@field(get_handle.user_context.data, field.name)) |value| {
+                        try buf.writer().print("<tr><th>{[name]s}</th><td>{[value]s}</td>", .{
+                            .name = field.name,
+                            .value = value,
+                        });
+                    },
+                    else => {},
+                }
             }
 
             try buf.writer().print(
