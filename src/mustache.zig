@@ -674,8 +674,8 @@ fn renderComponent(
 ) !void {
     const rt = c.JS_NewRuntime() orelse return error.CannotAllocateJSRuntime;
     defer c.JS_FreeRuntime(rt);
-    c.JS_SetMemoryLimit(rt, 0x100000);
-    c.JS_SetMaxStackSize(rt, 0x100000);
+    c.JS_SetMemoryLimit(rt, 0x100_000);
+    c.JS_SetMaxStackSize(rt, 0x200_000);
 
     const ctx = c.JS_NewContext(rt) orelse return error.CannotAllocateJSContext;
     defer c.JS_FreeContext(ctx);
