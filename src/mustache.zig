@@ -224,20 +224,21 @@ fn GetHandleType(comptime UserContext: type) type {
         }
 
         fn getMeta(get_handle: *GetHandle, arena: mem.Allocator) ![]const u8 {
-            return try fmt.allocPrint(
-                arena,
+            var buf: std.ArrayList(u8) = .init(arena);
+            errdefer buf.deinit();
+            try buf.writer().print(
                 \\<div class="table-container">
                 \\<table class="table">
                 \\<tbody>
+            , .{});
+
+            try buf.writer().print(
                 \\<tr><th>slug</th>
                 \\<td>{[slug]s}</td>
                 \\</tr>
                 \\<tr><th>title</th>
                 \\<td>{[title]s}</td>
                 \\</tr>
-                \\</tbody>
-                \\</table>
-                \\</div>
             ,
                 .{
                     .slug = get_handle.user_context.data.slug,
@@ -247,6 +248,20 @@ fn GetHandleType(comptime UserContext: type) type {
                         get_handle.user_context.data.title,
                 },
             );
+
+            if (get_handle.user_context.data.collection) |collection| {
+                try buf.writer().print("<tr><th>collection</th><td>{[collection]s}</td></tr>", .{
+                    .collection = collection,
+                });
+            }
+
+            try buf.writer().print(
+                \\</tbody>
+                \\</table>
+                \\</div>
+            , .{});
+
+            return try buf.toOwnedSlice();
         }
     };
 }
@@ -428,6 +443,13 @@ fn MustacheWriterType(comptime UserContext: type) type {
                 pub fn getData(mw: *MustacheWriter, k: []const u8) !?[]const u8 {
                     return try mw.context.getData(mw.arena, k);
                 }
+
+                pub fn getMeta(mw: *MustacheWriter, k: []const u8) !?[]const u8 {
+                    return if (mem.eql(u8, k, "meta"))
+                        try mw.context.getMeta(mw.arena)
+                    else
+                        null;
+                }
             };
 
             const ComponentGetter = struct {
@@ -454,61 +476,17 @@ fn MustacheWriterType(comptime UserContext: type) type {
                     else
                         null;
                 }
-            };
 
-            fn get(ctx: *MustacheWriter, key: []const u8) !?[]const u8 {
-                const getters: []const Getter = &.{
-                    .{ .ctx = ContextGetter.getKnown },
-                    .{ .ctx = ContextGetter.getData },
-                    .{ .simple = LucideGetter.getIcon },
-                    .{ .ctx = CollectionGetter.getList },
-                    .{ .ctx = CollectionGetter.getLatest },
-                    .{ .ctx = ComponentGetter.getStyleRef },
-                    .{ .ctx = ComponentGetter.getScriptRef },
-                };
-
-                for (getters) |getter| {
-                    if (try getter.get(ctx, key)) |value| {
-                        return value;
-                    }
-                }
-
-                if (mem.eql(u8, key, "meta")) {
-                    return try ctx.context.getMeta(ctx.arena);
-                }
-
-                if (mem.eql(u8, key, "theme.head")) {
-                    return if (ctx.context.user_context.site_root.len == 0)
-                        try fmt.allocPrint(
-                            ctx.arena,
-                            \\<link rel="stylesheet" type="text/css" href="/bulma.css" />
-                        ,
-                            .{},
-                        )
+                pub fn getComponent(mw: *MustacheWriter, k: []const u8) !?[]const u8 {
+                    return if (mem.startsWith(u8, k, "component "))
+                        try _getComponent(mw, k)
                     else
-                        try fmt.allocPrint(
-                            ctx.arena,
-                            \\<link rel="stylesheet" type="text/css" href="{[site_root]s}/bulma.css" />
-                        ,
-                            .{ .site_root = ctx.context.user_context.site_root },
-                        );
-                } else if (mem.eql(u8, key, "theme.body")) {
-                    // theme.body can be used by themes to inject e.g. scripts.
-                    // It's currently empty, but content authors are still recommended
-                    // to include it in their templates to allow a more seamless upgrade
-                    // once themes do make use of it.
-
-                    return try fmt.allocPrint(
-                        ctx.arena,
-                        \\<script src="{[site_root]s}/htmx.js"></script>
-                    ,
-                        .{ .site_root = ctx.context.user_context.site_root },
-                    );
+                        null;
                 }
 
-                if (mem.startsWith(u8, key, "component ")) {
+                fn _getComponent(mw: *MustacheWriter, k: []const u8) !?[]const u8 {
                     const component_src = src: {
-                        var it = mem.tokenizeScalar(u8, key, ' ');
+                        var it = mem.tokenizeScalar(u8, k, ' ');
 
                         // skip component keyword
                         _ = it.next();
@@ -516,7 +494,7 @@ fn MustacheWriterType(comptime UserContext: type) type {
                         break :src it.rest();
                     };
 
-                    var stmt = try ctx.context.user_context.db.db.prepare(
+                    var stmt = try mw.context.user_context.db.db.prepare(
                         \\SELECT filepath FROM components WHERE name = ? LIMIT 1;
                         ,
                     );
@@ -524,7 +502,7 @@ fn MustacheWriterType(comptime UserContext: type) type {
 
                     const row = try stmt.oneAlloc(
                         struct { filepath: []const u8 },
-                        ctx.arena,
+                        mw.arena,
                         .{},
                         .{ .name = component_src },
                     ) orelse return error.MissingComponent;
@@ -532,27 +510,27 @@ fn MustacheWriterType(comptime UserContext: type) type {
                     var file = try fs.openFileAbsolute(row.filepath, .{});
                     defer file.close();
 
-                    var script_buf = std.ArrayList(u8).init(ctx.arena);
+                    var script_buf = std.ArrayList(u8).init(mw.arena);
                     defer script_buf.deinit();
                     try file.reader().readAllArrayList(&script_buf, math.maxInt(usize));
                     const script = try script_buf.toOwnedSliceSentinel(0);
-                    defer ctx.arena.free(script);
+                    defer mw.arena.free(script);
 
                     log.debug(
                         "render component ({s}) at src {s}",
                         .{ component_src, row.filepath },
                     );
 
-                    var buf = std.ArrayList(u8).init(ctx.arena);
+                    var buf = std.ArrayList(u8).init(mw.arena);
                     errdefer buf.deinit();
 
                     renderComponent(
-                        ctx.arena,
+                        mw.arena,
                         script,
                         buf.writer(),
-                        ctx.component_assets,
+                        mw.component_assets,
                         .{
-                            .site_root = ctx.context.user_context.site_root,
+                            .site_root = mw.context.user_context.site_root,
                         },
                     ) catch |err| {
                         log.err("Failure while rendering component: {any}", .{err});
@@ -565,6 +543,59 @@ fn MustacheWriterType(comptime UserContext: type) type {
                     }
 
                     return try buf.toOwnedSlice();
+                }
+            };
+
+            const ThemeGetter = struct {
+                pub fn getThemeHead(mw: *MustacheWriter, k: []const u8) !?[]const u8 {
+                    return if (mem.eql(u8, k, "theme.head"))
+                        try fmt.allocPrint(
+                            mw.arena,
+                            \\<link rel="stylesheet" type="text/css" href="{[site_root]s}/bulma.css" />
+                        ,
+                            .{ .site_root = mw.context.user_context.site_root },
+                        )
+                    else
+                        null;
+                }
+
+                pub fn getThemeBody(mw: *MustacheWriter, k: []const u8) !?[]const u8 {
+                    return if (mem.eql(u8, k, "theme.body"))
+                        // theme.body can be used by themes to inject e.g. scripts.
+                        // It's currently empty, but content authors are still recommended
+                        // to include it in their templates to allow a more seamless upgrade
+                        // once themes do make use of it.
+
+                        return try fmt.allocPrint(
+                            mw.arena,
+                            \\<script src="{[site_root]s}/htmx.js"></script>
+                        ,
+                            .{ .site_root = mw.context.user_context.site_root },
+                        )
+                    else
+                        null;
+                }
+            };
+
+            fn get(ctx: *MustacheWriter, key: []const u8) !?[]const u8 {
+                const getters: []const Getter = &.{
+                    .{ .ctx = ContextGetter.getKnown },
+                    .{ .ctx = ContextGetter.getData },
+                    .{ .ctx = ContextGetter.getMeta },
+                    .{ .simple = LucideGetter.getIcon },
+                    .{ .ctx = CollectionGetter.getList },
+                    .{ .ctx = CollectionGetter.getLatest },
+                    .{ .ctx = ComponentGetter.getStyleRef },
+                    .{ .ctx = ComponentGetter.getScriptRef },
+                    .{ .ctx = ComponentGetter.getComponent },
+                    .{ .ctx = ThemeGetter.getThemeHead },
+                    .{ .ctx = ThemeGetter.getThemeBody },
+                };
+
+                for (getters) |getter| {
+                    if (try getter.get(ctx, key)) |value| {
+                        return value;
+                    }
                 }
 
                 return null;
