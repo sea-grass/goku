@@ -226,20 +226,17 @@ fn GetHandleType(comptime UserContext: type) type {
         fn getMeta(get_handle: *GetHandle, arena: mem.Allocator) ![]const u8 {
             return try fmt.allocPrint(
                 arena,
-                \\<div class="field is-grouped is-grouped-multiline">
-                \\<div class="control">
-                \\<div class="tags has-addons">
-                \\<span class="tag is-white">slug</span>
-                \\<span class="tag is-light">{[slug]s}</span>
-                \\</div>
-                \\</div>
-                \\
-                \\<div class="control">
-                \\<div class="tags has-addons">
-                \\<span class="tag is-white">title</span>
-                \\<span class="tag is-light">{[title]s}</span>
-                \\</div>
-                \\</div>
+                \\<div class="table-container">
+                \\<table class="table">
+                \\<tbody>
+                \\<tr><th>slug</th>
+                \\<td>{[slug]s}</td>
+                \\</tr>
+                \\<tr><th>title</th>
+                \\<td>{[title]s}</td>
+                \\</tr>
+                \\</tbody>
+                \\</table>
                 \\</div>
             ,
                 .{
