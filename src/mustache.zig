@@ -227,8 +227,12 @@ fn GetHandleType(comptime UserContext: type) type {
             var buf: std.ArrayList(u8) = .init(arena);
             errdefer buf.deinit();
             try buf.writer().print(
-                \\<div class="table-container">
+                \\<style>.meta-container {{ font-size: .7rem; }}</style>
+                \\<div class="table-container meta-container">
                 \\<table class="table">
+                \\<thead>
+                \\<tr><th colspan="2">Meta</th></tr>
+                \\</thead>
                 \\<tbody>
             , .{});
 
