@@ -38,7 +38,7 @@ pub fn build(unlimited_allocator: mem.Allocator, args: cli.Command.Build) !void 
     var out_dir = if (fs.path.isAbsolute(args.out_dir))
         try fs.openDirAbsolute(args.out_dir, .{})
     else
-        try fs.cwd().openDir(args.out_dir, .{});
+        try fs.cwd().makeOpenPath(args.out_dir, .{});
     defer out_dir.close();
 
     try site.write(.sitemap, out_dir);

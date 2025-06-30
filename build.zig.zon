@@ -1,11 +1,11 @@
 .{
     .name = .goku,
-    .version = "0.0.8",
+    .version = "0.0.9",
     .fingerprint = 0x6258ab6458a3c4a3,
     .dependencies = .{
         .httpz = .{
-            .url = "git+https://github.com/sea-grass/http.zig?ref=new-dependency-hash-format#bb30e7ea1d51f091e6883503e8b69937fa9f7287",
-            .hash = "httpz-0.0.0-PNVzrK6uBgBYP4D-QGrd_g1A6ZS86NQcLJZEPZyRFFoH",
+            .url = "git+https://github.com/karlseguin/http.zig?ref=dev#b1896f4b0bd30deb0351039b1ba470c9041f4117",
+            .hash = "httpz-0.0.0-PNVzrE-8BgCUEVpFtYaUOFrWMqXHBu95eyIYRkXbyriy",
         },
         .custom_test_runner = .{ .path = "./modules/custom-test-runner" },
         .bulma = .{ .path = "./modules/bulma" },

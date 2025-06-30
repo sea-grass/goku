@@ -1,0 +1,11 @@
+.{
+    .name = .experiment,
+    .version = "0.0.0",
+    .fingerprint = 0x136f58b29cf350c0,
+    .minimum_zig_version = "0.15.0-dev.377+f01833e03",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
