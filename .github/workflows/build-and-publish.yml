@@ -18,7 +18,7 @@ jobs:
       - name: Create out_dir
         run: mkdir build
       - name: Build
-        run: zig build -Doptimize=ReleaseSafe site -- -p /goku
+        run: zig build site -- -p /goku
       - name: Publish
         uses: peaceiris/actions-gh-pages@v4
         with:
